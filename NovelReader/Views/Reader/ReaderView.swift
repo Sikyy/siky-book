@@ -10,6 +10,8 @@ struct ReaderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var settings = ReaderSettings()
+    @State private var isLoadingContent = false
+    @State private var loadError: String?
 
     init(book: Book, startChapterIndex: Int = 0) {
         self.book = book
@@ -75,40 +77,105 @@ struct ReaderView: View {
     }
 
     private var readingContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: settings.fontSize * (settings.lineSpacing - 1)) {
-                Text(currentChapter?.title ?? "")
-                    .font(.system(size: 12))
-                    .foregroundStyle(settings.theme.chapterTitleColor)
-                    .padding(.bottom, 8)
+        ZStack {
+            if isLoadingContent {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("加载中...")
+                        .font(.subheadline)
+                        .foregroundStyle(settings.theme.textColor.opacity(0.6))
+                }
+            } else if let error = loadError {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.title)
+                        .foregroundStyle(settings.theme.textColor.opacity(0.5))
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(settings.theme.textColor.opacity(0.6))
+                    Button("重试") { fetchChapterContentIfNeeded() }
+                        .foregroundStyle(.blue)
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: settings.fontSize * (settings.lineSpacing - 1)) {
+                        Text(currentChapter?.title ?? "")
+                            .font(.system(size: 12))
+                            .foregroundStyle(settings.theme.chapterTitleColor)
+                            .padding(.bottom, 8)
 
-                ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, para in
-                    Text("\u{3000}\u{3000}" + para)
-                        .font(.custom(settings.fontFamily.rawValue, size: settings.fontSize))
-                        .foregroundStyle(settings.theme.textColor)
-                        .lineSpacing(settings.fontSize * (settings.lineSpacing - 1))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, para in
+                            Text("\u{3000}\u{3000}" + para)
+                                .font(.custom(settings.fontFamily.rawValue, size: settings.fontSize))
+                                .foregroundStyle(settings.theme.textColor)
+                                .lineSpacing(settings.fontSize * (settings.lineSpacing - 1))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, settings.horizontalPadding)
+                    .padding(.top, 20)
+                    .padding(.bottom, 60)
+                }
+                .onTapGesture { location in
+                    let screenWidth = UIScreen.main.bounds.width
+                    let screenHeight = UIScreen.main.bounds.height
+                    let centerXRange = (screenWidth / 3)...(screenWidth * 2 / 3)
+                    let centerYRange = (screenHeight / 3)...(screenHeight * 2 / 3)
+
+                    if centerXRange.contains(location.x) && centerYRange.contains(location.y) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showMenu.toggle()
+                        }
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if !showMenu {
+                        statusBar
+                    }
                 }
             }
-            .padding(.horizontal, settings.horizontalPadding)
-            .padding(.top, 20)
-            .padding(.bottom, 60)
         }
-        .onTapGesture { location in
-            let screenWidth = UIScreen.main.bounds.width
-            let screenHeight = UIScreen.main.bounds.height
-            let centerXRange = (screenWidth / 3)...(screenWidth * 2 / 3)
-            let centerYRange = (screenHeight / 3)...(screenHeight * 2 / 3)
+        .onAppear { fetchChapterContentIfNeeded() }
+        .onChange(of: currentChapterIndex) { _, _ in fetchChapterContentIfNeeded() }
+    }
 
-            if centerXRange.contains(location.x) && centerYRange.contains(location.y) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showMenu.toggle()
+    private func fetchChapterContentIfNeeded() {
+        guard let chapter = currentChapter,
+              chapter.content == nil,
+              let sourceURL = chapter.sourceURL,
+              !isLoadingContent else { return }
+
+        isLoadingContent = true
+        loadError = nil
+
+        Task {
+            do {
+                let html = try await NetworkClient.shared.fetchString(url: sourceURL)
+                let bookSourceId = book.sourceId
+                if let bookSourceId {
+                    let descriptor = FetchDescriptor<BookSource>(predicate: #Predicate<BookSource> { $0.id == bookSourceId })
+                    if let bookSource = try? modelContext.fetch(descriptor).first {
+                        let legado = try LegadoSourceParser.parse(json: bookSource.ruleJSON)
+                        if let contentRule = legado.contentRule {
+                            let content = try SourceEngine().parseContent(html: html, rule: contentRule, baseURL: legado.url)
+                            await MainActor.run {
+                                chapter.content = content
+                                chapter.isCached = true
+                                isLoadingContent = false
+                            }
+                            return
+                        }
+                    }
                 }
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if !showMenu {
-                statusBar
+                await MainActor.run {
+                    loadError = "无法解析内容"
+                    isLoadingContent = false
+                }
+            } catch {
+                await MainActor.run {
+                    loadError = "加载失败"
+                    isLoadingContent = false
+                }
             }
         }
     }
