@@ -7,6 +7,10 @@ struct BookshelfView: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
 
+    private var groupedItems: [BookshelfItem] {
+        BookshelfItem.group(books)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -14,8 +18,13 @@ struct BookshelfView: View {
                     emptyState
                 } else {
                     LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(books) { book in
-                            BookCoverView(book: book)
+                        ForEach(groupedItems) { item in
+                            switch item {
+                            case .single(let book):
+                                BookCoverView(book: book)
+                            case .series(let name, let seriesBooks):
+                                SeriesBookView(seriesName: name, books: seriesBooks)
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -44,7 +53,7 @@ struct BookshelfView: View {
     }
 }
 
-#Preview("Bookshelf with books") {
+#Preview("Bookshelf with series") {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(
         for: Book.self, Chapter.self, BookSource.self,
@@ -57,23 +66,28 @@ struct BookshelfView: View {
     b1.readingStatus = .reading
     context.insert(b1)
 
-    let b2 = Book(title: "遮天", author: "辰东", sourceType: .localFile, totalChapters: 1500)
-    b2.lastReadChapterIndex = 1170
-    b2.readingStatus = .reading
+    let b2 = Book(title: "三体", author: "刘慈欣", sourceType: .localFile, totalChapters: 100)
+    b2.readingStatus = .unread
     context.insert(b2)
 
-    let b3 = Book(title: "三体", author: "刘慈欣", sourceType: .localFile, totalChapters: 100)
-    b3.readingStatus = .unread
+    for i in 1...8 {
+        let b = Book(title: "盗墓笔记\(i)", author: "南派三叔", sourceType: .localFile, totalChapters: 200)
+        b.seriesName = "盗墓笔记"
+        b.seriesIndex = i
+        if i < 3 {
+            b.readingStatus = .finished
+            b.lastReadChapterIndex = 200
+        } else if i == 3 {
+            b.readingStatus = .reading
+            b.lastReadChapterIndex = 66
+        }
+        context.insert(b)
+    }
+
+    let b3 = Book(title: "活着", author: "余华", sourceType: .localFile, totalChapters: 12)
+    b3.lastReadChapterIndex = 12
+    b3.readingStatus = .finished
     context.insert(b3)
-
-    let b4 = Book(title: "活着", author: "余华", sourceType: .localFile, totalChapters: 12)
-    b4.lastReadChapterIndex = 12
-    b4.readingStatus = .finished
-    context.insert(b4)
-
-    let b5 = Book(title: "百年孤独", author: "马尔克斯", sourceType: .localFile, totalChapters: 20)
-    b5.readingStatus = .unread
-    context.insert(b5)
 
     return BookshelfView()
         .modelContainer(container)
