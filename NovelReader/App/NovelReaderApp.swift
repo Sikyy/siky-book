@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 @main
 struct NovelReaderApp: App {
@@ -6,5 +7,6 @@ struct NovelReaderApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(for: [Book.self, Chapter.self, BookSource.self])
     }
 }
