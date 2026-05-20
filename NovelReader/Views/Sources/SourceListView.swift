@@ -7,6 +7,9 @@ struct SourceListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var showingImport = false
+    @State private var showingURLInput = false
+    @State private var sourceURL = ""
+    @State private var isLoadingURL = false
     @State private var importCount: Int?
     @State private var importError: String?
     @State private var showingResult = false
@@ -30,8 +33,17 @@ struct SourceListView: View {
                     Button("关闭") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingImport = true
+                    Menu {
+                        Button {
+                            showingURLInput = true
+                        } label: {
+                            Label("从网址导入", systemImage: "link")
+                        }
+                        Button {
+                            showingImport = true
+                        } label: {
+                            Label("从文件导入", systemImage: "doc")
+                        }
                     } label: {
                         Image(systemName: "square.and.arrow.down")
                     }
@@ -41,6 +53,16 @@ struct SourceListView: View {
                 DocumentPicker(contentTypes: [.json, .plainText]) { url in
                     importSourceFile(url: url)
                 }
+            }
+            .alert("输入书源网址", isPresented: $showingURLInput) {
+                TextField("https://...", text: $sourceURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("取消", role: .cancel) { sourceURL = "" }
+                Button("导入") { importFromURL() }
+                    .disabled(sourceURL.trimmingCharacters(in: .whitespaces).isEmpty)
+            } message: {
+                Text("支持 JSON 格式的书源链接")
             }
             .alert("导入结果", isPresented: $showingResult) {
                 Button("确定") {}
@@ -62,7 +84,7 @@ struct SourceListView: View {
             Text("暂无书源")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("点击右上角导入书源文件")
+            Text("点击右上角从网址或文件导入书源")
                 .font(.caption)
                 .foregroundStyle(.secondary.opacity(0.7))
         }
@@ -104,6 +126,28 @@ struct SourceListView: View {
     private func deleteSources(at offsets: IndexSet) {
         for index in offsets {
             modelContext.delete(sources[index])
+        }
+    }
+
+    private func importFromURL() {
+        let urlString = sourceURL.trimmingCharacters(in: .whitespaces)
+        sourceURL = ""
+        guard !urlString.isEmpty else { return }
+        isLoadingURL = true
+
+        Task {
+            do {
+                let json = try await NetworkClient.shared.fetchString(url: urlString)
+                let service = SourceImportService(modelContext: modelContext)
+                let count = try service.importJSON(json)
+                importCount = count
+                importError = nil
+            } catch {
+                importError = error.localizedDescription
+                importCount = nil
+            }
+            isLoadingURL = false
+            showingResult = true
         }
     }
 
