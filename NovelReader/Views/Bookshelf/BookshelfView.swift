@@ -4,6 +4,9 @@ import SwiftData
 struct BookshelfView: View {
     @Query(sort: \Book.addedDate, order: .reverse) private var books: [Book]
     @Environment(\.modelContext) private var modelContext
+    @State private var showingFilePicker = false
+    @State private var importError: String?
+    @State private var showingError = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
 
@@ -34,6 +37,30 @@ struct BookshelfView: View {
             .background(Color.black)
             .navigationTitle("书架")
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { showingFilePicker = true }) {
+                        Image(systemName: "plus")
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+            .sheet(isPresented: $showingFilePicker) {
+                DocumentPicker { url in
+                    let service = ImportService(modelContext: modelContext)
+                    do {
+                        _ = try service.importTXT(from: url)
+                    } catch {
+                        importError = error.localizedDescription
+                        showingError = true
+                    }
+                }
+            }
+            .alert("导入失败", isPresented: $showingError) {
+                Button("确定") {}
+            } message: {
+                Text(importError ?? "")
+            }
         }
         .preferredColorScheme(.dark)
     }
