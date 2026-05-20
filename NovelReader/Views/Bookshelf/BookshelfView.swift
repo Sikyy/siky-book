@@ -5,6 +5,7 @@ struct BookshelfView: View {
     @Query(sort: \Book.addedDate, order: .reverse) private var books: [Book]
     @Environment(\.modelContext) private var modelContext
     @State private var showingFilePicker = false
+    @State private var showingSearch = false
     @State private var importError: String?
     @State private var showingError = false
 
@@ -41,12 +42,21 @@ struct BookshelfView: View {
             .navigationTitle("书架")
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: { showingSearch = true }) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.white)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { showingFilePicker = true }) {
                         Image(systemName: "plus")
                             .foregroundStyle(.white)
                     }
                 }
+            }
+            .sheet(isPresented: $showingSearch) {
+                SearchView()
             }
             .sheet(isPresented: $showingFilePicker) {
                 DocumentPicker { url in
