@@ -22,6 +22,9 @@
 		RE0000001234567890ABCDF0 /* RuleExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = RE0000001234567890ABCDF1 /* RuleExecutorTests.swift */; };
 		SE0000001234567890ABCDE0 /* SourceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE0000001234567890ABCDE1 /* SourceEngine.swift */; };
 		SE0000001234567890ABCDE2 /* SourceEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE0000001234567890ABCDE3 /* SourceEngineTests.swift */; };
+		NC0000001234567890ABCDE0 /* NetworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0000001234567890ABCDE1 /* NetworkClient.swift */; };
+		SI0000001234567890ABCDE0 /* SourceImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SI0000001234567890ABCDE1 /* SourceImportService.swift */; };
+		SI0000001234567890ABCDE2 /* SourceImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SI0000001234567890ABCDE3 /* SourceImportTests.swift */; };
 		522FA9A27DA51E3C351ABD9C /* BookManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B460461C5D5EACA36169895 /* BookManager.swift */; };
 		5F7848EEBB5D20FFC4EE8E6D /* ChapterSplitterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B50C92C0F00E67D21D04639 /* ChapterSplitterTests.swift */; };
 		679EE14FFEB00376A5D3A2F5 /* ReaderMenuOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61ECFCF7C62C0B6005A84F6 /* ReaderMenuOverlay.swift */; };
@@ -94,6 +97,9 @@
 		RE0000001234567890ABCDF1 /* RuleExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleExecutorTests.swift; sourceTree = "<group>"; };
 		SE0000001234567890ABCDE1 /* SourceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEngine.swift; sourceTree = "<group>"; };
 		SE0000001234567890ABCDE3 /* SourceEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEngineTests.swift; sourceTree = "<group>"; };
+		NC0000001234567890ABCDE1 /* NetworkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkClient.swift; sourceTree = "<group>"; };
+		SI0000001234567890ABCDE1 /* SourceImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportService.swift; sourceTree = "<group>"; };
+		SI0000001234567890ABCDE3 /* SourceImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportTests.swift; sourceTree = "<group>"; };
 		FB5E44DE2D2AF91A57F95E1E /* BookSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSource.swift; sourceTree = "<group>"; };
 		FC52FCD4A94D6DE2D8C1D960 /* BookshelfItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfItem.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -115,8 +121,10 @@
 			children = (
 				5B460461C5D5EACA36169895 /* BookManager.swift */,
 				91B596CB8EB45B4C6A988CA0 /* ImportService.swift */,
+				NC0000001234567890ABCDE1 /* NetworkClient.swift */,
 				RE0000001234567890ABCDEE /* RuleExecutor.swift */,
 				SE0000001234567890ABCDE1 /* SourceEngine.swift */,
+				SI0000001234567890ABCDE1 /* SourceImportService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -180,6 +188,7 @@
 				39B7A46F704AF97902C656E5 /* ReaderSettingsTests.swift */,
 				RE0000001234567890ABCDF1 /* RuleExecutorTests.swift */,
 				SE0000001234567890ABCDE3 /* SourceEngineTests.swift */,
+				SI0000001234567890ABCDE3 /* SourceImportTests.swift */,
 			);
 			path = NovelReaderTests;
 			sourceTree = "<group>";
@@ -343,6 +352,7 @@
 				A1B2C3D4E5F60001AABBCC01 /* LegadoRule.swift in Sources */,
 				F11A9A02E31754C72C6927C7 /* FontSizePopup.swift in Sources */,
 				4F9C89C95EA07E568AE480F7 /* ImportService.swift in Sources */,
+				NC0000001234567890ABCDE0 /* NetworkClient.swift in Sources */,
 				F6468B711DCEA9BE96BAF6F3 /* NovelReaderApp.swift in Sources */,
 				679EE14FFEB00376A5D3A2F5 /* ReaderMenuOverlay.swift in Sources */,
 				AE008B2F92C766FEFF077AD9 /* ReaderSettings.swift in Sources */,
@@ -352,6 +362,7 @@
 				RE0000001234567890ABCDEF /* RuleExecutor.swift in Sources */,
 				711C314391F133D0C97B9D9F /* SeriesBookView.swift in Sources */,
 				SE0000001234567890ABCDE0 /* SourceEngine.swift in Sources */,
+				SI0000001234567890ABCDE0 /* SourceImportService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,6 +379,7 @@
 				6F6B9859ADC82334FC9A4835 /* ReaderSettingsTests.swift in Sources */,
 				RE0000001234567890ABCDF0 /* RuleExecutorTests.swift in Sources */,
 				SE0000001234567890ABCDE2 /* SourceEngineTests.swift in Sources */,
+				SI0000001234567890ABCDE2 /* SourceImportTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
