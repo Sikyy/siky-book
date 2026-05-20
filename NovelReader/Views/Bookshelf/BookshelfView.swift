@@ -24,7 +24,10 @@ struct BookshelfView: View {
                         ForEach(groupedItems) { item in
                             switch item {
                             case .single(let book):
-                                BookCoverView(book: book)
+                                NavigationLink(value: book) {
+                                    BookCoverView(book: book)
+                                }
+                                .buttonStyle(.plain)
                             case .series(let name, let seriesBooks):
                                 SeriesBookView(seriesName: name, books: seriesBooks)
                             }
@@ -60,6 +63,9 @@ struct BookshelfView: View {
                 Button("确定") {}
             } message: {
                 Text(importError ?? "")
+            }
+            .navigationDestination(for: Book.self) { book in
+                ChapterListView(book: book)
             }
         }
         .preferredColorScheme(.dark)
