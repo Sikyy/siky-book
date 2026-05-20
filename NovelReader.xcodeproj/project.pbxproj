@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		161FFB8B976171BB3BAE56FF /* BookCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5129452AA17EAECC0C5A684C /* BookCoverView.swift */; };
 		195C11CD3DB9B21ACA703944 /* Book.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F529F0496C00F10A12C962A /* Book.swift */; };
+		39358C8B284C2F95F2D444E3 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 70EEAE5AA5EBC87035CEF674 /* SwiftSoup */; };
 		3A1063A6F103EED1AD667DAF /* EncodingDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 384B7D22BC6FCB46C940E9F8 /* EncodingDetectorTests.swift */; };
 		3A60018D000D9E9175825786 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4870F6A821D23487EFC9FE /* ContentView.swift */; };
 		3CCDEBE67BAE833B48F6ED6D /* BookshelfView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D15E4481287F98A162F0890 /* BookshelfView.swift */; };
@@ -84,6 +85,17 @@
 		FB5E44DE2D2AF91A57F95E1E /* BookSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSource.swift; sourceTree = "<group>"; };
 		FC52FCD4A94D6DE2D8C1D960 /* BookshelfItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfItem.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4CBD4E26347572AD3C7881E5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				39358C8B284C2F95F2D444E3 /* SwiftSoup in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		22B38DA891CC3A967A3B99C0 /* Services */ = {
@@ -232,6 +244,7 @@
 			buildPhases = (
 				51145169193469BA972183A0 /* Sources */,
 				8972B4A3FAB4038E11507448 /* Resources */,
+				4CBD4E26347572AD3C7881E5 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -239,6 +252,7 @@
 			);
 			name = NovelReader;
 			packageProductDependencies = (
+				70EEAE5AA5EBC87035CEF674 /* SwiftSoup */,
 			);
 			productName = NovelReader;
 			productReference = 51D74D3C235CD57D52DF4300 /* NovelReader.app */;
@@ -264,6 +278,9 @@
 			);
 			mainGroup = B3134DE9D30950F701F364CD;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1A6365A4A5C51CC6CF11FDF5 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BAFBBE25EFCA1134B2F8A026 /* Products */;
 			projectDirPath = "";
@@ -563,6 +580,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		1A6365A4A5C51CC6CF11FDF5 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.7.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		70EEAE5AA5EBC87035CEF674 /* SwiftSoup */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A6365A4A5C51CC6CF11FDF5 /* XCRemoteSwiftPackageReference "SwiftSoup" */;
+			productName = SwiftSoup;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = DDF257CEE18D75384BC10762 /* Project object */;
 }
