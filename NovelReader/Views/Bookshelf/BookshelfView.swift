@@ -65,7 +65,7 @@ struct BookshelfView: View {
                 Text(importError ?? "")
             }
             .navigationDestination(for: Book.self) { book in
-                ChapterListView(book: book)
+                ReaderView(book: book, startChapterIndex: book.lastReadChapterIndex)
             }
         }
         .preferredColorScheme(.dark)
