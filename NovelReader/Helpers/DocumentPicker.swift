@@ -2,10 +2,16 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DocumentPicker: UIViewControllerRepresentable {
+    let contentTypes: [UTType]
     let onPick: (URL) -> Void
 
+    init(contentTypes: [UTType] = [.plainText], onPick: @escaping (URL) -> Void) {
+        self.contentTypes = contentTypes
+        self.onPick = onPick
+    }
+
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.plainText])
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes)
         picker.delegate = context.coordinator
         return picker
     }

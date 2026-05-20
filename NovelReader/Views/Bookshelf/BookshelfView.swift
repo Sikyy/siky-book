@@ -6,6 +6,7 @@ struct BookshelfView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showingFilePicker = false
     @State private var showingSearch = false
+    @State private var showingSources = false
     @State private var importError: String?
     @State private var showingError = false
 
@@ -49,11 +50,20 @@ struct BookshelfView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { showingFilePicker = true }) {
-                        Image(systemName: "plus")
-                            .foregroundStyle(.white)
+                    HStack(spacing: 16) {
+                        Button(action: { showingSources = true }) {
+                            Image(systemName: "list.bullet.rectangle")
+                                .foregroundStyle(.white)
+                        }
+                        Button(action: { showingFilePicker = true }) {
+                            Image(systemName: "plus")
+                                .foregroundStyle(.white)
+                        }
                     }
                 }
+            }
+            .sheet(isPresented: $showingSources) {
+                SourceListView()
             }
             .sheet(isPresented: $showingSearch) {
                 SearchView()
