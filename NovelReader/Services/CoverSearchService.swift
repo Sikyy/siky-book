@@ -8,6 +8,13 @@ struct CoverCandidate: Identifiable {
     let picURL: String      // 大图远程 URL
     let thumbURL: String    // 小图远程 URL（用于预览）
     let score: Int
+    let source: CoverSource // 来源
+    var needsReferer: Bool { source == .douban }
+}
+
+enum CoverSource: String {
+    case douban = "豆瓣"
+    case qidian = "起点"
 }
 
 enum CoverSearchService {
@@ -15,17 +22,36 @@ enum CoverSearchService {
     static func searchCover(title: String, author: String, bookId: UUID) async -> String? {
         let candidates = await searchCandidates(title: title, author: author)
         for candidate in candidates {
-            if let localPath = await downloadCover(candidate.picURL, bookId: bookId) {
+            if let localPath = await downloadCover(candidate.picURL, bookId: bookId, needsReferer: candidate.needsReferer) {
                 return localPath
             }
         }
         return nil
     }
 
-    /// 搜索所有候选封面，按匹配度排序返回
+    /// 搜索所有候选封面（豆瓣 + 番茄小说），按匹配度排序返回
     static func searchCandidates(title: String, author: String) async -> [CoverCandidate] {
+        // 并发搜索豆瓣和起点
+        async let doubanResults = searchDoubanCandidates(title: title, author: author)
+        async let qidianResults = searchQidianCandidates(title: title, author: author)
+
+        var candidates = await doubanResults + qidianResults
+
+        // 去重（按图片 URL）
+        var seen = Set<String>()
+        candidates.removeAll { c in
+            if seen.contains(c.picURL) { return true }
+            seen.insert(c.picURL)
+            return false
+        }
+
+        candidates.sort { $0.score > $1.score }
+        return candidates
+    }
+
+    private static func searchDoubanCandidates(title: String, author: String) async -> [CoverCandidate] {
         let keywords = buildKeywords(from: title)
-        var seen = Set<String>() // 按图片 URL 去重
+        var seen = Set<String>()
         var candidates: [CoverCandidate] = []
 
         for keyword in keywords {
@@ -42,18 +68,35 @@ enum CoverSearchService {
                                        doubanTitle: doubanTitle, doubanAuthor: doubanAuthor)
                 candidates.append(CoverCandidate(
                     title: doubanTitle, author: doubanAuthor,
-                    picURL: largePic, thumbURL: pic, score: score
+                    picURL: largePic, thumbURL: pic, score: score,
+                    source: .douban
                 ))
             }
         }
+        return candidates
+    }
 
-        candidates.sort { $0.score > $1.score }
+    private static func searchQidianCandidates(title: String, author: String) async -> [CoverCandidate] {
+        let results = await fetchQidian(keyword: title)
+        var candidates: [CoverCandidate] = []
+
+        for (qTitle, bookId) in results {
+            let thumbURL = "https://bookcover.yuewen.com/qdbimg/349573/\(bookId)/180"
+            let picURL = "https://bookcover.yuewen.com/qdbimg/349573/\(bookId)/600"
+            let score = matchScore(bookTitle: title, bookAuthor: author,
+                                   doubanTitle: qTitle, doubanAuthor: "")
+            candidates.append(CoverCandidate(
+                title: qTitle, author: "",
+                picURL: picURL, thumbURL: thumbURL, score: score,
+                source: .qidian
+            ))
+        }
         return candidates
     }
 
     /// 下载指定封面到本地，返回相对路径
-    static func downloadCoverToLocal(_ remoteURL: String, bookId: UUID) async -> String? {
-        await downloadCover(remoteURL, bookId: bookId)
+    static func downloadCoverToLocal(_ remoteURL: String, bookId: UUID, needsReferer: Bool = true) async -> String? {
+        await downloadCover(remoteURL, bookId: bookId, needsReferer: needsReferer)
     }
 
     // MARK: - 标题匹配打分
@@ -211,16 +254,75 @@ enum CoverSearchService {
         }
     }
 
+    // MARK: - 起点 API
+
+    /// 通过起点移动端搜索页提取书名和书籍 ID
+    private static func fetchQidian(keyword: String) async -> [(String, String)] {
+        guard let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
+        let urlString = "https://m.qidian.com/soushu/\(encoded).html"
+        guard let url = URL(string: urlString) else { return [] }
+
+        var request = URLRequest(url: url)
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 10
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let html = String(data: data, encoding: .utf8) else { return [] }
+
+            // 提取封面图片中的 bookId
+            let idPattern = try NSRegularExpression(pattern: #"bookcover\.yuewen\.com/qdbimg/\d+/(\d+)/180"#)
+            let idMatches = idPattern.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            var bookIds: [String] = []
+            var seen = Set<String>()
+            for match in idMatches {
+                if let range = Range(match.range(at: 1), in: html) {
+                    let bid = String(html[range])
+                    if !seen.contains(bid) {
+                        seen.insert(bid)
+                        bookIds.append(bid)
+                    }
+                }
+            }
+
+            // 提取 <h2> 标签中的书名
+            let titlePattern = try NSRegularExpression(pattern: #"<h2[^>]*>(.*?)</h2>"#, options: .dotMatchesLineSeparators)
+            let titleMatches = titlePattern.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            var titles: [String] = []
+            let tagPattern = try NSRegularExpression(pattern: #"<[^>]+>"#)
+            for match in titleMatches {
+                if let range = Range(match.range(at: 1), in: html) {
+                    let raw = String(html[range])
+                    let clean = tagPattern.stringByReplacingMatches(in: raw, range: NSRange(raw.startIndex..., in: raw), withTemplate: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !clean.isEmpty { titles.append(clean) }
+                }
+            }
+
+            // 配对返回
+            var results: [(String, String)] = []
+            for i in 0..<min(bookIds.count, titles.count) {
+                results.append((titles[i], bookIds[i]))
+            }
+            return results
+        } catch {
+            return []
+        }
+    }
+
     // MARK: - 下载图片到本地
 
-    private static func downloadCover(_ remoteURL: String, bookId: UUID) async -> String? {
+    static func downloadCover(_ remoteURL: String, bookId: UUID, needsReferer: Bool = true) async -> String? {
         var urlString = remoteURL
         if urlString.hasPrefix("//") { urlString = "https:" + urlString }
         guard let url = URL(string: urlString) else { return nil }
 
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://book.douban.com", forHTTPHeaderField: "Referer")
+        if needsReferer {
+            request.setValue("https://book.douban.com", forHTTPHeaderField: "Referer")
+        }
         request.timeoutInterval = 15
 
         do {
@@ -232,7 +334,8 @@ enum CoverSearchService {
                 .appendingPathComponent("covers", isDirectory: true)
             try FileManager.default.createDirectory(at: coversDir, withIntermediateDirectories: true)
 
-            let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
+            let rawExt = url.pathExtension
+            let ext = (rawExt.isEmpty || rawExt == "image") ? "jpg" : rawExt
             let filename = "\(bookId.uuidString).\(ext)"
             let localFile = coversDir.appendingPathComponent(filename)
             try data.write(to: localFile)

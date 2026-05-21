@@ -16,6 +16,7 @@ struct ReaderView: View {
     @State private var isCaching = false
     @State private var cachedCount = 0
     @State private var totalToCache = 0
+    @State private var cacheTask: Task<Void, Never>?
     @State private var skipPageReset = false
     @State private var viewSize: CGSize = .zero
     private let pageBottomReserve: CGFloat = 72
@@ -63,6 +64,7 @@ struct ReaderView: View {
                     onBack: { dismiss() },
                     chapters: chapters,
                     onCache: book.sourceId != nil ? { count in cacheChapters(count: count) } : nil,
+                    onCancelCache: { cancelCaching() },
                     isCaching: isCaching,
                     cacheProgress: isCaching ? "\(cachedCount)/\(totalToCache)" : nil
                 )
@@ -471,13 +473,11 @@ struct ReaderView: View {
 
         var uncached: [Chapter]
         if let count {
-            // 缓存后 N 章：从当前章节之后开始
             uncached = chapters
                 .filter { $0.content == nil && $0.sourceURL != nil && $0.index > currentChapterIndex }
                 .sorted { $0.index < $1.index }
             uncached = Array(uncached.prefix(count))
         } else {
-            // 缓存全部：所有未缓存章节
             uncached = chapters
                 .filter { $0.content == nil && $0.sourceURL != nil }
                 .sorted { $0.index < $1.index }
@@ -488,15 +488,35 @@ struct ReaderView: View {
         cachedCount = 0
         totalToCache = uncached.count
 
-        Task {
-            for chapter in uncached {
-                do {
-                    try await fetchContent(for: chapter)
-                } catch {}
-                await MainActor.run { cachedCount += 1 }
+        let maxConcurrent = 5
+        cacheTask = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for (i, chapter) in uncached.enumerated() {
+                    if Task.isCancelled { break }
+                    if i >= maxConcurrent {
+                        await group.next()
+                    }
+                    group.addTask {
+                        guard !Task.isCancelled else { return }
+                        do {
+                            try await fetchContent(for: chapter)
+                        } catch {}
+                        await MainActor.run { cachedCount += 1 }
+                    }
+                }
+                await group.waitForAll()
             }
-            await MainActor.run { isCaching = false }
+            await MainActor.run {
+                isCaching = false
+                cacheTask = nil
+            }
         }
+    }
+
+    private func cancelCaching() {
+        cacheTask?.cancel()
+        cacheTask = nil
+        isCaching = false
     }
 
     // MARK: - Status Bar

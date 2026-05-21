@@ -10,6 +10,7 @@ struct ReaderMenuOverlay: View {
     let onBack: () -> Void
     let chapters: [Chapter]
     var onCache: ((Int?) -> Void)? = nil
+    var onCancelCache: (() -> Void)? = nil
     var isCaching: Bool = false
     var cacheProgress: String? = nil
 
@@ -75,14 +76,18 @@ struct ReaderMenuOverlay: View {
             Spacer()
             if let onCache {
                 if isCaching {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .tint(.white.opacity(0.7))
-                            .scaleEffect(0.7)
-                        if let cacheProgress {
-                            Text(cacheProgress)
-                                .font(.system(size: 11))
+                    Button {
+                        onCancelCache?()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 10))
                                 .foregroundStyle(.white.opacity(0.7))
+                            if let cacheProgress {
+                                Text(cacheProgress)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
                         }
                     }
                     .frame(width: 44)
@@ -343,9 +348,17 @@ struct ReaderMenuOverlay: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 if isCaching, let progress = cacheProgress {
-                    Text(progress)
-                        .font(.caption)
+                    Button {
+                        onCancelCache?()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 10))
+                            Text(progress)
+                                .font(.caption)
+                        }
                         .foregroundStyle(.secondary)
+                    }
                 } else if onCache != nil {
                     Button("缓存全部") { onCache?(nil) }
                 }

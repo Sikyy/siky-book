@@ -138,10 +138,19 @@ struct CoverPickerView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
 
-                Text(candidate.author)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 2) {
+                    Text(candidate.source.rawValue)
+                        .font(.system(size: 8))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(candidate.source == .douban ? Color.green.opacity(0.7) : Color.red.opacity(0.7))
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                    Text(candidate.author)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         .buttonStyle(.plain)
@@ -171,7 +180,7 @@ struct CoverPickerView: View {
         await withTaskGroup(of: (UUID, UIImage?).self) { group in
             for candidate in items {
                 group.addTask {
-                    let image = await Self.fetchImage(candidate.thumbURL)
+                    let image = await Self.fetchImage(candidate.thumbURL, needsReferer: candidate.needsReferer)
                     return (candidate.id, image)
                 }
             }
@@ -183,14 +192,16 @@ struct CoverPickerView: View {
         }
     }
 
-    private static func fetchImage(_ urlString: String) async -> UIImage? {
+    private static func fetchImage(_ urlString: String, needsReferer: Bool = true) async -> UIImage? {
         var raw = urlString
         if raw.hasPrefix("//") { raw = "https:" + raw }
         guard let url = URL(string: raw) else { return nil }
 
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://book.douban.com", forHTTPHeaderField: "Referer")
+        if needsReferer {
+            request.setValue("https://book.douban.com", forHTTPHeaderField: "Referer")
+        }
         request.timeoutInterval = 10
 
         guard let (data, response) = try? await URLSession.shared.data(for: request),
@@ -202,7 +213,7 @@ struct CoverPickerView: View {
     private func selectCover(_ candidate: CoverCandidate) async {
         downloadingId = candidate.id
         if let localPath = await CoverSearchService.downloadCoverToLocal(
-            candidate.picURL, bookId: book.id
+            candidate.picURL, bookId: book.id, needsReferer: candidate.needsReferer
         ) {
             await MainActor.run {
                 onSelected(localPath)
