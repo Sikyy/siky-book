@@ -48,6 +48,28 @@ struct SourceImportTests {
         #expect(count == 2)
     }
 
+    @Test @MainActor func importStoresIndividualJSON() throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: Book.self, Chapter.self, BookSource.self, configurations: config)
+        let context = container.mainContext
+
+        let json = """
+        [
+            { "bookSourceName": "源A", "bookSourceUrl": "https://a.com", "searchUrl": "/s?q={{key}}", "ruleSearch": {}, "ruleToc": {}, "ruleContent": {} },
+            { "bookSourceName": "源B", "bookSourceUrl": "https://b.com", "ruleSearch": {}, "ruleToc": {}, "ruleContent": {} }
+        ]
+        """
+        let service = SourceImportService(modelContext: context)
+        _ = try service.importJSON(json)
+
+        let sources = try context.fetch(FetchDescriptor<BookSource>())
+        for source in sources {
+            let parsed = try LegadoSourceParser.parse(json: source.ruleJSON)
+            #expect(parsed.name == source.name)
+            #expect(parsed.url == source.sourceURL)
+        }
+    }
+
     @Test @MainActor func importSkipsDuplicateURL() throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: Book.self, Chapter.self, BookSource.self, configurations: config)

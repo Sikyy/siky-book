@@ -78,6 +78,7 @@ struct ReaderSettingsView: View {
             ForEach(PageMode.allCases, id: \.self) { mode in
                 Button {
                     settings.pageMode = mode
+                    settings.save(markPageModeExplicit: true)
                 } label: {
                     HStack {
                         Text(mode.displayName)

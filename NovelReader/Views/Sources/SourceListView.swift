@@ -94,24 +94,18 @@ struct SourceListView: View {
     }
 
     private func sourceRow(_ source: BookSource) -> some View {
-        HStack {
+        HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(source.name)
                     .font(.body)
-                HStack(spacing: 8) {
-                    Text(source.sourceURL)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    if let group = source.sourceGroup {
-                        Text(group)
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.1))
-                            .foregroundStyle(.blue)
-                            .clipShape(Capsule())
-                    }
+                if let group = source.sourceGroup {
+                    Text(group)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundStyle(.blue)
+                        .clipShape(Capsule())
                 }
             }
             Spacer()

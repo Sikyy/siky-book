@@ -33,6 +33,10 @@ class ReaderSettings {
     private static let fontSizeRange: ClosedRange<CGFloat> = 12...32
     private static let lineSpacingRange: ClosedRange<Double> = 1.5...2.5
     private static let paddingRange: ClosedRange<CGFloat> = 16...48
+    private static let pageModeKey = "reader.pageMode"
+    private static let pageModeExplicitKey = "reader.pageMode.explicit"
+    private static let defaultPageMode: PageMode = .horizontal
+    private static let legacyDefaultPageMode: PageMode = .scroll
 
     var fontSize: CGFloat {
         get { _fontSize }
@@ -64,17 +68,34 @@ class ReaderSettings {
         self._horizontalPadding = CGFloat(defaults.double(forKey: "reader.horizontalPadding")).nonZeroOr(28)
         self.fontFamily = FontFamily(rawValue: defaults.string(forKey: "reader.fontFamily") ?? "") ?? .pingfang
         self.theme = ReaderTheme(rawValue: defaults.string(forKey: "reader.theme") ?? "") ?? .pureBlack
-        self.pageMode = PageMode(rawValue: defaults.string(forKey: "reader.pageMode") ?? "") ?? .scroll
+        self.pageMode = Self.loadPageMode(from: defaults)
     }
 
-    func save() {
+    func save(markPageModeExplicit: Bool = false) {
         let defaults = UserDefaults.standard
         defaults.set(Double(fontSize), forKey: "reader.fontSize")
         defaults.set(lineSpacing, forKey: "reader.lineSpacing")
         defaults.set(Double(horizontalPadding), forKey: "reader.horizontalPadding")
         defaults.set(fontFamily.rawValue, forKey: "reader.fontFamily")
         defaults.set(theme.rawValue, forKey: "reader.theme")
-        defaults.set(pageMode.rawValue, forKey: "reader.pageMode")
+        defaults.set(pageMode.rawValue, forKey: Self.pageModeKey)
+        if markPageModeExplicit {
+            defaults.set(true, forKey: Self.pageModeExplicitKey)
+        }
+    }
+
+    private static func loadPageMode(from defaults: UserDefaults) -> PageMode {
+        guard let rawValue = defaults.string(forKey: pageModeKey),
+              let savedMode = PageMode(rawValue: rawValue) else {
+            return defaultPageMode
+        }
+
+        let hasExplicitPageMode = defaults.bool(forKey: pageModeExplicitKey)
+        if savedMode == legacyDefaultPageMode && !hasExplicitPageMode {
+            return defaultPageMode
+        }
+
+        return savedMode
     }
 }
 

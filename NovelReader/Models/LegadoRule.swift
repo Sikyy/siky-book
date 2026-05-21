@@ -4,6 +4,7 @@ struct LegadoSource {
     let name: String
     let url: String
     let group: String?
+    let header: String?
     let searchURL: String?
     let searchRule: SearchRule?
     let bookInfoRule: BookInfoRule?
@@ -26,6 +27,7 @@ struct LegadoSource {
         let intro: String?
         let coverUrl: String?
         let tocUrl: String?
+        let wordCount: String?
     }
 
     struct TocRule {
@@ -41,12 +43,20 @@ struct LegadoSource {
 }
 
 enum LegadoSourceParser {
-    static func parse(json: String) throws -> LegadoSource {
+    static func parse(json: String, matchingURL: String? = nil) throws -> LegadoSource {
         guard let data = json.data(using: .utf8) else {
             throw LegadoParseError.invalidJSON
         }
-        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        return parseObject(obj)
+        let top = try JSONSerialization.jsonObject(with: data)
+        if let obj = top as? [String: Any] {
+            return parseObject(obj)
+        }
+        if let array = top as? [[String: Any]], let url = matchingURL {
+            if let match = array.first(where: { ($0["bookSourceUrl"] as? String) == url }) {
+                return parseObject(match)
+            }
+        }
+        throw LegadoParseError.invalidJSON
     }
 
     static func parseBatch(json: String) throws -> [LegadoSource] {
@@ -63,7 +73,7 @@ enum LegadoSourceParser {
         throw LegadoParseError.invalidJSON
     }
 
-    private static func parseObject(_ obj: [String: Any]) -> LegadoSource {
+    static func parseObject(_ obj: [String: Any]) -> LegadoSource {
         let search = obj["ruleSearch"] as? [String: Any]
         let info = obj["ruleBookInfo"] as? [String: Any]
         let toc = obj["ruleToc"] as? [String: Any]
@@ -73,6 +83,7 @@ enum LegadoSourceParser {
             name: obj["bookSourceName"] as? String ?? "",
             url: obj["bookSourceUrl"] as? String ?? "",
             group: obj["bookSourceGroup"] as? String,
+            header: obj["header"] as? String,
             searchURL: obj["searchUrl"] as? String,
             searchRule: search.map {
                 LegadoSource.SearchRule(
@@ -91,7 +102,8 @@ enum LegadoSourceParser {
                     author: $0["author"] as? String,
                     intro: $0["intro"] as? String,
                     coverUrl: $0["coverUrl"] as? String,
-                    tocUrl: $0["tocUrl"] as? String
+                    tocUrl: $0["tocUrl"] as? String,
+                    wordCount: $0["wordCount"] as? String
                 )
             },
             tocRule: toc.map {

@@ -221,16 +221,23 @@ class ReaderSettings {
     private static let paddingRange: ClosedRange<CGFloat> = 16...48
 
     var fontSize: CGFloat {
-        didSet { fontSize = fontSize.clamped(to: Self.fontSizeRange) }
+        get { _fontSize }
+        set { _fontSize = newValue.clamped(to: Self.fontSizeRange) }
     }
 
     var lineSpacing: Double {
-        didSet { lineSpacing = lineSpacing.clamped(to: Self.lineSpacingRange) }
+        get { _lineSpacing }
+        set { _lineSpacing = newValue.clamped(to: Self.lineSpacingRange) }
     }
 
     var horizontalPadding: CGFloat {
-        didSet { horizontalPadding = horizontalPadding.clamped(to: Self.paddingRange) }
+        get { _horizontalPadding }
+        set { _horizontalPadding = newValue.clamped(to: Self.paddingRange) }
     }
+
+    private var _fontSize: CGFloat = 17
+    private var _lineSpacing: Double = 2.0
+    private var _horizontalPadding: CGFloat = 28
 
     var fontFamily: FontFamily
     var theme: ReaderTheme
@@ -238,9 +245,9 @@ class ReaderSettings {
 
     init() {
         let defaults = UserDefaults.standard
-        self.fontSize = CGFloat(defaults.double(forKey: "reader.fontSize")).nonZeroOr(17)
-        self.lineSpacing = defaults.double(forKey: "reader.lineSpacing").nonZeroOr(2.0)
-        self.horizontalPadding = CGFloat(defaults.double(forKey: "reader.horizontalPadding")).nonZeroOr(28)
+        self._fontSize = CGFloat(defaults.double(forKey: "reader.fontSize")).nonZeroOr(17)
+        self._lineSpacing = defaults.double(forKey: "reader.lineSpacing").nonZeroOr(2.0)
+        self._horizontalPadding = CGFloat(defaults.double(forKey: "reader.horizontalPadding")).nonZeroOr(28)
         self.fontFamily = FontFamily(rawValue: defaults.string(forKey: "reader.fontFamily") ?? "") ?? .pingfang
         self.theme = ReaderTheme(rawValue: defaults.string(forKey: "reader.theme") ?? "") ?? .pureBlack
         self.pageMode = PageMode(rawValue: defaults.string(forKey: "reader.pageMode") ?? "") ?? .scroll

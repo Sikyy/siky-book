@@ -5,7 +5,8 @@ struct AggregatedSearchResult: Identifiable {
     let id = UUID()
     let title: String
     let author: String
-    let coverURL: String?
+    var coverURL: String?
+    var intro: String?
     var sources: [SourceMatch]
 
     struct SourceMatch: Identifiable {
@@ -22,6 +23,8 @@ class SearchService {
     var results: [AggregatedSearchResult] = []
     var isSearching = false
     var searchError: String?
+    var searchedCount = 0
+    var totalCount = 0
 
     private let modelContext: ModelContext
     private let engine = SourceEngine()
@@ -38,23 +41,32 @@ class SearchService {
             isSearching = true
             results = []
             searchError = nil
+            searchedCount = 0
+            totalCount = 0
         }
 
         do {
             let bookSources = try fetchEnabledSources()
-            var allResults: [(SearchResult, BookSource, LegadoSource)] = []
+            await MainActor.run {
+                totalCount = bookSources.count
+            }
 
             await withTaskGroup(of: [(SearchResult, BookSource, LegadoSource)].self) { group in
                 for bookSource in bookSources {
                     group.addTask { [self] in
                         do {
-                            let legado = try LegadoSourceParser.parse(json: bookSource.ruleJSON)
-                            guard let searchURL = engine.buildSearchURL(source: legado, keyword: keyword, page: 1) else {
+                            let legado = try LegadoSourceParser.parse(json: bookSource.ruleJSON, matchingURL: bookSource.sourceURL)
+                            guard let searchReq = engine.buildSearchRequest(source: legado, keyword: keyword, page: 1) else {
                                 return []
                             }
-                            let html = try await network.fetchString(url: searchURL)
+                            let html = try await network.fetchString(
+                                url: searchReq.url,
+                                method: searchReq.method,
+                                body: searchReq.body,
+                                headers: searchReq.headers.isEmpty ? nil : searchReq.headers
+                            )
                             guard let searchRule = legado.searchRule else { return [] }
-                            let results = try engine.parseSearchResults(html: html, rule: searchRule, baseURL: legado.url)
+                            let results = try engine.parseSearchResults(response: html, rule: searchRule, baseURL: legado.url)
                             return results.map { ($0, bookSource, legado) }
                         } catch {
                             return []
@@ -62,13 +74,14 @@ class SearchService {
                     }
                 }
                 for await taskResults in group {
-                    allResults.append(contentsOf: taskResults)
+                    await MainActor.run {
+                        searchedCount += 1
+                        mergeResults(taskResults, keyword: keyword)
+                    }
                 }
             }
 
-            let aggregated = aggregateResults(allResults)
             await MainActor.run {
-                results = aggregated
                 isSearching = false
             }
         } catch {
@@ -79,10 +92,8 @@ class SearchService {
         }
     }
 
-    private func aggregateResults(_ raw: [(SearchResult, BookSource, LegadoSource)]) -> [AggregatedSearchResult] {
-        var grouped: [String: AggregatedSearchResult] = [:]
-
-        for (result, bookSource, legado) in raw {
+    private func mergeResults(_ newResults: [(SearchResult, BookSource, LegadoSource)], keyword: String) {
+        for (result, bookSource, legado) in newResults {
             let key = "\(result.title)|\(result.author)".lowercased()
             let match = AggregatedSearchResult.SourceMatch(
                 sourceName: bookSource.name,
@@ -90,19 +101,51 @@ class SearchService {
                 bookURL: result.bookURL,
                 source: legado
             )
-            if var existing = grouped[key] {
-                existing.sources.append(match)
-                grouped[key] = existing
+
+            if let idx = results.firstIndex(where: { "\($0.title)|\($0.author)".lowercased() == key }) {
+                results[idx].sources.append(match)
+                if results[idx].coverURL == nil, let cover = result.coverURL, !cover.isEmpty {
+                    results[idx].coverURL = engine.resolveURL(cover, base: legado.url)
+                }
+                if results[idx].intro == nil, let intro = result.intro, !intro.isEmpty {
+                    results[idx].intro = intro
+                }
             } else {
-                grouped[key] = AggregatedSearchResult(
+                let resolvedCover: String?
+                if let cover = result.coverURL, !cover.isEmpty {
+                    resolvedCover = engine.resolveURL(cover, base: legado.url)
+                } else {
+                    resolvedCover = nil
+                }
+                results.append(AggregatedSearchResult(
                     title: result.title,
                     author: result.author,
-                    coverURL: result.coverURL,
+                    coverURL: resolvedCover,
+                    intro: result.intro,
                     sources: [match]
-                )
+                ))
             }
         }
-        return Array(grouped.values).sorted { $0.sources.count > $1.sources.count }
+        sortResults(keyword: keyword)
+    }
+
+    private func sortResults(keyword: String) {
+        let lk = keyword.lowercased()
+        results.sort { a, b in
+            let aExact = a.title.lowercased() == lk
+            let bExact = b.title.lowercased() == lk
+            if aExact != bExact { return aExact }
+
+            let aContains = a.title.lowercased().contains(lk)
+            let bContains = b.title.lowercased().contains(lk)
+            if aContains != bContains { return aContains }
+
+            if a.sources.count != b.sources.count { return a.sources.count > b.sources.count }
+
+            let aScore = (a.coverURL != nil ? 1 : 0) + (a.intro != nil ? 1 : 0) + (!a.author.isEmpty ? 1 : 0)
+            let bScore = (b.coverURL != nil ? 1 : 0) + (b.intro != nil ? 1 : 0) + (!b.author.isEmpty ? 1 : 0)
+            return aScore > bScore
+        }
     }
 
     private func fetchEnabledSources() throws -> [BookSource] {

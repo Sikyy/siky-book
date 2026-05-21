@@ -10,13 +10,35 @@ class SourceImportService {
 
     @discardableResult
     func importJSON(_ json: String) throws -> Int {
-        let sources = try LegadoSourceParser.parseBatch(json: json)
+        guard let data = json.data(using: .utf8) else {
+            throw SourceImportError.encodingFailed
+        }
+
+        let top = try JSONSerialization.jsonObject(with: data)
+        let objects: [[String: Any]]
+        if let array = top as? [[String: Any]] {
+            objects = array
+        } else if let obj = top as? [String: Any] {
+            objects = [obj]
+        } else {
+            throw LegadoParseError.invalidJSON
+        }
+
         let existingURLs = try fetchExistingURLs()
         var imported = 0
 
-        for source in sources where !existingURLs.contains(source.url) {
-            let bookSource = BookSource(name: source.name, sourceURL: source.url, ruleJSON: json)
-            bookSource.sourceGroup = source.group
+        for obj in objects {
+            let name = obj["bookSourceName"] as? String ?? ""
+            let url = obj["bookSourceUrl"] as? String ?? ""
+            let group = obj["bookSourceGroup"] as? String
+
+            guard !url.isEmpty, !existingURLs.contains(url) else { continue }
+
+            let individualData = try JSONSerialization.data(withJSONObject: obj)
+            guard let individualJSON = String(data: individualData, encoding: .utf8) else { continue }
+
+            let bookSource = BookSource(name: name, sourceURL: url, ruleJSON: individualJSON)
+            bookSource.sourceGroup = group
             modelContext.insert(bookSource)
             imported += 1
         }

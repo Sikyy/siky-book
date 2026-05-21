@@ -9,8 +9,12 @@ struct BookshelfView: View {
     @State private var showingSources = false
     @State private var importError: String?
     @State private var showingError = false
+    @State private var isRefreshing = false
+    @State private var selectedBook: Book?
+    @State private var showingCacheManage = false
+    @State private var coverPickerBook: Book?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
 
     private var groupedItems: [BookshelfItem] {
         BookshelfItem.group(books)
@@ -26,10 +30,19 @@ struct BookshelfView: View {
                         ForEach(groupedItems) { item in
                             switch item {
                             case .single(let book):
-                                NavigationLink(value: book) {
+                                Button {
+                                    selectedBook = book
+                                } label: {
                                     BookCoverView(book: book)
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button {
+                                        coverPickerBook = book
+                                    } label: {
+                                        Label("修改封面", systemImage: "photo.on.rectangle")
+                                    }
+                                }
                             case .series(let name, let seriesBooks):
                                 SeriesBookView(seriesName: name, books: seriesBooks)
                             }
@@ -40,6 +53,8 @@ struct BookshelfView: View {
                 }
             }
             .background(Color.black)
+            .task { await refreshBookCovers() }
+            .refreshable { await refreshBookCovers() }
             .navigationTitle("书架")
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
@@ -51,6 +66,10 @@ struct BookshelfView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
+                        Button(action: { showingCacheManage = true }) {
+                            Image(systemName: "arrow.down.circle")
+                                .foregroundStyle(.white)
+                        }
                         Button(action: { showingSources = true }) {
                             Image(systemName: "list.bullet.rectangle")
                                 .foregroundStyle(.white)
@@ -61,6 +80,9 @@ struct BookshelfView: View {
                         }
                     }
                 }
+            }
+            .sheet(isPresented: $showingCacheManage) {
+                CacheManageView()
             }
             .sheet(isPresented: $showingSources) {
                 SourceListView()
@@ -84,11 +106,68 @@ struct BookshelfView: View {
             } message: {
                 Text(importError ?? "")
             }
-            .navigationDestination(for: Book.self) { book in
+            .sheet(item: $coverPickerBook) { book in
+                CoverPickerView(book: book) { localPath in
+                    book.coverURL = localPath
+                    try? modelContext.save()
+                }
+            }
+            .fullScreenCover(item: $selectedBook) { book in
                 ReaderView(book: book, startChapterIndex: book.lastReadChapterIndex)
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private func refreshBookCovers() async {
+        let booksNeedCover = books.filter {
+            guard let url = $0.coverURL?.trimmingCharacters(in: .whitespaces), !url.isEmpty else { return true }
+            // 过滤掉豆瓣默认占位图等无效封面
+            if url.contains("book-default") || url.contains("default-book") || url.contains("/nophoto/") { return true }
+            return false
+        }
+        print("[Cover] Need cover for \(booksNeedCover.count) books")
+        guard !booksNeedCover.isEmpty else { return }
+
+        let engine = SourceEngine()
+        let ruleExecutor = RuleExecutor()
+
+        for book in booksNeedCover {
+            print("[Cover] Processing: \(book.title), author: \(book.author), current coverURL: \(book.coverURL ?? "nil")")
+
+            // 1. 优先从书源获取封面
+            if let sourceId = book.sourceId, let sourceBookURL = book.sourceBookURL {
+                do {
+                    let descriptor = FetchDescriptor<BookSource>(predicate: #Predicate<BookSource> { $0.id == sourceId })
+                    if let bookSource = try modelContext.fetch(descriptor).first {
+                        let legado = try LegadoSourceParser.parse(json: bookSource.ruleJSON, matchingURL: bookSource.sourceURL)
+                        if let infoRule = legado.bookInfoRule, let coverRule = infoRule.coverUrl {
+                            let resolvedURL = engine.resolveURL(sourceBookURL, base: legado.url)
+                            let html = try await NetworkClient.shared.fetchString(url: resolvedURL)
+                            if let coverURL = try? ruleExecutor.getString(html: html, rule: coverRule, baseURL: legado.url),
+                               !coverURL.isEmpty {
+                                let resolved = engine.resolveURL(coverURL, base: legado.url)
+                                print("[Cover] Source provided cover: \(resolved)")
+                                book.coverURL = resolved
+                                continue
+                            }
+                        }
+                    }
+                } catch {
+                    print("[Cover] Source cover fetch error: \(error)")
+                }
+            }
+
+            // 2. 兜底：通过书名+作者名搜索封面
+            print("[Cover] Falling back to Douban search for: \(book.title)")
+            if let coverURL = await CoverSearchService.searchCover(title: book.title, author: book.author, bookId: book.id) {
+                print("[Cover] Douban found cover: \(coverURL)")
+                book.coverURL = coverURL
+            } else {
+                print("[Cover] Douban search returned nil")
+            }
+        }
+        try? modelContext.save()
     }
 
     private var emptyState: some View {

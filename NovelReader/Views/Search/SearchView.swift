@@ -12,7 +12,11 @@ struct SearchView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 searchBar
-                resultsList
+                if let service = searchService {
+                    searchContent(service)
+                } else {
+                    placeholder(icon: "text.magnifyingglass", text: "输入书名开始搜索")
+                }
             }
             .background(Color(.systemBackground))
             .navigationTitle("搜索")
@@ -28,7 +32,10 @@ struct SearchView: View {
                 }
             }
             .sheet(item: $selectedResult) { result in
-                SourceSelectView(result: result)
+                SourceSelectView(result: result, onAdded: {
+                    selectedResult = nil
+                    dismiss()
+                })
             }
         }
     }
@@ -60,93 +67,125 @@ struct SearchView: View {
         .padding(.vertical, 8)
     }
 
-    private var resultsList: some View {
-        Group {
-            if searchService?.isSearching == true {
-                VStack(spacing: 12) {
-                    Spacer()
-                    ProgressView()
-                    Text("搜索中...")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
+    @ViewBuilder
+    private func searchContent(_ service: SearchService) -> some View {
+        if service.isSearching && service.results.isEmpty {
+            VStack(spacing: 12) {
+                Spacer()
+                ProgressView()
+                progressText(service)
+                Spacer()
+            }
+        } else if !service.results.isEmpty {
+            VStack(spacing: 0) {
+                if service.isSearching {
+                    progressBar(service)
                 }
-            } else if let error = searchService?.searchError {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-            } else if let results = searchService?.results, !results.isEmpty {
-                List(results) { result in
-                    Button {
-                        selectedResult = result
-                    } label: {
+                List(service.results) { result in
+                    Button { selectedResult = result } label: {
                         searchResultRow(result)
                     }
                 }
                 .listStyle(.plain)
-            } else if searchService?.results.isEmpty == true {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary.opacity(0.5))
-                    Text("未找到相关书籍")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-            } else {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "text.magnifyingglass")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary.opacity(0.3))
-                    Text("输入书名开始搜索")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
             }
+        } else if service.searchedCount > 0 {
+            placeholder(icon: "magnifyingglass", text: "未找到相关书籍")
+        } else {
+            placeholder(icon: "text.magnifyingglass", text: "输入书名开始搜索")
+        }
+    }
+
+    private func progressBar(_ service: SearchService) -> some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.7)
+            progressText(service)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color(.systemGray6).opacity(0.8))
+    }
+
+    private func progressText(_ service: SearchService) -> some View {
+        Text("已搜索 \(service.searchedCount)/\(service.totalCount) 个书源")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    private func placeholder(icon: String, text: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: icon)
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary.opacity(0.4))
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
         }
     }
 
     private func searchResultRow(_ result: AggregatedSearchResult) -> some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color(.systemGray5))
-                .frame(width: 45, height: 60)
-                .overlay(
-                    Text(String(result.title.prefix(1)))
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                )
-            VStack(alignment: .leading, spacing: 4) {
+            coverView(result)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(result.title)
                     .font(.body)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(result.author)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if !result.author.isEmpty {
+                    Text(result.author)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if let intro = result.intro, !intro.isEmpty {
+                    Text(intro)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                }
             }
-            Spacer()
-            Text("\(result.sources.count)个来源")
-                .font(.caption)
+            Spacer(minLength: 4)
+            Text("\(result.sources.count)源")
+                .font(.caption2)
                 .foregroundStyle(.blue)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
                 .background(Color.blue.opacity(0.1))
                 .clipShape(Capsule())
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func coverView(_ result: AggregatedSearchResult) -> some View {
+        if let urlString = result.coverURL, let url = URL(string: urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    coverPlaceholder(result.title)
+                }
+            }
+            .frame(width: 48, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else {
+            coverPlaceholder(result.title)
+        }
+    }
+
+    private func coverPlaceholder(_ title: String) -> some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color(.systemGray5))
+            .frame(width: 48, height: 64)
+            .overlay(
+                Text(String(title.prefix(1)))
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            )
     }
 
     private func performSearch() {

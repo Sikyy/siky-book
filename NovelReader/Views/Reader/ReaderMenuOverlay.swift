@@ -9,13 +9,17 @@ struct ReaderMenuOverlay: View {
     let onDismiss: () -> Void
     let onBack: () -> Void
     let chapters: [Chapter]
+    var onCache: ((Int?) -> Void)? = nil
+    var isCaching: Bool = false
+    var cacheProgress: String? = nil
 
-    @State private var activePopup: MenuPopup?
     @State private var showChapterList = false
     @State private var showSettings = false
     @State private var sliderValue: Double = 0
+    @State private var bottomMode: BottomMode = .main
 
-    enum MenuPopup {
+    enum BottomMode: Equatable {
+        case main
         case fontSize
         case brightness
     }
@@ -24,32 +28,19 @@ struct ReaderMenuOverlay: View {
         ZStack {
             Color.black.opacity(0.3)
                 .ignoresSafeArea()
-                .onTapGesture {
-                    if activePopup != nil {
-                        activePopup = nil
-                    } else {
-                        onDismiss()
-                    }
-                }
+                .contentShape(Rectangle())
+                .onTapGesture { onDismiss() }
 
-            VStack {
+            VStack(spacing: 0) {
                 topBar
                 Spacer()
                 bottomPanel
             }
-
-            if activePopup == .fontSize {
-                FontSizePopup(settings: settings)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            }
-
-            if activePopup == .brightness {
-                BrightnessPopup()
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            }
         }
-        .animation(.easeInOut(duration: 0.2), value: activePopup)
         .onAppear { sliderValue = Double(currentChapterIndex) }
+        .onChange(of: currentChapterIndex) { _, newValue in
+            sliderValue = Double(newValue)
+        }
         .sheet(isPresented: $showChapterList) {
             NavigationStack {
                 chapterListContent
@@ -63,54 +54,106 @@ struct ReaderMenuOverlay: View {
         }
     }
 
+    // MARK: - Top Bar
+
     private var topBar: some View {
         HStack {
             Button(action: { onBack() }) {
-                Text("‹ 返回")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color(hex: "#8e8e93"))
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .medium))
+                    Text("返回")
+                        .font(.system(size: 16))
+                }
+                .foregroundStyle(.white.opacity(0.85))
             }
             Spacer()
             Text(chapterTitle)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: "#e5e5e7"))
+                .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)
             Spacer()
-            Button(action: { showChapterList = true }) {
-                Text("目录")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color(hex: "#8e8e93"))
+            if let onCache {
+                if isCaching {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .tint(.white.opacity(0.7))
+                            .scaleEffect(0.7)
+                        if let cacheProgress {
+                            Text(cacheProgress)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+                    .frame(width: 44)
+                } else {
+                    Menu {
+                        Button("缓存后100章") { onCache(100) }
+                        Button("缓存全部") { onCache(nil) }
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .frame(width: 44)
+                }
+            } else {
+                Color.clear.frame(width: 44, height: 1)
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-        )
+        .padding(.top, 12)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial.opacity(0.98), ignoresSafeAreaEdges: .top)
+        .environment(\.colorScheme, .dark)
     }
+
+    // MARK: - Bottom Panel
 
     private var bottomPanel: some View {
         VStack(spacing: 0) {
+            switch bottomMode {
+            case .main:
+                mainControls
+            case .fontSize:
+                fontSizeControls
+            case .brightness:
+                brightnessControls
+            }
+        }
+        .padding(.top, 9)
+        .padding(.bottom, 8)
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial.opacity(0.98), ignoresSafeAreaEdges: .bottom)
+        .environment(\.colorScheme, .dark)
+        .animation(.easeInOut(duration: 0.15), value: bottomMode)
+    }
+
+    // MARK: - Main Controls
+
+    private var mainControls: some View {
+        VStack(spacing: 20) {
             chapterSlider
-                .padding(.bottom, 24)
             iconRow
         }
-        .padding(20)
-        .background(
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-        )
+        .padding(.bottom, -7)
     }
 
     private var chapterSlider: some View {
-        HStack(spacing: 12) {
-            Text("\(max(currentChapterIndex, 1))")
-                .font(.system(size: 12))
-                .foregroundStyle(Color(hex: "#636366"))
-                .frame(width: 30, alignment: .trailing)
+        HStack(spacing: 16) {
+            Button {
+                if currentChapterIndex > 0 {
+                    currentChapterIndex -= 1
+                    sliderValue = Double(currentChapterIndex)
+                }
+            } label: {
+                Text("上一章")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(currentChapterIndex > 0 ? 0.7 : 0.3))
+            }
+            .disabled(currentChapterIndex <= 0)
 
             Slider(
                 value: $sliderValue,
@@ -121,67 +164,156 @@ struct ReaderMenuOverlay: View {
                     currentChapterIndex = Int(sliderValue)
                 }
             }
-            .tint(Color(hex: "#636366"))
+            .tint(.white.opacity(0.5))
 
-            Text("\(min(currentChapterIndex + 2, totalChapters))")
-                .font(.system(size: 12))
-                .foregroundStyle(Color(hex: "#636366"))
-                .frame(width: 30, alignment: .leading)
+            Button {
+                if currentChapterIndex < totalChapters - 1 {
+                    currentChapterIndex += 1
+                    sliderValue = Double(currentChapterIndex)
+                }
+            } label: {
+                Text("下一章")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(currentChapterIndex < totalChapters - 1 ? 0.7 : 0.3))
+            }
+            .disabled(currentChapterIndex >= totalChapters - 1)
         }
     }
 
     private var iconRow: some View {
-        HStack {
-            Spacer()
-            menuButton(icon: "☰", label: "目录", isActive: false) {
+        HStack(spacing: 0) {
+            toolButton(icon: "list.bullet", label: "目录") {
                 showChapterList = true
             }
-            Spacer()
-            menuButton(icon: "☀", label: "亮度", isActive: activePopup == .brightness) {
-                activePopup = activePopup == .brightness ? nil : .brightness
+            toolButton(icon: "sun.max", label: "亮度") {
+                bottomMode = bottomMode == .brightness ? .main : .brightness
             }
-            Spacer()
-            menuButton(iconView: AnyView(
-                Text("Aa")
-                    .font(.system(size: 15, weight: .light))
-                    .foregroundStyle(activePopup == .fontSize ? Color(hex: "#3b82f6") : Color(hex: "#e5e5e7"))
-            ), label: "字号", isActive: activePopup == .fontSize) {
-                activePopup = activePopup == .fontSize ? nil : .fontSize
+            toolButton(icon: "textformat.size", label: "字号") {
+                bottomMode = bottomMode == .fontSize ? .main : .fontSize
             }
-            Spacer()
-            menuButton(icon: "⚙", label: "设置", isActive: false) {
+            toolButton(icon: "gearshape", label: "设置") {
                 showSettings = true
             }
-            Spacer()
         }
     }
 
-    private func menuButton(icon: String? = nil, iconView: AnyView? = nil, label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func toolButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(isActive ? Color(hex: "#3b82f6").opacity(0.3) : Color.white.opacity(0.08))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(isActive ? Color(hex: "#3b82f6") : Color.clear, lineWidth: 1.5)
-                        )
-                        .frame(width: 36, height: 36)
-
-                    if let iconView = iconView {
-                        iconView
-                    } else if let icon = icon {
-                        Text(icon)
-                            .font(.system(size: 16))
-                    }
-                }
+            VStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(height: 24)
                 Text(label)
                     .font(.system(size: 10))
-                    .foregroundStyle(isActive ? Color(hex: "#3b82f6") : Color(hex: "#8e8e93"))
+                    .foregroundStyle(.white.opacity(0.5))
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
         .buttonStyle(.plain)
     }
+
+    // MARK: - Font Size Panel
+
+    private var fontSizeControls: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("字号")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.6))
+                Spacer()
+                Text("\(Int(settings.fontSize))")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+
+            HStack(spacing: 16) {
+                Button {
+                    settings.fontSize = max(settings.fontSize - 1, 12)
+                    settings.save()
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 36, height: 36)
+                        .background(.white.opacity(0.1), in: Circle())
+                }
+                .buttonStyle(.plain)
+
+                Slider(
+                    value: Binding(
+                        get: { Double(settings.fontSize) },
+                        set: {
+                            settings.fontSize = CGFloat($0)
+                            settings.save()
+                        }
+                    ),
+                    in: 12...32,
+                    step: 1
+                )
+                .tint(.white.opacity(0.5))
+
+                Button {
+                    settings.fontSize = min(settings.fontSize + 1, 32)
+                    settings.save()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 36, height: 36)
+                        .background(.white.opacity(0.1), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            backToMainButton
+        }
+    }
+
+    // MARK: - Brightness Panel
+
+    private var brightnessControls: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("亮度")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.6))
+                Spacer()
+            }
+
+            HStack(spacing: 16) {
+                Image(systemName: "sun.min")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.6))
+
+                BrightnessSlider()
+
+                Image(systemName: "sun.max.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+
+            backToMainButton
+        }
+    }
+
+    private var backToMainButton: some View {
+        Button { bottomMode = .main } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .medium))
+                Text("收起")
+                    .font(.system(size: 13))
+            }
+            .foregroundStyle(.white.opacity(0.5))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Chapter List
 
     private var chapterListContent: some View {
         List(chapters) { chapter in
@@ -198,6 +330,10 @@ struct ReaderMenuOverlay: View {
                         Image(systemName: "book.fill")
                             .foregroundStyle(.blue)
                             .font(.caption)
+                    } else if chapter.isCached || chapter.content != nil {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green.opacity(0.6))
+                            .font(.caption2)
                     }
                 }
             }
@@ -205,9 +341,30 @@ struct ReaderMenuOverlay: View {
         .navigationTitle("目录")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                if isCaching, let progress = cacheProgress {
+                    Text(progress)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if onCache != nil {
+                    Button("缓存全部") { onCache?(nil) }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("关闭") { showChapterList = false }
             }
         }
+    }
+}
+
+private struct BrightnessSlider: View {
+    @State private var brightness: Double = Double(UIScreen.main.brightness)
+
+    var body: some View {
+        Slider(value: $brightness, in: 0...1)
+            .tint(.white.opacity(0.5))
+            .onChange(of: brightness) { _, newValue in
+                UIScreen.main.brightness = CGFloat(newValue)
+            }
     }
 }

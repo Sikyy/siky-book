@@ -14,11 +14,13 @@ struct BookCoverView: View {
     private var coverImage: some View {
         ZStack(alignment: .topTrailing) {
             ZStack {
-                if let coverURL = book.coverURL, let url = URL(string: coverURL) {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        placeholderGradient
+                if let coverURL = book.coverURL, !coverURL.isEmpty, let url = Self.resolveURL(coverURL) {
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else {
+                            placeholderGradient
+                        }
                     }
                 } else {
                     placeholderGradient
@@ -34,6 +36,17 @@ struct BookCoverView: View {
 
             badge
         }
+    }
+
+    /// 解析封面 URL：本地相对路径 → Documents 下绝对路径，远程 URL 直接返回
+    private static func resolveURL(_ coverURL: String) -> URL? {
+        if coverURL.hasPrefix("http://") || coverURL.hasPrefix("https://") || coverURL.hasPrefix("file://") {
+            return URL(string: coverURL)
+        }
+        // 本地相对路径，如 "covers/xxx.jpg"
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let localFile = docs.appendingPathComponent(coverURL)
+        return FileManager.default.fileExists(atPath: localFile.path) ? localFile : nil
     }
 
     private var placeholderGradient: some View {
