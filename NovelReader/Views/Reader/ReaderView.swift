@@ -4,7 +4,7 @@ import CoreText
 
 struct ReaderView: View {
     let book: Book
-    @Query private var chapters: [Chapter]
+    @State private var chapters: [Chapter] = []
     @State private var currentChapterIndex: Int
     @State private var showMenu = false
     @State private var currentPageIndex: Int = 0
@@ -19,28 +19,36 @@ struct ReaderView: View {
     @State private var cacheTask: Task<Void, Never>?
     @State private var skipPageReset = false
     @State private var viewSize: CGSize = .zero
+    @State private var cachedPages: [[PageFragment]] = [[]]
+    @State private var cachedParagraphs: [String] = []
+    @State private var scrolledPage: Int?
     private let pageBottomReserve: CGFloat = 72
 
     init(book: Book, startChapterIndex: Int = 0) {
         self.book = book
         self._currentChapterIndex = State(initialValue: startChapterIndex)
-        let bookId = book.id
-        _chapters = Query(
-            filter: #Predicate<Chapter> { $0.book?.id == bookId },
-            sort: [SortDescriptor(\Chapter.index)]
-        )
     }
 
+    /// O(1) access — chapters sorted by index, indices are 0-based contiguous
     private var currentChapter: Chapter? {
-        chapters.first { $0.index == currentChapterIndex }
+        guard currentChapterIndex >= 0, currentChapterIndex < chapters.count else { return nil }
+        return chapters[currentChapterIndex]
     }
 
-    private var chapterText: String {
-        currentChapter?.content ?? ""
+    /// Load chapters once from SwiftData — no reactive @Query overhead
+    private func loadChapters() {
+        let bookId = book.id
+        let descriptor = FetchDescriptor<Chapter>(
+            predicate: #Predicate<Chapter> { $0.book?.id == bookId },
+            sortBy: [SortDescriptor(\Chapter.index)]
+        )
+        chapters = (try? modelContext.fetch(descriptor)) ?? []
     }
 
-    private var paragraphs: [String] {
-        chapterText
+    /// Reparse paragraphs from current chapter — call on chapter switch / content load
+    private func rebuildParagraphs() {
+        let text = currentChapter?.content ?? ""
+        cachedParagraphs = text
             .components(separatedBy: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -76,16 +84,27 @@ struct ReaderView: View {
         .onChange(of: currentChapterIndex) { _, newValue in
             let manager = BookManager(modelContext: modelContext)
             manager.updateProgress(book: book, chapterIndex: newValue, position: 0)
+            recomputePages()
             if skipPageReset {
                 skipPageReset = false
+                currentPageIndex = max(cachedPages.count - 1, 0)
             } else {
                 currentPageIndex = 0
             }
+            scrolledPage = currentPageIndex
         }
+        .onAppear { loadChapters() }
         .onDisappear {
             let manager = BookManager(modelContext: modelContext)
             manager.updateProgress(book: book, chapterIndex: currentChapterIndex, position: 0)
         }
+        .onChange(of: isLoadingContent) { old, new in
+            if old && !new { recomputePages() }
+        }
+        .onChange(of: settings.fontSize) { _, _ in recomputePages() }
+        .onChange(of: settings.lineSpacing) { _, _ in recomputePages() }
+        .onChange(of: settings.fontFamily) { _, _ in recomputePages() }
+        .onChange(of: settings.horizontalPadding) { _, _ in recomputePages() }
     }
 
     // MARK: - Reading Content
@@ -133,7 +152,7 @@ struct ReaderView: View {
                     .foregroundStyle(settings.theme.chapterTitleColor)
                     .padding(.bottom, 8)
 
-                ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, para in
+                ForEach(Array(cachedParagraphs.enumerated()), id: \.offset) { _, para in
                     Text("\u{3000}\u{3000}" + para)
                         .font(.custom(settings.fontFamily.rawValue, size: settings.fontSize))
                         .foregroundStyle(settings.theme.textColor)
@@ -158,59 +177,65 @@ struct ReaderView: View {
 
     private var pagedContent: some View {
         GeometryReader { geometry in
-            let pages = splitIntoPages(size: geometry.size)
+            let pages = cachedPages
             let totalPages = pages.count
             let safeIndex = max(0, min(currentPageIndex, totalPages - 1))
-            let hasNext = currentChapterIndex < book.totalChapters - 1
+            let width = geometry.size.width
             let hasPrev = currentChapterIndex > 0
+            let hasNext = currentChapterIndex < chapters.count - 1
 
-            let allPageTags: [Int] = {
-                var tags: [Int] = []
-                if hasPrev { tags.append(-1) }
-                for i in 0..<totalPages { tags.append(i) }
-                if hasNext { tags.append(totalPages) }
-                return tags
-            }()
-
-            ZStack {
+            Group {
                 if settings.pageMode == .horizontal {
-                    TabView(selection: $currentPageIndex) {
-                        ForEach(allPageTags, id: \.self) { tag in
-                            Group {
-                                if tag == -1 || tag >= totalPages {
-                                    settings.theme.backgroundColor
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                } else {
-                                    pageView(fragments: pages[tag], isFirstPage: tag == 0)
-                                }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 0) {
+                            // Previous chapter sentinel
+                            if hasPrev {
+                                chapterBoundaryPage(
+                                    label: "上一章",
+                                    title: prevChapterTitle
+                                )
+                                .frame(width: width, height: geometry.size.height)
+                                .id(-1)
                             }
-                            .contentShape(Rectangle())
-                            .onTapGesture { location in
-                                handlePageTap(location: location, screenSize: geometry.size, totalPages: totalPages)
+
+                            // Content pages
+                            ForEach(0..<totalPages, id: \.self) { index in
+                                pageView(fragments: pages[index], isFirstPage: index == 0)
+                                    .frame(width: width, height: geometry.size.height)
                             }
-                            .tag(tag)
+
+                            // Next chapter sentinel
+                            if hasNext {
+                                chapterBoundaryPage(
+                                    label: "下一章",
+                                    title: nextChapterTitle
+                                )
+                                .frame(width: width, height: geometry.size.height)
+                                .id(totalPages)
+                            }
                         }
+                        .scrollTargetLayout()
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .id(currentChapterIndex)
-                    .onChange(of: currentPageIndex) { _, newValue in
-                        if hasNext && newValue >= totalPages {
-                            currentChapterIndex += 1
-                            currentPageIndex = 0
-                        } else if hasPrev && newValue < 0 {
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: $scrolledPage)
+                    .onChange(of: scrolledPage) { _, newValue in
+                        guard let newValue else { return }
+                        if newValue == -1 && hasPrev {
                             skipPageReset = true
                             currentChapterIndex -= 1
-                            let newPages = splitIntoPages(size: geometry.size)
-                            currentPageIndex = max(newPages.count - 1, 0)
+                        } else if newValue >= totalPages && hasNext {
+                            currentChapterIndex += 1
+                        } else if newValue >= 0 && newValue < totalPages {
+                            currentPageIndex = newValue
                         }
                     }
                 } else {
                     pageView(fragments: pages[safeIndex], isFirstPage: safeIndex == 0)
-                        .contentShape(Rectangle())
-                        .onTapGesture { location in
-                            handlePageTap(location: location, screenSize: geometry.size, totalPages: totalPages)
-                        }
                 }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { location in
+                handlePageTap(location: location, screenSize: geometry.size, totalPages: totalPages)
             }
             .overlay(alignment: .bottom) {
                 if !showMenu {
@@ -219,38 +244,59 @@ struct ReaderView: View {
             }
             .onAppear {
                 viewSize = geometry.size
-                if currentPageIndex >= pages.count {
-                    currentPageIndex = max(pages.count - 1, 0)
-                }
+                recomputePages()
+                scrolledPage = currentPageIndex
             }
             .onChange(of: geometry.size) { _, newSize in
                 viewSize = newSize
+                recomputePages()
             }
         }
     }
 
-    private func pageView(fragments: [PageFragment], isFirstPage: Bool) -> some View {
-        VStack(alignment: .leading, spacing: settings.fontSize * (settings.lineSpacing - 1)) {
-            if isFirstPage {
-                Text(currentChapter?.title ?? "")
-                    .font(.system(size: 12))
-                    .foregroundStyle(settings.theme.chapterTitleColor)
-                    .padding(.bottom, 8)
-            }
-
-            ForEach(fragments) { frag in
-                Text(frag.indent ? "\u{3000}\u{3000}" + frag.text : frag.text)
-                    .font(.custom(settings.fontFamily.rawValue, size: settings.fontSize))
-                    .foregroundStyle(settings.theme.textColor)
-                    .lineSpacing(settings.fontSize * (settings.lineSpacing - 1))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
+    /// Sentinel page shown at chapter boundaries — minimal content, quick to render
+    private func chapterBoundaryPage(label: String, title: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Text(label)
+                .font(.system(size: 14))
+                .foregroundStyle(settings.theme.textColor.opacity(0.4))
+            Text(title)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(settings.theme.textColor.opacity(0.6))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
             Spacer()
         }
-        .padding(.horizontal, settings.horizontalPadding)
-        .padding(.top, 20)
-        .padding(.bottom, pageBottomReserve)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var prevChapterTitle: String {
+        let i = currentChapterIndex - 1
+        guard i >= 0, i < chapters.count else { return "" }
+        return chapters[i].title
+    }
+
+    private var nextChapterTitle: String {
+        let i = currentChapterIndex + 1
+        guard i < chapters.count else { return "" }
+        return chapters[i].title
+    }
+
+    private func pageView(fragments: [PageFragment], isFirstPage: Bool) -> some View {
+        StaticPageView(
+            fragments: fragments,
+            isFirstPage: isFirstPage,
+            chapterTitle: currentChapter?.title ?? "",
+            fontSize: settings.fontSize,
+            lineSpacing: settings.lineSpacing,
+            fontFamily: settings.fontFamily.rawValue,
+            textColor: settings.theme.textColor,
+            titleColor: settings.theme.chapterTitleColor,
+            horizontalPadding: settings.horizontalPadding,
+            bottomReserve: pageBottomReserve
+        )
     }
 
     // MARK: - Tap Handling
@@ -280,19 +326,20 @@ struct ReaderView: View {
 
         if location.x < screenSize.width / 3 {
             if currentPageIndex > 0 {
-                withAnimation { currentPageIndex -= 1 }
+                currentPageIndex -= 1
+                scrolledPage = currentPageIndex
             } else if currentChapterIndex > 0 {
                 skipPageReset = true
                 currentChapterIndex -= 1
-                let newPages = splitIntoPages(size: viewSize)
-                currentPageIndex = max(newPages.count - 1, 0)
+                // onChange(of: currentChapterIndex) handles recomputePages + scroll
             }
         } else if location.x > screenSize.width * 2 / 3 {
             if currentPageIndex < totalPages - 1 {
-                withAnimation { currentPageIndex += 1 }
-            } else if currentChapterIndex < book.totalChapters - 1 {
+                currentPageIndex += 1
+                scrolledPage = currentPageIndex
+            } else if currentChapterIndex < chapters.count - 1 {
                 currentChapterIndex += 1
-                currentPageIndex = 0
+                // onChange(of: currentChapterIndex) handles recomputePages + scroll
             }
         }
     }
@@ -300,13 +347,22 @@ struct ReaderView: View {
     // MARK: - Page Splitting
 
     struct PageFragment: Identifiable {
-        let id = UUID()
+        let id: Int
         let text: String
         let indent: Bool
     }
 
+    private func recomputePages() {
+        guard viewSize.width > 0, viewSize.height > 0 else { return }
+        rebuildParagraphs()
+        cachedPages = splitIntoPages(size: viewSize)
+        if currentPageIndex >= cachedPages.count {
+            currentPageIndex = max(cachedPages.count - 1, 0)
+        }
+    }
+
     private func splitIntoPages(size: CGSize) -> [[PageFragment]] {
-        guard !paragraphs.isEmpty else { return [[]] }
+        guard !cachedParagraphs.isEmpty else { return [[]] }
 
         let textWidth = size.width - settings.horizontalPadding * 2
         let pageHeight = max(120, size.height - 20 - pageBottomReserve)
@@ -364,27 +420,31 @@ struct ReaderView: View {
             let indent: Bool
         }
 
-        var queue = paragraphs.reversed().map { QueueItem(text: $0, indent: true) }
+        var queue = cachedParagraphs.reversed().map { QueueItem(text: $0, indent: true) }
         var pages: [[PageFragment]] = []
         var currentPage: [PageFragment] = []
         var currentHeight: CGFloat = titleHeight
+        var fragmentId = 0
 
         while let item = queue.popLast() {
             let h = measureHeight(item.text, indent: item.indent)
             let gap = currentPage.isEmpty ? 0 : lineSpacingValue
 
             if currentHeight + gap + h <= pageHeight {
-                currentPage.append(PageFragment(text: item.text, indent: item.indent))
+                fragmentId += 1
+                currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent))
                 currentHeight += gap + h
             } else if currentPage.isEmpty {
                 if let (first, second) = splitText(item.text, indent: item.indent, fitting: pageHeight - currentHeight) {
-                    currentPage.append(PageFragment(text: first, indent: item.indent))
+                    fragmentId += 1
+                    currentPage.append(PageFragment(id: fragmentId, text: first, indent: item.indent))
                     pages.append(currentPage)
                     currentPage = []
                     currentHeight = 0
                     queue.append(QueueItem(text: second, indent: false))
                 } else {
-                    currentPage.append(PageFragment(text: item.text, indent: item.indent))
+                    fragmentId += 1
+                    currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent))
                     pages.append(currentPage)
                     currentPage = []
                     currentHeight = 0
@@ -393,7 +453,8 @@ struct ReaderView: View {
                 let remaining = pageHeight - currentHeight - gap
                 if remaining > font.lineHeight * 1.5,
                    let (first, second) = splitText(item.text, indent: item.indent, fitting: remaining) {
-                    currentPage.append(PageFragment(text: first, indent: item.indent))
+                    fragmentId += 1
+                    currentPage.append(PageFragment(id: fragmentId, text: first, indent: item.indent))
                     pages.append(currentPage)
                     currentPage = []
                     currentHeight = 0
@@ -458,13 +519,33 @@ struct ReaderView: View {
 
     private func prefetchNextChapters() {
         let start = currentChapterIndex + 1
-        let end = min(currentChapterIndex + 3, book.totalChapters - 1)
+        let end = min(currentChapterIndex + 3, chapters.count - 1)
         guard start <= end else { return }
 
         for index in start...end {
-            guard let chapter = chapters.first(where: { $0.index == index }),
-                  chapter.content == nil, chapter.sourceURL != nil else { continue }
-            Task { try? await fetchContent(for: chapter) }
+            let chapter = chapters[index]
+            guard chapter.content == nil, chapter.sourceURL != nil else { continue }
+            Task.detached(priority: .utility) { [modelContext, book] in
+                try? await Self.fetchContentDetached(chapter: chapter, book: book, modelContext: modelContext)
+            }
+        }
+    }
+
+    /// Detached prefetch — no capture of ReaderView self
+    private static func fetchContentDetached(chapter: Chapter, book: Book, modelContext: ModelContext) async throws {
+        guard chapter.content == nil, let sourceURL = chapter.sourceURL else { return }
+        guard let bookSourceId = book.sourceId else { return }
+
+        let descriptor = FetchDescriptor<BookSource>(predicate: #Predicate<BookSource> { $0.id == bookSourceId })
+        guard let bookSource = try? modelContext.fetch(descriptor).first else { return }
+        let legado = try LegadoSourceParser.parse(json: bookSource.ruleJSON, matchingURL: bookSource.sourceURL)
+        guard let contentRule = legado.contentRule else { return }
+
+        let html = try await NetworkClient.shared.fetchString(url: sourceURL)
+        let content = try SourceEngine().parseContent(response: html, rule: contentRule, baseURL: legado.url)
+        await MainActor.run {
+            chapter.content = content
+            chapter.isCached = true
         }
     }
 
@@ -553,5 +634,56 @@ struct ReaderView: View {
         }
         .padding(.horizontal, settings.horizontalPadding)
         .padding(.bottom, 8)
+    }
+}
+
+// MARK: - Static Page View (no @Observable dependencies, Equatable for skip)
+
+private struct StaticPageView: View, Equatable {
+    let fragments: [ReaderView.PageFragment]
+    let isFirstPage: Bool
+    let chapterTitle: String
+    let fontSize: CGFloat
+    let lineSpacing: Double
+    let fontFamily: String
+    let textColor: Color
+    let titleColor: Color
+    let horizontalPadding: CGFloat
+    let bottomReserve: CGFloat
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.fragments.count == rhs.fragments.count
+        && lhs.isFirstPage == rhs.isFirstPage
+        && lhs.chapterTitle == rhs.chapterTitle
+        && lhs.fontSize == rhs.fontSize
+        && lhs.lineSpacing == rhs.lineSpacing
+        && lhs.fontFamily == rhs.fontFamily
+        && lhs.horizontalPadding == rhs.horizontalPadding
+        && lhs.bottomReserve == rhs.bottomReserve
+        && lhs.fragments.first?.id == rhs.fragments.first?.id
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: fontSize * (lineSpacing - 1)) {
+            if isFirstPage {
+                Text(chapterTitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(titleColor)
+                    .padding(.bottom, 8)
+            }
+
+            ForEach(fragments) { frag in
+                Text(frag.indent ? "\u{3000}\u{3000}" + frag.text : frag.text)
+                    .font(.custom(fontFamily, size: fontSize))
+                    .foregroundStyle(textColor)
+                    .lineSpacing(fontSize * (lineSpacing - 1))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, horizontalPadding)
+        .padding(.top, 20)
+        .padding(.bottom, bottomReserve)
     }
 }

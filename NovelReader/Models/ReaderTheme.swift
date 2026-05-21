@@ -27,27 +27,36 @@ enum ReaderTheme: String, CaseIterable, Codable {
         }
     }
 
-    var backgroundColor: Color {
-        Color(hex: backgroundHex)
-    }
-
-    var textColor: Color {
-        Color(hex: textHex)
-    }
+    var backgroundColor: Color { Self.colorCache[backgroundHex]! }
+    var textColor: Color { Self.colorCache[textHex]! }
 
     var chapterTitleColor: Color {
         switch self {
-        case .lightWhite, .eyeCareGreen: return Color(hex: "#999999")
-        default: return Color(hex: "#555555")
+        case .lightWhite, .eyeCareGreen: return Self.colorCache["#999999"]!
+        default: return Self.colorCache["#555555"]!
         }
     }
 
     var statusBarColor: Color {
         switch self {
-        case .lightWhite, .eyeCareGreen: return Color(hex: "#aaaaaa")
-        default: return Color(hex: "#3a3a3a")
+        case .lightWhite, .eyeCareGreen: return Self.colorCache["#aaaaaa"]!
+        default: return Self.colorCache["#3a3a3a"]!
         }
     }
+
+    // Pre-computed color cache — avoids hex parsing on every access
+    private static let colorCache: [String: Color] = {
+        let hexes = [
+            "#121212", "#1a1814", "#f5f5f0", "#c7edcc",
+            "#d4d4d4", "#c8b89a", "#2c2c2c", "#2c3e2c",
+            "#999999", "#555555", "#aaaaaa", "#3a3a3a"
+        ]
+        var cache: [String: Color] = [:]
+        for hex in hexes {
+            cache[hex] = Color(hex: hex)
+        }
+        return cache
+    }()
 
     var displayName: String {
         switch self {
