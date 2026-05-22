@@ -9,9 +9,8 @@ struct ReaderSettingsView: View {
             fontSection
             spacingSection
             pageModeSection
-            themeSection
         }
-        .navigationTitle("阅读设置")
+        .navigationTitle("字体与间距")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -29,7 +28,7 @@ struct ReaderSettingsView: View {
                 } label: {
                     HStack {
                         Text(font.displayName)
-                            .font(.custom(font.rawValue, size: 17))
+                            .font(font.isSystem ? .system(size: 17) : .custom(font.rawValue, size: 17))
                             .foregroundStyle(.primary)
                         Spacer()
                         if settings.fontFamily == font {
@@ -91,38 +90,6 @@ struct ReaderSettingsView: View {
                     }
                 }
             }
-        }
-    }
-
-    private var themeSection: some View {
-        Section("主题") {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
-                ForEach(ReaderTheme.allCases, id: \.self) { theme in
-                    Button {
-                        settings.theme = theme
-                    } label: {
-                        VStack(spacing: 6) {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(theme.backgroundColor)
-                                .frame(height: 44)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(settings.theme == theme ? Color.blue : Color.gray.opacity(0.3), lineWidth: settings.theme == theme ? 2 : 1)
-                                )
-                                .overlay(
-                                    Text("文")
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(theme.textColor)
-                                )
-                            Text(theme.displayName)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 8)
         }
     }
 }

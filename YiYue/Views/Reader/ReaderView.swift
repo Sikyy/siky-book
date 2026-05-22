@@ -22,7 +22,10 @@ struct ReaderView: View {
     @State private var cachedPages: [[PageFragment]] = [[]]
     @State private var cachedParagraphs: [String] = []
     @State private var scrolledPage: Int?
+    @State private var tapSentinel: TapSentinel? = nil
     private let pageBottomReserve: CGFloat = 72
+
+    private enum TapSentinel { case prev, next }
 
     init(book: Book, startChapterIndex: Int = 0) {
         self.book = book
@@ -82,6 +85,7 @@ struct ReaderView: View {
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
         .preferredColorScheme(settings.theme.isDark ? .dark : .light)
         .onChange(of: currentChapterIndex) { _, newValue in
+            tapSentinel = nil
             let manager = BookManager(modelContext: modelContext)
             manager.updateProgress(book: book, chapterIndex: newValue, position: 0)
             recomputePages()
@@ -154,7 +158,9 @@ struct ReaderView: View {
 
                 ForEach(Array(cachedParagraphs.enumerated()), id: \.offset) { _, para in
                     Text("\u{3000}\u{3000}" + para)
-                        .font(.custom(settings.fontFamily.rawValue, size: settings.fontSize))
+                        .font(settings.fontFamily.isSystem
+                            ? .system(size: settings.fontSize)
+                            : .custom(settings.fontFamily.rawValue, size: settings.fontSize))
                         .foregroundStyle(settings.theme.textColor)
                         .lineSpacing(settings.fontSize * (settings.lineSpacing - 1))
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -188,6 +194,13 @@ struct ReaderView: View {
                 if settings.pageMode == .horizontal {
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(spacing: 0) {
+                            // Previous chapter trigger (swipe past sentinel to change chapter)
+                            if hasPrev {
+                                settings.theme.backgroundColor
+                                    .frame(width: width, height: geometry.size.height)
+                                    .id(-2)
+                            }
+
                             // Previous chapter sentinel
                             if hasPrev {
                                 chapterBoundaryPage(
@@ -213,6 +226,13 @@ struct ReaderView: View {
                                 .frame(width: width, height: geometry.size.height)
                                 .id(totalPages)
                             }
+
+                            // Next chapter trigger (swipe past sentinel to change chapter)
+                            if hasNext {
+                                settings.theme.backgroundColor
+                                    .frame(width: width, height: geometry.size.height)
+                                    .id(totalPages + 1)
+                            }
                         }
                         .scrollTargetLayout()
                     }
@@ -220,17 +240,23 @@ struct ReaderView: View {
                     .scrollPosition(id: $scrolledPage)
                     .onChange(of: scrolledPage) { _, newValue in
                         guard let newValue else { return }
-                        if newValue == -1 && hasPrev {
+                        if newValue == -2 && hasPrev {
                             skipPageReset = true
                             currentChapterIndex -= 1
-                        } else if newValue >= totalPages && hasNext {
+                        } else if newValue == totalPages + 1 && hasNext {
                             currentChapterIndex += 1
                         } else if newValue >= 0 && newValue < totalPages {
                             currentPageIndex = newValue
                         }
                     }
                 } else {
-                    pageView(fragments: pages[safeIndex], isFirstPage: safeIndex == 0)
+                    if tapSentinel == .next, currentChapterIndex < chapters.count - 1 {
+                        chapterBoundaryPage(label: "下一章", title: nextChapterTitle)
+                    } else if tapSentinel == .prev, currentChapterIndex > 0 {
+                        chapterBoundaryPage(label: "上一章", title: prevChapterTitle)
+                    } else {
+                        pageView(fragments: pages[safeIndex], isFirstPage: safeIndex == 0)
+                    }
                 }
             }
             .contentShape(Rectangle())
@@ -324,22 +350,63 @@ struct ReaderView: View {
             return
         }
 
+        let hasPrev = currentChapterIndex > 0
+        let hasNext = currentChapterIndex < chapters.count - 1
+
         if location.x < screenSize.width / 3 {
-            if currentPageIndex > 0 {
-                currentPageIndex -= 1
-                scrolledPage = currentPageIndex
-            } else if currentChapterIndex > 0 {
-                skipPageReset = true
-                currentChapterIndex -= 1
-                // onChange(of: currentChapterIndex) handles recomputePages + scroll
+            // Tap left — go back
+            if settings.pageMode == .tap {
+                if tapSentinel == .prev {
+                    tapSentinel = nil
+                    skipPageReset = true
+                    currentChapterIndex -= 1
+                } else if tapSentinel == .next {
+                    tapSentinel = nil
+                } else if currentPageIndex > 0 {
+                    currentPageIndex -= 1
+                } else if hasPrev {
+                    tapSentinel = .prev
+                }
+            } else {
+                // Horizontal mode tap
+                if scrolledPage == -1 {
+                    scrolledPage = -2
+                } else if scrolledPage == totalPages {
+                    scrolledPage = totalPages - 1
+                    currentPageIndex = totalPages - 1
+                } else if currentPageIndex > 0 {
+                    currentPageIndex -= 1
+                    scrolledPage = currentPageIndex
+                } else if hasPrev {
+                    scrolledPage = -1
+                }
             }
         } else if location.x > screenSize.width * 2 / 3 {
-            if currentPageIndex < totalPages - 1 {
-                currentPageIndex += 1
-                scrolledPage = currentPageIndex
-            } else if currentChapterIndex < chapters.count - 1 {
-                currentChapterIndex += 1
-                // onChange(of: currentChapterIndex) handles recomputePages + scroll
+            // Tap right — go forward
+            if settings.pageMode == .tap {
+                if tapSentinel == .next {
+                    tapSentinel = nil
+                    currentChapterIndex += 1
+                } else if tapSentinel == .prev {
+                    tapSentinel = nil
+                } else if currentPageIndex < totalPages - 1 {
+                    currentPageIndex += 1
+                } else if hasNext {
+                    tapSentinel = .next
+                }
+            } else {
+                // Horizontal mode tap
+                if scrolledPage == totalPages {
+                    scrolledPage = totalPages + 1
+                } else if scrolledPage == -1 {
+                    scrolledPage = 0
+                    currentPageIndex = 0
+                } else if currentPageIndex < totalPages - 1 {
+                    currentPageIndex += 1
+                    scrolledPage = currentPageIndex
+                } else if hasNext {
+                    scrolledPage = totalPages
+                }
             }
         }
     }
@@ -369,8 +436,10 @@ struct ReaderView: View {
         let titleHeight: CGFloat = 30
         let lineSpacingValue = settings.fontSize * (settings.lineSpacing - 1)
 
-        let font = UIFont(name: settings.fontFamily.rawValue, size: settings.fontSize)
-            ?? UIFont.systemFont(ofSize: settings.fontSize)
+        let font: UIFont = settings.fontFamily.isSystem
+            ? UIFont.systemFont(ofSize: settings.fontSize)
+            : UIFont(name: settings.fontFamily.rawValue, size: settings.fontSize)
+                ?? UIFont.systemFont(ofSize: settings.fontSize)
         let paraStyle = NSMutableParagraphStyle()
         paraStyle.lineSpacing = lineSpacingValue
         let attributes: [NSAttributedString.Key: Any] = [
@@ -661,6 +730,8 @@ private struct StaticPageView: View, Equatable {
         && lhs.horizontalPadding == rhs.horizontalPadding
         && lhs.bottomReserve == rhs.bottomReserve
         && lhs.fragments.first?.id == rhs.fragments.first?.id
+        && lhs.textColor == rhs.textColor
+        && lhs.titleColor == rhs.titleColor
     }
 
     var body: some View {
@@ -674,7 +745,9 @@ private struct StaticPageView: View, Equatable {
 
             ForEach(fragments) { frag in
                 Text(frag.indent ? "\u{3000}\u{3000}" + frag.text : frag.text)
-                    .font(.custom(fontFamily, size: fontSize))
+                    .font(fontFamily == FontFamily.system.rawValue
+                        ? .system(size: fontSize)
+                        : .custom(fontFamily, size: fontSize))
                     .foregroundStyle(textColor)
                     .lineSpacing(fontSize * (lineSpacing - 1))
                     .frame(maxWidth: .infinity, alignment: .leading)

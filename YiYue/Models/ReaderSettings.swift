@@ -1,17 +1,19 @@
 import SwiftUI
 
 enum FontFamily: String, CaseIterable, Codable {
-    case pingfang = "PingFang SC"
+    case system = "system-default"
     case songti = "Songti SC"
     case kaiti = "Kaiti SC"
 
     var displayName: String {
         switch self {
-        case .pingfang: return "苹方"
+        case .system: return "默认"
         case .songti: return "宋体"
         case .kaiti: return "楷体"
         }
     }
+
+    var isSystem: Bool { self == .system }
 }
 
 enum PageMode: String, CaseIterable, Codable {
@@ -66,8 +68,8 @@ class ReaderSettings {
         self._fontSize = CGFloat(defaults.double(forKey: "reader.fontSize")).nonZeroOr(17)
         self._lineSpacing = defaults.double(forKey: "reader.lineSpacing").nonZeroOr(2.0)
         self._horizontalPadding = CGFloat(defaults.double(forKey: "reader.horizontalPadding")).nonZeroOr(28)
-        self.fontFamily = FontFamily(rawValue: defaults.string(forKey: "reader.fontFamily") ?? "") ?? .pingfang
-        self.theme = ReaderTheme(rawValue: defaults.string(forKey: "reader.theme") ?? "") ?? .pureBlack
+        self.fontFamily = FontFamily(rawValue: defaults.string(forKey: "reader.fontFamily") ?? "") ?? .system
+        self.theme = ReaderTheme(rawValue: defaults.string(forKey: "reader.theme") ?? "") ?? .paper
         self.pageMode = Self.loadPageMode(from: defaults)
     }
 
