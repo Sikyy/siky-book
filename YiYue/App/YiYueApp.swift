@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct NovelReaderApp: App {
+struct YiYueApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

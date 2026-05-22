@@ -1,0 +1,684 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		012404E47B3AFC12572247BA /* DocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0975DBAB71C57D0A603A1C72 /* DocumentPicker.swift */; };
+		03835B9F1D21F42F7FE5D7F2 /* SourceSelectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735474E251C3747C68C6C869 /* SourceSelectView.swift */; };
+		1174DBB8371B3E6D31CFF1B6 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = DC8AA3D756D86094E7543BF0 /* SwiftSoup */; };
+		15C3BA85A090859C615A26A1 /* YiYueApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C14CDDA1179B1F60381F893 /* YiYueApp.swift */; };
+		179296A13A0BAEDA2BE564CA /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B740020C3895911020C015E /* ModelTests.swift */; };
+		1BEB14A012317BF0D332D924 /* SourceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 542309D43B39B62127057473 /* SourceEngine.swift */; };
+		1DC77CC3320456701B27563B /* SearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DB8C5202FAEAD2CDFA673C /* SearchService.swift */; };
+		1F3326DA827E46E07561ACCC /* ImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F981D463439090ACB6B72E0E /* ImportService.swift */; };
+		2464C7D7740B85695F6305E3 /* EncodingDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78D28B485A3136705B90CC6 /* EncodingDetector.swift */; };
+		2531D1D0554E2C9092325D25 /* BookshelfView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7274D44AD6EF74DC056EA35 /* BookshelfView.swift */; };
+		275ABE745246236367B2179A /* BookManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77867B555471B2523A7F35BD /* BookManager.swift */; };
+		27A3229EB1A5DEDDBA16919E /* JSExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACCBA1C2DA40AB29567D744 /* JSExecutor.swift */; };
+		36F42549D8E8A6330F6E3BD5 /* ReaderSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233579991FCEFE7B48D2BA85 /* ReaderSettings.swift */; };
+		380A78E493B71C6A084BDA72 /* LegadoRuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B84FF998721056D60FD02CA /* LegadoRuleTests.swift */; };
+		416441BA11CB261A2921393E /* ChapterSplitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9086A1B9802DD7E245D6253 /* ChapterSplitter.swift */; };
+		4650F8DF7503331156A434B3 /* LegadoRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2006BBAE10A9017DAE2695D8 /* LegadoRule.swift */; };
+		49B589EB361503DD8A8C95A2 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92470E190557EB9194D5E727 /* SearchView.swift */; };
+		515677C4B81CF6AC42F4ED89 /* SourceImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */; };
+		5F8AAEE3D2D2F3DA955B7EFC /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904158334FC24C057F83A580 /* ContentView.swift */; };
+		708A3C92B14089197DE564DF /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D075DEF90BF070FBED77D143 /* ReaderView.swift */; };
+		72658CD87D62BBEFC849DDC2 /* BookCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0D8AB86667513D60EB1DD0 /* BookCoverView.swift */; };
+		732AA020A24378E5B26B9E7C /* BookSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 624A6FA3BD95860787AADAE3 /* BookSource.swift */; };
+		73E744EDBF4EBF362509B84B /* RuleExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D2269AB12F76D6F2B769A7 /* RuleExecutorTests.swift */; };
+		76621145991BCA6FC5A082EA /* RuleExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5842D1CB418434169DE7A410 /* RuleExecutor.swift */; };
+		85A96A5FEF5A9B6C2A40AD43 /* SourceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9420C8B4963A95A2008510 /* SourceListView.swift */; };
+		90D71F7F71AF09E10058AC16 /* EncodingDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1AE3338CC2D95CCB471820 /* EncodingDetectorTests.swift */; };
+		93091CF660D3202E137AB172 /* CoverSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BE63E6D4231737B49EEEFF /* CoverSearchService.swift */; };
+		9D2FBEDC42A364199E6121CA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 758FFC946A1C2170619D7FE1 /* Assets.xcassets */; };
+		A1D5EAC7BF1168CE45C298CB /* ReaderSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1172B8EA5341C366CB05581 /* ReaderSettingsTests.swift */; };
+		A406B298323372D82AFFBE58 /* NetworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF27560E358341B97ECE744 /* NetworkClient.swift */; };
+		A5011DAFF23DCADB51D8FDD9 /* SeriesBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947E7F1FB1030C6A3D3ABCD1 /* SeriesBookView.swift */; };
+		AC9A76280A99A89A254D81E9 /* BookManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A429EE5AB15C3491B6E9E3AA /* BookManagerTests.swift */; };
+		ADA45F1B1836C3003E070A91 /* Book.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2903DAF1D0B8E53C0F210DA8 /* Book.swift */; };
+		CC4B845643A4C4D677077460 /* ReaderTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 756CA588556A0BEA3B03DB0B /* ReaderTheme.swift */; };
+		CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */; };
+		CE0CE03ED62DA066D58AABDF /* AddBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68860057A126AE3AAB1F3EB /* AddBookView.swift */; };
+		D0AEC5482AB72944ECB49053 /* ReaderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 246D61D2A8723A2CFFFB5C83 /* ReaderSettingsView.swift */; };
+		D3C66BB9A85E7D92498CF288 /* SourceImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304F0AE1F193CD62D6AC5B10 /* SourceImportService.swift */; };
+		D8E53825335B20AEC604DBD2 /* ImportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC433380EEF0DE2AD6847EB8 /* ImportServiceTests.swift */; };
+		DB9381DD8AA9DC2D66F88502 /* Enums.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D15EC2268B99A237102047 /* Enums.swift */; };
+		E4DF23E5F137AB313727A029 /* Chapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78BA568A47552BBFB110F6BA /* Chapter.swift */; };
+		E85F6AB57CAB210AD003C06E /* BookshelfItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04ACD9E4F474AEA25C4AF468 /* BookshelfItem.swift */; };
+		E8B5F5B848AEDBEF380400CC /* SourceEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25008981A8C5D1AEFFD85978 /* SourceEngineTests.swift */; };
+		E91BA1716F14396D215A070D /* CoverPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6EB993ADDEFE7CE6BC2A56 /* CoverPickerView.swift */; };
+		F25779FC798600D6911B97A5 /* ChapterSplitterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7DEBEB31A2EEC414767DE9F /* ChapterSplitterTests.swift */; };
+		F8AD59939183CA4F013422BC /* CacheManageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15016028B24154BCC6F39D47 /* CacheManageView.swift */; };
+		F9ECA2D183B177DC9F19D1D2 /* ChapterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B9728B658231E861FAC363 /* ChapterListView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		6B7855BBA81BF5E7B782ACC8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1CB689BB80CD503E6D98419C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 24A208245245AB94982F31CC;
+			remoteInfo = YiYue;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		04ACD9E4F474AEA25C4AF468 /* BookshelfItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfItem.swift; sourceTree = "<group>"; };
+		0975DBAB71C57D0A603A1C72 /* DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPicker.swift; sourceTree = "<group>"; };
+		0B84FF998721056D60FD02CA /* LegadoRuleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoRuleTests.swift; sourceTree = "<group>"; };
+		15016028B24154BCC6F39D47 /* CacheManageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManageView.swift; sourceTree = "<group>"; };
+		2006BBAE10A9017DAE2695D8 /* LegadoRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoRule.swift; sourceTree = "<group>"; };
+		233579991FCEFE7B48D2BA85 /* ReaderSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettings.swift; sourceTree = "<group>"; };
+		246D61D2A8723A2CFFFB5C83 /* ReaderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsView.swift; sourceTree = "<group>"; };
+		25008981A8C5D1AEFFD85978 /* SourceEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEngineTests.swift; sourceTree = "<group>"; };
+		2903DAF1D0B8E53C0F210DA8 /* Book.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book.swift; sourceTree = "<group>"; };
+		2C14CDDA1179B1F60381F893 /* YiYueApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YiYueApp.swift; sourceTree = "<group>"; };
+		2ED0F163CF8B2E91EFCA639C /* YiYueTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = YiYueTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		304F0AE1F193CD62D6AC5B10 /* SourceImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportService.swift; sourceTree = "<group>"; };
+		3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderMenuOverlay.swift; sourceTree = "<group>"; };
+		46B9728B658231E861FAC363 /* ChapterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterListView.swift; sourceTree = "<group>"; };
+		52D15EC2268B99A237102047 /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enums.swift; sourceTree = "<group>"; };
+		542309D43B39B62127057473 /* SourceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEngine.swift; sourceTree = "<group>"; };
+		5842D1CB418434169DE7A410 /* RuleExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleExecutor.swift; sourceTree = "<group>"; };
+		5ACCBA1C2DA40AB29567D744 /* JSExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSExecutor.swift; sourceTree = "<group>"; };
+		5B01B2114786590A45E91187 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5B740020C3895911020C015E /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
+		624A6FA3BD95860787AADAE3 /* BookSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSource.swift; sourceTree = "<group>"; };
+		62DB8C5202FAEAD2CDFA673C /* SearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchService.swift; sourceTree = "<group>"; };
+		70D2269AB12F76D6F2B769A7 /* RuleExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleExecutorTests.swift; sourceTree = "<group>"; };
+		735474E251C3747C68C6C869 /* SourceSelectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSelectView.swift; sourceTree = "<group>"; };
+		756CA588556A0BEA3B03DB0B /* ReaderTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTheme.swift; sourceTree = "<group>"; };
+		758FFC946A1C2170619D7FE1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		77867B555471B2523A7F35BD /* BookManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookManager.swift; sourceTree = "<group>"; };
+		78BA568A47552BBFB110F6BA /* Chapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chapter.swift; sourceTree = "<group>"; };
+		7E0D8AB86667513D60EB1DD0 /* BookCoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCoverView.swift; sourceTree = "<group>"; };
+		904158334FC24C057F83A580 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		92470E190557EB9194D5E727 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		947E7F1FB1030C6A3D3ABCD1 /* SeriesBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeriesBookView.swift; sourceTree = "<group>"; };
+		A429EE5AB15C3491B6E9E3AA /* BookManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookManagerTests.swift; sourceTree = "<group>"; };
+		AD1AE3338CC2D95CCB471820 /* EncodingDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingDetectorTests.swift; sourceTree = "<group>"; };
+		B7274D44AD6EF74DC056EA35 /* BookshelfView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfView.swift; sourceTree = "<group>"; };
+		B78D28B485A3136705B90CC6 /* EncodingDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingDetector.swift; sourceTree = "<group>"; };
+		B9086A1B9802DD7E245D6253 /* ChapterSplitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterSplitter.swift; sourceTree = "<group>"; };
+		BD15F82ADFC31215298D6FCF /* YiYue.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = YiYue.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D075DEF90BF070FBED77D143 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
+		D68860057A126AE3AAB1F3EB /* AddBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBookView.swift; sourceTree = "<group>"; };
+		DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportTests.swift; sourceTree = "<group>"; };
+		E1172B8EA5341C366CB05581 /* ReaderSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsTests.swift; sourceTree = "<group>"; };
+		F0BE63E6D4231737B49EEEFF /* CoverSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverSearchService.swift; sourceTree = "<group>"; };
+		F7DEBEB31A2EEC414767DE9F /* ChapterSplitterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterSplitterTests.swift; sourceTree = "<group>"; };
+		F981D463439090ACB6B72E0E /* ImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportService.swift; sourceTree = "<group>"; };
+		FC433380EEF0DE2AD6847EB8 /* ImportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportServiceTests.swift; sourceTree = "<group>"; };
+		FD9420C8B4963A95A2008510 /* SourceListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceListView.swift; sourceTree = "<group>"; };
+		FDF27560E358341B97ECE744 /* NetworkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkClient.swift; sourceTree = "<group>"; };
+		FF6EB993ADDEFE7CE6BC2A56 /* CoverPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverPickerView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3774CA9C7616509BF8DF1871 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1174DBB8371B3E6D31CFF1B6 /* SwiftSoup in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0D0B993FF86241172CE3707D /* YiYue */ = {
+			isa = PBXGroup;
+			children = (
+				2C7508CE1E6FAA3A80A0F46E /* App */,
+				B6D98BB721DB72502B3E2545 /* Helpers */,
+				C5926EC35BFB0582FDE687E0 /* Models */,
+				B011FE8DC546F05ABB723944 /* Services */,
+				4CBB11D419F61214FD3EB798 /* Views */,
+				758FFC946A1C2170619D7FE1 /* Assets.xcassets */,
+			);
+			path = YiYue;
+			sourceTree = "<group>";
+		};
+		251AED647B2701AE16A3C392 = {
+			isa = PBXGroup;
+			children = (
+				0D0B993FF86241172CE3707D /* YiYue */,
+				66E7650AC319F82BD6CF8E72 /* YiYueTests */,
+				54DD49413A25EFA8724C77F5 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		2C7508CE1E6FAA3A80A0F46E /* App */ = {
+			isa = PBXGroup;
+			children = (
+				5B01B2114786590A45E91187 /* Info.plist */,
+				2C14CDDA1179B1F60381F893 /* YiYueApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		4A8B53ACE029C4D3233A8554 /* Bookshelf */ = {
+			isa = PBXGroup;
+			children = (
+				7E0D8AB86667513D60EB1DD0 /* BookCoverView.swift */,
+				04ACD9E4F474AEA25C4AF468 /* BookshelfItem.swift */,
+				B7274D44AD6EF74DC056EA35 /* BookshelfView.swift */,
+				15016028B24154BCC6F39D47 /* CacheManageView.swift */,
+				FF6EB993ADDEFE7CE6BC2A56 /* CoverPickerView.swift */,
+				947E7F1FB1030C6A3D3ABCD1 /* SeriesBookView.swift */,
+			);
+			path = Bookshelf;
+			sourceTree = "<group>";
+		};
+		4CBB11D419F61214FD3EB798 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				4A8B53ACE029C4D3233A8554 /* Bookshelf */,
+				74883E56E3B7B9FA40174070 /* Reader */,
+				F1624DD766C6D4DD25E74E37 /* Search */,
+				54F2F6EF26C734C90B8C56EE /* Sources */,
+				904158334FC24C057F83A580 /* ContentView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		54DD49413A25EFA8724C77F5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BD15F82ADFC31215298D6FCF /* YiYue.app */,
+				2ED0F163CF8B2E91EFCA639C /* YiYueTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		54F2F6EF26C734C90B8C56EE /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				FD9420C8B4963A95A2008510 /* SourceListView.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		66E7650AC319F82BD6CF8E72 /* YiYueTests */ = {
+			isa = PBXGroup;
+			children = (
+				A429EE5AB15C3491B6E9E3AA /* BookManagerTests.swift */,
+				F7DEBEB31A2EEC414767DE9F /* ChapterSplitterTests.swift */,
+				AD1AE3338CC2D95CCB471820 /* EncodingDetectorTests.swift */,
+				FC433380EEF0DE2AD6847EB8 /* ImportServiceTests.swift */,
+				0B84FF998721056D60FD02CA /* LegadoRuleTests.swift */,
+				5B740020C3895911020C015E /* ModelTests.swift */,
+				E1172B8EA5341C366CB05581 /* ReaderSettingsTests.swift */,
+				70D2269AB12F76D6F2B769A7 /* RuleExecutorTests.swift */,
+				25008981A8C5D1AEFFD85978 /* SourceEngineTests.swift */,
+				DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */,
+			);
+			path = YiYueTests;
+			sourceTree = "<group>";
+		};
+		74883E56E3B7B9FA40174070 /* Reader */ = {
+			isa = PBXGroup;
+			children = (
+				46B9728B658231E861FAC363 /* ChapterListView.swift */,
+				3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */,
+				246D61D2A8723A2CFFFB5C83 /* ReaderSettingsView.swift */,
+				D075DEF90BF070FBED77D143 /* ReaderView.swift */,
+			);
+			path = Reader;
+			sourceTree = "<group>";
+		};
+		B011FE8DC546F05ABB723944 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				77867B555471B2523A7F35BD /* BookManager.swift */,
+				F0BE63E6D4231737B49EEEFF /* CoverSearchService.swift */,
+				F981D463439090ACB6B72E0E /* ImportService.swift */,
+				5ACCBA1C2DA40AB29567D744 /* JSExecutor.swift */,
+				FDF27560E358341B97ECE744 /* NetworkClient.swift */,
+				5842D1CB418434169DE7A410 /* RuleExecutor.swift */,
+				62DB8C5202FAEAD2CDFA673C /* SearchService.swift */,
+				542309D43B39B62127057473 /* SourceEngine.swift */,
+				304F0AE1F193CD62D6AC5B10 /* SourceImportService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		B6D98BB721DB72502B3E2545 /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				B9086A1B9802DD7E245D6253 /* ChapterSplitter.swift */,
+				0975DBAB71C57D0A603A1C72 /* DocumentPicker.swift */,
+				B78D28B485A3136705B90CC6 /* EncodingDetector.swift */,
+			);
+			path = Helpers;
+			sourceTree = "<group>";
+		};
+		C5926EC35BFB0582FDE687E0 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				2903DAF1D0B8E53C0F210DA8 /* Book.swift */,
+				624A6FA3BD95860787AADAE3 /* BookSource.swift */,
+				78BA568A47552BBFB110F6BA /* Chapter.swift */,
+				52D15EC2268B99A237102047 /* Enums.swift */,
+				2006BBAE10A9017DAE2695D8 /* LegadoRule.swift */,
+				233579991FCEFE7B48D2BA85 /* ReaderSettings.swift */,
+				756CA588556A0BEA3B03DB0B /* ReaderTheme.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		F1624DD766C6D4DD25E74E37 /* Search */ = {
+			isa = PBXGroup;
+			children = (
+				D68860057A126AE3AAB1F3EB /* AddBookView.swift */,
+				92470E190557EB9194D5E727 /* SearchView.swift */,
+				735474E251C3747C68C6C869 /* SourceSelectView.swift */,
+			);
+			path = Search;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		24A208245245AB94982F31CC /* YiYue */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B3E409DA395326AE9A430EC /* Build configuration list for PBXNativeTarget "YiYue" */;
+			buildPhases = (
+				66036019BC85E4461F909E5E /* Sources */,
+				91C71A24DB98EC11A83A2E2E /* Resources */,
+				3774CA9C7616509BF8DF1871 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = YiYue;
+			packageProductDependencies = (
+				DC8AA3D756D86094E7543BF0 /* SwiftSoup */,
+			);
+			productName = YiYue;
+			productReference = BD15F82ADFC31215298D6FCF /* YiYue.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D542A4FEEB425593849F9276 /* YiYueTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CDE6C98B4F18A1B5A8B535FA /* Build configuration list for PBXNativeTarget "YiYueTests" */;
+			buildPhases = (
+				206E8778F6757E29DEAF54C0 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				653D2B631137B3F13EB00BA0 /* PBXTargetDependency */,
+			);
+			name = YiYueTests;
+			packageProductDependencies = (
+			);
+			productName = YiYueTests;
+			productReference = 2ED0F163CF8B2E91EFCA639C /* YiYueTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1CB689BB80CD503E6D98419C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = B75BCEA6B89607DB97D777DA /* Build configuration list for PBXProject "YiYue" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 251AED647B2701AE16A3C392;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F617006101F575D451AE9D41 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 54DD49413A25EFA8724C77F5 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				24A208245245AB94982F31CC /* YiYue */,
+				D542A4FEEB425593849F9276 /* YiYueTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		91C71A24DB98EC11A83A2E2E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9D2FBEDC42A364199E6121CA /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		206E8778F6757E29DEAF54C0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AC9A76280A99A89A254D81E9 /* BookManagerTests.swift in Sources */,
+				F25779FC798600D6911B97A5 /* ChapterSplitterTests.swift in Sources */,
+				90D71F7F71AF09E10058AC16 /* EncodingDetectorTests.swift in Sources */,
+				D8E53825335B20AEC604DBD2 /* ImportServiceTests.swift in Sources */,
+				380A78E493B71C6A084BDA72 /* LegadoRuleTests.swift in Sources */,
+				179296A13A0BAEDA2BE564CA /* ModelTests.swift in Sources */,
+				A1D5EAC7BF1168CE45C298CB /* ReaderSettingsTests.swift in Sources */,
+				73E744EDBF4EBF362509B84B /* RuleExecutorTests.swift in Sources */,
+				E8B5F5B848AEDBEF380400CC /* SourceEngineTests.swift in Sources */,
+				515677C4B81CF6AC42F4ED89 /* SourceImportTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		66036019BC85E4461F909E5E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE0CE03ED62DA066D58AABDF /* AddBookView.swift in Sources */,
+				ADA45F1B1836C3003E070A91 /* Book.swift in Sources */,
+				72658CD87D62BBEFC849DDC2 /* BookCoverView.swift in Sources */,
+				275ABE745246236367B2179A /* BookManager.swift in Sources */,
+				732AA020A24378E5B26B9E7C /* BookSource.swift in Sources */,
+				E85F6AB57CAB210AD003C06E /* BookshelfItem.swift in Sources */,
+				2531D1D0554E2C9092325D25 /* BookshelfView.swift in Sources */,
+				F8AD59939183CA4F013422BC /* CacheManageView.swift in Sources */,
+				E4DF23E5F137AB313727A029 /* Chapter.swift in Sources */,
+				F9ECA2D183B177DC9F19D1D2 /* ChapterListView.swift in Sources */,
+				416441BA11CB261A2921393E /* ChapterSplitter.swift in Sources */,
+				5F8AAEE3D2D2F3DA955B7EFC /* ContentView.swift in Sources */,
+				E91BA1716F14396D215A070D /* CoverPickerView.swift in Sources */,
+				93091CF660D3202E137AB172 /* CoverSearchService.swift in Sources */,
+				012404E47B3AFC12572247BA /* DocumentPicker.swift in Sources */,
+				2464C7D7740B85695F6305E3 /* EncodingDetector.swift in Sources */,
+				DB9381DD8AA9DC2D66F88502 /* Enums.swift in Sources */,
+				1F3326DA827E46E07561ACCC /* ImportService.swift in Sources */,
+				27A3229EB1A5DEDDBA16919E /* JSExecutor.swift in Sources */,
+				4650F8DF7503331156A434B3 /* LegadoRule.swift in Sources */,
+				A406B298323372D82AFFBE58 /* NetworkClient.swift in Sources */,
+				CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */,
+				36F42549D8E8A6330F6E3BD5 /* ReaderSettings.swift in Sources */,
+				D0AEC5482AB72944ECB49053 /* ReaderSettingsView.swift in Sources */,
+				CC4B845643A4C4D677077460 /* ReaderTheme.swift in Sources */,
+				708A3C92B14089197DE564DF /* ReaderView.swift in Sources */,
+				76621145991BCA6FC5A082EA /* RuleExecutor.swift in Sources */,
+				1DC77CC3320456701B27563B /* SearchService.swift in Sources */,
+				49B589EB361503DD8A8C95A2 /* SearchView.swift in Sources */,
+				A5011DAFF23DCADB51D8FDD9 /* SeriesBookView.swift in Sources */,
+				1BEB14A012317BF0D332D924 /* SourceEngine.swift in Sources */,
+				D3C66BB9A85E7D92498CF288 /* SourceImportService.swift in Sources */,
+				85A96A5FEF5A9B6C2A40AD43 /* SourceListView.swift in Sources */,
+				03835B9F1D21F42F7FE5D7F2 /* SourceSelectView.swift in Sources */,
+				15C3BA85A090859C615A26A1 /* YiYueApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		653D2B631137B3F13EB00BA0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 24A208245245AB94982F31CC /* YiYue */;
+			targetProxy = 6B7855BBA81BF5E7B782ACC8 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		04B3769B6A0CBAE74DEABA72 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		2BE5CDEE365E4AF6423280B0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.siky.YiYueTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/YiYue.app/YiYue";
+			};
+			name = Release;
+		};
+		60BB141A4E40034F44522841 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = YiYue/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.siky.yiyue;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A18DF10AC38351A17078FA5E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BC31ECC0363C049D3BD4C423 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = YiYue/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.siky.yiyue;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BED17255A4233E2576327227 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.siky.YiYueTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/YiYue.app/YiYue";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2B3E409DA395326AE9A430EC /* Build configuration list for PBXNativeTarget "YiYue" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC31ECC0363C049D3BD4C423 /* Debug */,
+				60BB141A4E40034F44522841 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B75BCEA6B89607DB97D777DA /* Build configuration list for PBXProject "YiYue" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A18DF10AC38351A17078FA5E /* Debug */,
+				04B3769B6A0CBAE74DEABA72 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CDE6C98B4F18A1B5A8B535FA /* Build configuration list for PBXNativeTarget "YiYueTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BED17255A4233E2576327227 /* Debug */,
+				2BE5CDEE365E4AF6423280B0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F617006101F575D451AE9D41 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.7.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DC8AA3D756D86094E7543BF0 /* SwiftSoup */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F617006101F575D451AE9D41 /* XCRemoteSwiftPackageReference "SwiftSoup" */;
+			productName = SwiftSoup;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 1CB689BB80CD503E6D98419C /* Project object */;
+}

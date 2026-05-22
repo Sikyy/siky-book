@@ -1,6 +1,6 @@
 import Testing
 import SwiftData
-@testable import NovelReader
+@testable import YiYue
 
 @Suite("SourceImport Tests")
 struct SourceImportTests {

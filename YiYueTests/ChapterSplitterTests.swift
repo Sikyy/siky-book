@@ -1,5 +1,5 @@
 import XCTest
-@testable import NovelReader
+@testable import YiYue
 
 final class ChapterSplitterTests: XCTestCase {
     func testBasicChineseChapters() {

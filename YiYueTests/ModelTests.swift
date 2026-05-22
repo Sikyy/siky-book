@@ -1,6 +1,6 @@
 import XCTest
 import SwiftData
-@testable import NovelReader
+@testable import YiYue
 
 final class ModelTests: XCTestCase {
     var container: ModelContainer!

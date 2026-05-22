@@ -1,5 +1,5 @@
 import Testing
-@testable import NovelReader
+@testable import YiYue
 
 @Suite("RuleExecutor Tests")
 struct RuleExecutorTests {
