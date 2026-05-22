@@ -13,6 +13,7 @@ struct BookshelfView: View {
     @State private var selectedBook: Book?
     @State private var showingCacheManage = false
     @State private var coverPickerBook: Book?
+    @State private var changeSourceBook: Book?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
 
@@ -37,10 +38,22 @@ struct BookshelfView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
+                                    if book.sourceType == .bookSource {
+                                        Button {
+                                            changeSourceBook = book
+                                        } label: {
+                                            Label("换源", systemImage: "arrow.triangle.2.circlepath")
+                                        }
+                                    }
                                     Button {
                                         coverPickerBook = book
                                     } label: {
                                         Label("修改封面", systemImage: "photo.on.rectangle")
+                                    }
+                                    Button(role: .destructive) {
+                                        deleteBook(book)
+                                    } label: {
+                                        Label("删除", systemImage: "trash")
                                     }
                                 }
                             case .series(let name, let seriesBooks):
@@ -110,6 +123,9 @@ struct BookshelfView: View {
                     try? modelContext.save()
                 }
             }
+            .sheet(item: $changeSourceBook) { book in
+                ChangeSourceView(book: book)
+            }
             .fullScreenCover(item: $selectedBook) { book in
                 ReaderView(book: book, startChapterIndex: book.lastReadChapterIndex)
             }
@@ -117,6 +133,21 @@ struct BookshelfView: View {
         .preferredColorScheme(.dark)
     }
 
+
+    private func deleteBook(_ book: Book) {
+        // Delete all chapters belonging to this book
+        let bookId = book.id
+        let descriptor = FetchDescriptor<Chapter>(
+            predicate: #Predicate<Chapter> { $0.book?.id == bookId }
+        )
+        if let chapters = try? modelContext.fetch(descriptor) {
+            for chapter in chapters {
+                modelContext.delete(chapter)
+            }
+        }
+        modelContext.delete(book)
+        try? modelContext.save()
+    }
 
     private var emptyState: some View {
         VStack(spacing: 12) {

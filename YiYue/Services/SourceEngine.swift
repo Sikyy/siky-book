@@ -179,19 +179,36 @@ class SourceEngine {
         }
     }
 
+    /// Parse nextTocUrl from a TOC page for pagination
+    func parseNextTocUrl(response: String, rule: String, baseURL: String) -> String? {
+        if isJSONRule(rule) || isJSONResponse(response) {
+            if let data = response.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data),
+               let val = evaluateJSONPath(rule, in: json) {
+                let str = stringValue(val)
+                return str.isEmpty ? nil : str
+            }
+        }
+        guard let url = try? ruleExecutor.getString(html: response, rule: rule, baseURL: baseURL),
+              !url.isEmpty else {
+            return nil
+        }
+        return url
+    }
+
     func parseContent(response: String, rule: LegadoSource.ContentRule, baseURL: String = "") throws -> String? {
         guard let contentRule = rule.content else { return nil }
         if isJSONRule(contentRule) || isJSONResponse(response) {
             if let data = response.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: data),
                let result = jsonString(from: json, rule: contentRule, baseUrl: baseURL) {
-                return cleanContentText(result)
+                return Self.removeAdLines(cleanContentText(result))
             }
             if isJSONResponse(response) { return nil }
         }
         let raw = try ruleExecutor.getString(html: response, rule: contentRule, baseURL: baseURL)
         guard let raw else { return nil }
-        return cleanContentText(raw)
+        return Self.removeAdLines(cleanContentText(raw))
     }
 
     private func cleanContentText(_ text: String) -> String {
@@ -220,6 +237,51 @@ class SourceEngine {
             return (try? body.text()) ?? trimmed
         }
         return paragraphs.joined(separator: "\n")
+    }
+
+    /// Remove common ad/promotional lines injected by book sources
+    static func removeAdLines(_ text: String) -> String {
+        let lines = text.components(separatedBy: "\n")
+        let filtered = lines.filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return true }
+            return !isAdLine(trimmed)
+        }
+        return filtered.joined(separator: "\n")
+    }
+
+    private static func isAdLine(_ line: String) -> Bool {
+        // Known ad prefixes — very high confidence
+        let adPrefixes = [
+            "最新网址", "本站网址", "本站域名", "手机阅读网址",
+            "天才一秒记住", "一秒记住", "新笔趣阁", "笔趣阁",
+            "请收藏本站", "请记住本站", "最快更新",
+        ]
+        for prefix in adPrefixes {
+            if line.hasPrefix(prefix) { return true }
+        }
+
+        // Check if line contains a URL
+        let lower = line.lowercased()
+        let hasURL = lower.contains("www.") ||
+                     lower.contains("http://") ||
+                     lower.contains("https://")
+        guard hasURL else { return false }
+
+        // URL + promotional keyword = ad
+        let adKeywords = ["网址", "域名", "收藏", "记住", "访问", "书签"]
+        for keyword in adKeywords {
+            if line.contains(keyword) { return true }
+        }
+
+        // Short line that's mostly a URL (no story-text punctuation)
+        if !line.contains("。") && !line.contains("，") &&
+           !line.contains("\u{201C}") && !line.contains("\u{201D}") &&
+           line.count < 100 {
+            return true
+        }
+
+        return false
     }
 
     private func isJSONResponse(_ response: String) -> Bool {

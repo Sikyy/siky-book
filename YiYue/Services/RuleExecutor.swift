@@ -151,47 +151,86 @@ class RuleExecutor {
         return segments
     }
 
+    private static let knownAttrs: Set<String> = [
+        "text", "textNodes", "html", "innerHTML", "outerHtml",
+        "href", "src", "content", "alt", "title", "value"
+    ]
+
     private func isLegadoSelector(_ segment: String) -> Bool {
-        return segment.hasPrefix("tag.") || segment.hasPrefix("class.") || segment.hasPrefix("id.")
+        if segment.hasPrefix("tag.") || segment.hasPrefix("class.") || segment.hasPrefix("id.") {
+            return true
+        }
+        // Bare name is a selector (tag) if it's not a known attribute
+        let baseName = segment.components(separatedBy: ".").first ?? segment
+        return !Self.knownAttrs.contains(baseName)
     }
 
     private func applyLegadoSelector(elements: [Element], segment: String) throws -> [Element] {
+        let rest: String
         if segment.hasPrefix("tag.") {
-            let rest = String(segment.dropFirst(4))
-            let (name, index, range) = parseSelectorPart(rest)
-            return try selectByTag(elements: elements, tag: name, index: index, range: range)
+            rest = String(segment.dropFirst(4))
         } else if segment.hasPrefix("class.") {
-            let rest = String(segment.dropFirst(6))
-            let (name, index, range) = parseSelectorPart(rest)
-            return try selectByClass(elements: elements, className: name, index: index, range: range)
+            rest = String(segment.dropFirst(6))
         } else if segment.hasPrefix("id.") {
-            let rest = String(segment.dropFirst(3))
-            let (name, index, _) = parseSelectorPart(rest)
-            return try selectById(elements: elements, id: name, index: index)
+            rest = String(segment.dropFirst(3))
+        } else {
+            rest = segment
         }
-        return elements
+
+        let (name, index, range, exclude) = parseSelectorPart(rest)
+        var result: [Element]
+
+        if segment.hasPrefix("class.") {
+            result = try selectByClass(elements: elements, className: name, index: index, range: range)
+        } else if segment.hasPrefix("id.") {
+            result = try selectById(elements: elements, id: name, index: index)
+        } else {
+            // tag. prefix or bare name — both select by tag
+            result = try selectByTag(elements: elements, tag: name, index: index, range: range)
+        }
+
+        // Apply exclude filter (e.g. "!0" removes index 0)
+        if let excludeIdx = exclude {
+            let resolved = excludeIdx < 0 ? result.count + excludeIdx : excludeIdx
+            if resolved >= 0 && resolved < result.count {
+                result.remove(at: resolved)
+            }
+        }
+
+        return result
     }
 
-    private func parseSelectorPart(_ str: String) -> (name: String, index: Int?, range: (Int, Int)?) {
-        if let bracketStart = str.firstIndex(of: "[") {
-            let name = String(str[str.startIndex..<bracketStart])
-            let end = str.lastIndex(of: "]") ?? str.endIndex
-            let content = String(str[str.index(after: bracketStart)..<end])
+    private func parseSelectorPart(_ str: String) -> (name: String, index: Int?, range: (Int, Int)?, exclude: Int?) {
+        // Handle "!" exclude syntax: e.g. "tr!0" means all tr except index 0
+        var cleanStr = str
+        var excludeIdx: Int?
+        if let bangIdx = cleanStr.firstIndex(of: "!") {
+            let afterBang = String(cleanStr[cleanStr.index(after: bangIdx)...])
+            if let idx = Int(afterBang) {
+                excludeIdx = idx
+                cleanStr = String(cleanStr[..<bangIdx])
+            }
+        }
+
+        if let bracketStart = cleanStr.firstIndex(of: "[") {
+            let name = String(cleanStr[cleanStr.startIndex..<bracketStart])
+            let end = cleanStr.lastIndex(of: "]") ?? cleanStr.endIndex
+            let content = String(cleanStr[cleanStr.index(after: bracketStart)..<end])
             if content.contains(":") {
                 let parts = content.components(separatedBy: ":")
                 if let s = Int(parts[0]), let e = Int(parts[1]) {
-                    return (name, nil, (s, e))
+                    return (name, nil, (s, e), excludeIdx)
                 }
             }
-            return (name, Int(content), nil)
+            return (name, Int(content), nil, excludeIdx)
         }
 
-        let parts = str.components(separatedBy: ".")
+        let parts = cleanStr.components(separatedBy: ".")
         if parts.count >= 2, let idx = Int(parts.last!) {
             let name = parts.dropLast().joined(separator: ".")
-            return (name, idx, nil)
+            return (name, idx, nil, excludeIdx)
         }
-        return (str, nil, nil)
+        return (cleanStr, nil, nil, excludeIdx)
     }
 
     private func selectByTag(elements: [Element], tag: String, index: Int?, range: (Int, Int)?) throws -> [Element] {

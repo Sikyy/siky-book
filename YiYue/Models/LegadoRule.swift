@@ -34,6 +34,7 @@ struct LegadoSource {
         let chapterList: String?
         let chapterName: String?
         let chapterUrl: String?
+        let nextTocUrl: String?
     }
 
     struct ContentRule {
@@ -110,7 +111,8 @@ enum LegadoSourceParser {
                 LegadoSource.TocRule(
                     chapterList: $0["chapterList"] as? String,
                     chapterName: $0["chapterName"] as? String,
-                    chapterUrl: $0["chapterUrl"] as? String
+                    chapterUrl: $0["chapterUrl"] as? String,
+                    nextTocUrl: $0["nextTocUrl"] as? String
                 )
             },
             contentRule: content.map {

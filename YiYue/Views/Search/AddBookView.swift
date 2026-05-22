@@ -171,17 +171,29 @@ struct AddBookView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
+    private var canAdd: Bool {
+        !isLoading && chapterCount > 0
+    }
+
     private var addButton: some View {
-        Button { addToBookshelf() } label: {
-            Text("加入书架")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(isLoading ? Color.gray : Color.blue)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+        VStack(spacing: 8) {
+            Button { addToBookshelf() } label: {
+                Text("加入书架")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(canAdd ? Color.blue : Color.gray)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .disabled(!canAdd)
+
+            if !isLoading && chapterCount == 0 && loadError == nil {
+                Text("该书源无法获取章节目录，请尝试其他书源")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
         }
-        .disabled(isLoading)
     }
 
     private func loadBookDetail() async {
@@ -193,6 +205,7 @@ struct AddBookView: View {
             let resolvedURL = engine.resolveURL(bookURL, base: legadoSource.url)
             let response = try await NetworkClient.shared.fetchString(url: resolvedURL)
 
+            // Parse book info (intro, wordCount, cover)
             if let infoRule = legadoSource.bookInfoRule {
                 let ruleExecutor = RuleExecutor()
                 if let introRule = infoRule.intro,
@@ -213,11 +226,55 @@ struct AddBookView: View {
                 }
             }
 
+            // Parse TOC — use separate tocUrl if defined, otherwise parse from same page
             if let tocRule = legadoSource.tocRule {
-                let chapterInfos = try engine.parseChapterList(response: response, rule: tocRule, baseURL: legadoSource.url)
+                var tocResponse = response
+                if let tocUrlRule = legadoSource.bookInfoRule?.tocUrl, !tocUrlRule.isEmpty {
+                    let ruleExecutor = RuleExecutor()
+                    if let parsedTocUrl = try? ruleExecutor.getString(html: response, rule: tocUrlRule, baseURL: legadoSource.url),
+                       !parsedTocUrl.isEmpty {
+                        let resolvedTocURL = engine.resolveURL(parsedTocUrl, base: legadoSource.url)
+                        tocResponse = try await NetworkClient.shared.fetchString(url: resolvedTocURL)
+                    }
+                }
+
+                // Parse first page of chapters
+                var allChapters = try engine.parseChapterList(response: tocResponse, rule: tocRule, baseURL: legadoSource.url)
+
+                // Pagination: follow nextTocUrl links
+                if let nextRule = tocRule.nextTocUrl, !nextRule.isEmpty {
+                    var visitedUrls: Set<String> = []
+                    var currentResponse = tocResponse
+                    let maxPages = 200  // safety limit
+
+                    for _ in 0..<maxPages {
+                        guard let nextUrl = engine.parseNextTocUrl(response: currentResponse, rule: nextRule, baseURL: legadoSource.url) else { break }
+                        let resolvedNext = engine.resolveURL(nextUrl, base: legadoSource.url)
+                        guard !visitedUrls.contains(resolvedNext) else { break }
+                        visitedUrls.insert(resolvedNext)
+
+                        let nextResponse = try await NetworkClient.shared.fetchString(url: resolvedNext)
+                        let pageChapters = try engine.parseChapterList(response: nextResponse, rule: tocRule, baseURL: legadoSource.url)
+                        guard !pageChapters.isEmpty else { break }
+                        allChapters.append(contentsOf: pageChapters)
+                        currentResponse = nextResponse
+
+                        // Update UI progressively
+                        let count = allChapters.count
+                        await MainActor.run { chapterCount = count }
+                    }
+                }
+
+                // Deduplicate by title+url
+                var seen = Set<String>()
+                let deduplicated = allChapters.filter {
+                    let key = "\($0.title)|\($0.url)"
+                    return seen.insert(key).inserted
+                }
+
                 await MainActor.run {
-                    chapters = chapterInfos
-                    chapterCount = chapterInfos.count
+                    chapters = deduplicated
+                    chapterCount = deduplicated.count
                 }
             }
 
@@ -250,12 +307,14 @@ struct AddBookView: View {
         let book = Book(title: title, author: author, sourceType: .bookSource, totalChapters: chapterCount)
         book.sourceId = sourceId
         book.sourceBookURL = bookURL
+        book.sourceName = sourceName
         let engine = SourceEngine()
         if let dc = detailCoverURL {
             book.coverURL = dc
         } else if let c = coverURL {
             book.coverURL = engine.resolveURL(c, base: legadoSource.url)
         }
+
         modelContext.insert(book)
 
         for (i, info) in chapters.enumerated() {

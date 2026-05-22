@@ -50,7 +50,8 @@ struct ReaderView: View {
 
     /// Reparse paragraphs from current chapter — call on chapter switch / content load
     private func rebuildParagraphs() {
-        let text = currentChapter?.content ?? ""
+        let raw = currentChapter?.content ?? ""
+        let text = SourceEngine.removeAdLines(raw)
         cachedParagraphs = text
             .components(separatedBy: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -122,8 +123,13 @@ struct ReaderView: View {
                         .font(.subheadline)
                         .foregroundStyle(settings.theme.textColor.opacity(0.6))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) { showMenu.toggle() }
+                }
             } else if let error = loadError {
-                VStack(spacing: 12) {
+                VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.title)
                         .foregroundStyle(settings.theme.textColor.opacity(0.5))
@@ -132,6 +138,11 @@ struct ReaderView: View {
                         .foregroundStyle(settings.theme.textColor.opacity(0.6))
                     Button("重试") { fetchChapterContentIfNeeded() }
                         .foregroundStyle(.blue)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) { showMenu.toggle() }
                 }
             } else {
                 switch settings.pageMode {
@@ -561,29 +572,78 @@ struct ReaderView: View {
                 await MainActor.run { isLoadingContent = false }
                 prefetchNextChapters()
             } catch {
+                let detail: String
+                switch error {
+                case NetworkError.invalidURL:
+                    detail = "无效的章节链接\n可返回书架尝试「换源」"
+                case NetworkError.httpError(let code):
+                    detail = "服务器返回错误（\(code)）\n可返回书架尝试「换源」"
+                case NetworkError.requestFailed:
+                    detail = "服务器无响应\n可返回书架尝试「换源」"
+                case let urlError as URLError where urlError.code == .timedOut:
+                    detail = "请求超时，可点击重试"
+                case is URLError:
+                    detail = "网络连接异常，请检查网络"
+                case ContentLoadError.noSourceId, ContentLoadError.sourceNotFound:
+                    detail = "书源丢失\n请返回书架「换源」"
+                case ContentLoadError.noContentRule:
+                    detail = "该书源无内容解析规则\n请返回书架「换源」"
+                case ContentLoadError.emptyContent:
+                    detail = "章节内容为空\n可返回书架尝试「换源」"
+                default:
+                    detail = "加载失败\n\(error.localizedDescription)"
+                }
+                print("[ReaderView] fetchContent error: \(error)")
                 await MainActor.run {
-                    loadError = "加载失败"
+                    loadError = detail
                     isLoadingContent = false
                 }
             }
         }
     }
 
+    private static let maxRetries = 3
+
     private func fetchContent(for chapter: Chapter) async throws {
         guard chapter.content == nil, let sourceURL = chapter.sourceURL else { return }
-        guard let bookSourceId = book.sourceId else { throw NetworkError.requestFailed }
+        guard let bookSourceId = book.sourceId else { throw ContentLoadError.noSourceId }
 
         let descriptor = FetchDescriptor<BookSource>(predicate: #Predicate<BookSource> { $0.id == bookSourceId })
-        guard let bookSource = try modelContext.fetch(descriptor).first else { throw NetworkError.requestFailed }
+        guard let bookSource = try modelContext.fetch(descriptor).first else { throw ContentLoadError.sourceNotFound }
         let legado = try LegadoSourceParser.parse(json: bookSource.ruleJSON, matchingURL: bookSource.sourceURL)
-        guard let contentRule = legado.contentRule else { throw NetworkError.requestFailed }
+        guard let contentRule = legado.contentRule else { throw ContentLoadError.noContentRule }
 
-        let html = try await NetworkClient.shared.fetchString(url: sourceURL)
-        let content = try SourceEngine().parseContent(response: html, rule: contentRule, baseURL: legado.url)
-        await MainActor.run {
-            chapter.content = content
-            chapter.isCached = true
+        // Retry up to 3 times with increasing delay
+        var lastError: Error = NetworkError.requestFailed
+        for attempt in 1...Self.maxRetries {
+            do {
+                let html = try await NetworkClient.shared.fetchString(url: sourceURL)
+                guard let content = try SourceEngine().parseContent(response: html, rule: contentRule, baseURL: legado.url),
+                      !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ContentLoadError.emptyContent
+                }
+                await MainActor.run {
+                    chapter.content = content
+                    chapter.isCached = true
+                }
+                return
+            } catch ContentLoadError.emptyContent {
+                throw ContentLoadError.emptyContent
+            } catch {
+                lastError = error
+                if attempt < Self.maxRetries {
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
+                }
+            }
         }
+        throw lastError
+    }
+
+    private enum ContentLoadError: Error {
+        case noSourceId
+        case sourceNotFound
+        case noContentRule
+        case emptyContent
     }
 
     private func prefetchNextChapters() {

@@ -101,6 +101,13 @@ struct SearchView: View {
                 .scaleEffect(0.7)
             progressText(service)
             Spacer()
+            Button {
+                service.cancelSearch()
+            } label: {
+                Text("停止")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -190,6 +197,6 @@ struct SearchView: View {
 
     private func performSearch() {
         guard !keyword.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        Task { await searchService?.search(keyword: keyword) }
+        searchService?.search(keyword: keyword)
     }
 }

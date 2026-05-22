@@ -7,8 +7,8 @@ actor NetworkClient {
 
     init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.httpMaximumConnectionsPerHost = 5
+        config.timeoutIntervalForRequest = 10
+        config.httpMaximumConnectionsPerHost = 6
         self.session = URLSession(configuration: config)
     }
 
@@ -35,9 +35,11 @@ actor NetworkClient {
 
         let (data, response) = try await session.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw NetworkError.requestFailed
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode)
         }
 
         if let encoding = encoding {
@@ -64,11 +66,13 @@ actor NetworkClient {
 enum NetworkError: Error, LocalizedError {
     case invalidURL
     case requestFailed
+    case httpError(statusCode: Int)
 
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "无效的URL"
         case .requestFailed: return "请求失败"
+        case .httpError(let code): return "HTTP \(code)"
         }
     }
 }

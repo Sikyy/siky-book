@@ -31,6 +31,7 @@
 		732AA020A24378E5B26B9E7C /* BookSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 624A6FA3BD95860787AADAE3 /* BookSource.swift */; };
 		73E744EDBF4EBF362509B84B /* RuleExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D2269AB12F76D6F2B769A7 /* RuleExecutorTests.swift */; };
 		76621145991BCA6FC5A082EA /* RuleExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5842D1CB418434169DE7A410 /* RuleExecutor.swift */; };
+		76A6A6F74F31DC69A0FD5532 /* ChangeSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E94F958A5B308A771B767097 /* ChangeSourceView.swift */; };
 		85A96A5FEF5A9B6C2A40AD43 /* SourceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9420C8B4963A95A2008510 /* SourceListView.swift */; };
 		90D71F7F71AF09E10058AC16 /* EncodingDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1AE3338CC2D95CCB471820 /* EncodingDetectorTests.swift */; };
 		93091CF660D3202E137AB172 /* CoverSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BE63E6D4231737B49EEEFF /* CoverSearchService.swift */; };
@@ -109,6 +110,7 @@
 		D68860057A126AE3AAB1F3EB /* AddBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBookView.swift; sourceTree = "<group>"; };
 		DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportTests.swift; sourceTree = "<group>"; };
 		E1172B8EA5341C366CB05581 /* ReaderSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsTests.swift; sourceTree = "<group>"; };
+		E94F958A5B308A771B767097 /* ChangeSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSourceView.swift; sourceTree = "<group>"; };
 		F0BE63E6D4231737B49EEEFF /* CoverSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverSearchService.swift; sourceTree = "<group>"; };
 		F7DEBEB31A2EEC414767DE9F /* ChapterSplitterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterSplitterTests.swift; sourceTree = "<group>"; };
 		F981D463439090ACB6B72E0E /* ImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportService.swift; sourceTree = "<group>"; };
@@ -168,6 +170,7 @@
 				04ACD9E4F474AEA25C4AF468 /* BookshelfItem.swift */,
 				B7274D44AD6EF74DC056EA35 /* BookshelfView.swift */,
 				15016028B24154BCC6F39D47 /* CacheManageView.swift */,
+				E94F958A5B308A771B767097 /* ChangeSourceView.swift */,
 				FF6EB993ADDEFE7CE6BC2A56 /* CoverPickerView.swift */,
 				947E7F1FB1030C6A3D3ABCD1 /* SeriesBookView.swift */,
 			);
@@ -397,6 +400,7 @@
 				E85F6AB57CAB210AD003C06E /* BookshelfItem.swift in Sources */,
 				2531D1D0554E2C9092325D25 /* BookshelfView.swift in Sources */,
 				F8AD59939183CA4F013422BC /* CacheManageView.swift in Sources */,
+				76A6A6F74F31DC69A0FD5532 /* ChangeSourceView.swift in Sources */,
 				E4DF23E5F137AB313727A029 /* Chapter.swift in Sources */,
 				F9ECA2D183B177DC9F19D1D2 /* ChapterListView.swift in Sources */,
 				416441BA11CB261A2921393E /* ChapterSplitter.swift in Sources */,
@@ -516,13 +520,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 4;
 				INFOPLIST_FILE = YiYue/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mistyislet.yiyue;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -598,13 +602,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 4;
 				INFOPLIST_FILE = YiYue/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mistyislet.yiyue;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
