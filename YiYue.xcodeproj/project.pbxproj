@@ -104,7 +104,7 @@
 		B7274D44AD6EF74DC056EA35 /* BookshelfView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfView.swift; sourceTree = "<group>"; };
 		B78D28B485A3136705B90CC6 /* EncodingDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingDetector.swift; sourceTree = "<group>"; };
 		B9086A1B9802DD7E245D6253 /* ChapterSplitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterSplitter.swift; sourceTree = "<group>"; };
-		BD15F82ADFC31215298D6FCF /* YiYue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YiYue.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BD15F82ADFC31215298D6FCF /* YiYue.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = YiYue.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D075DEF90BF070FBED77D143 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		D68860057A126AE3AAB1F3EB /* AddBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBookView.swift; sourceTree = "<group>"; };
 		DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportTests.swift; sourceTree = "<group>"; };
@@ -330,6 +330,8 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = B75BCEA6B89607DB97D777DA /* Build configuration list for PBXProject "YiYue" */;
 			developmentRegion = en;
@@ -514,14 +516,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2FD7YDCHXB;
+				CURRENT_PROJECT_VERSION = 2;
 				INFOPLIST_FILE = YiYue/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mistyislet.yiyue;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -597,14 +598,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2FD7YDCHXB;
+				CURRENT_PROJECT_VERSION = 2;
 				INFOPLIST_FILE = YiYue/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mistyislet.yiyue;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
