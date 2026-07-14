@@ -1,6 +1,130 @@
 import SwiftUI
 import SwiftData
 
+struct AddBookPersistenceDraft: Sendable {
+    struct ChapterDraft: Sendable {
+        let index: Int
+        let title: String
+        let sourceURL: String
+    }
+
+    let title: String
+    let author: String
+    let sourceId: UUID
+    let sourceBookURL: String
+    let sourceName: String
+    let coverURL: String?
+    let chapters: [ChapterDraft]
+}
+
+private struct AddBookSubmissionSnapshot: Sendable {
+    let title: String
+    let author: String
+    let sourceId: UUID
+    let sourceBookURL: String
+    let sourceName: String
+    let detailCoverURL: String?
+    let sourceCoverURL: String?
+    let sourceBaseURL: String
+    let chapters: [ChapterInfo]
+}
+
+private struct AddBookInsertionResult: Sendable {
+    let bookId: UUID
+    let needsCoverSearch: Bool
+}
+
+enum AddBookPersistenceWorker {
+    /// Creates and consumes a private ModelContext synchronously. Callers invoke
+    /// this from a detached task; neither the context nor any model escapes it.
+    static func addBook(
+        _ draft: AddBookPersistenceDraft,
+        in container: ModelContainer
+    ) throws -> UUID {
+        let signposter = PerformanceSignposts.cache
+        let signpostID = signposter.makeSignpostID()
+        let chapterCount = draft.chapters.count
+        var intervalResult = "error"
+        let intervalState = signposter.beginInterval(
+            "AddBookPersistence",
+            id: signpostID,
+            "chapters=\(chapterCount)"
+        )
+        defer {
+            signposter.endInterval(
+                "AddBookPersistence",
+                intervalState,
+                "result=\(intervalResult, privacy: .public) chapters=\(chapterCount)"
+            )
+        }
+
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+
+        let book = Book(
+            title: draft.title,
+            author: draft.author,
+            sourceType: .bookSource,
+            totalChapters: draft.chapters.count
+        )
+        book.sourceId = draft.sourceId
+        book.sourceBookURL = draft.sourceBookURL
+        book.sourceName = draft.sourceName
+        book.coverURL = draft.coverURL
+
+        let chapterModels = draft.chapters.map { chapterDraft in
+            let chapter = Chapter(index: chapterDraft.index, title: chapterDraft.title)
+            chapter.sourceURL = chapterDraft.sourceURL
+            return chapter
+        }
+        book.chapters = chapterModels
+        context.insert(book)
+
+        do {
+            try context.save()
+            intervalResult = "success"
+            return book.id
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    /// Best-effort guard against replacing a cover selected after automatic
+    /// discovery started. Manual selection normally wins because this refetches
+    /// immediately before saving; SwiftData does not expose an atomic compare-
+    /// and-set for a property shared by independent contexts.
+    static func setCoverIfMissing(
+        bookId: UUID,
+        coverURL: String,
+        in container: ModelContainer
+    ) throws -> Bool {
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let targetId = bookId
+        var descriptor = FetchDescriptor<Book>(
+            predicate: #Predicate<Book> { book in
+                book.id == targetId
+            }
+        )
+        descriptor.fetchLimit = 1
+
+        guard let book = try context.fetch(descriptor).first,
+              book.coverURL == nil else {
+            return false
+        }
+
+        book.coverURL = coverURL
+        do {
+            try context.save()
+            return true
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+}
+
 struct AddBookView: View {
     let title: String
     let author: String
@@ -21,6 +145,10 @@ struct AddBookView: View {
     @State private var loadError: String?
     @State private var chapters: [ChapterInfo] = []
     @State private var added = false
+    @State private var isAdding = false
+    @State private var addError: String?
+    @State private var retryLoadTask: Task<Void, Never>?
+    @State private var retryLoadGeneration: UUID?
 
     private var displayIntro: String? {
         detailIntro ?? intro
@@ -48,6 +176,11 @@ struct AddBookView: View {
         .navigationTitle("添加到书架")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadBookDetail() }
+        .onDisappear {
+            retryLoadGeneration = nil
+            retryLoadTask?.cancel()
+            retryLoadTask = nil
+        }
     }
 
     private var bookInfo: some View {
@@ -90,20 +223,14 @@ struct AddBookView: View {
 
     @ViewBuilder
     private var bookCover: some View {
-        if let urlString = displayCoverURL, let url = URL(string: urlString) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    coverPlaceholder
-                }
-            }
-            .frame(width: 80, height: 110)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        } else {
+        CachedCoverImage(
+            urlString: displayCoverURL,
+            targetSize: CGSize(width: 80, height: 110)
+        ) {
             coverPlaceholder
         }
+        .frame(width: 80, height: 110)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var coverPlaceholder: some View {
@@ -138,7 +265,7 @@ struct AddBookView: View {
                         .scaleEffect(0.8)
                 } else if loadError != nil {
                     Button {
-                        Task { await loadBookDetail() }
+                        retryLoadBookDetail()
                     } label: {
                         HStack(spacing: 4) {
                             Text("加载失败，点击重试")
@@ -172,21 +299,34 @@ struct AddBookView: View {
     }
 
     private var canAdd: Bool {
-        !isLoading && chapterCount > 0
+        !isLoading && !isAdding && chapterCount > 0
     }
 
     private var addButton: some View {
         VStack(spacing: 8) {
             Button { addToBookshelf() } label: {
-                Text("加入书架")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(canAdd ? Color.blue : Color.gray)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                HStack(spacing: 8) {
+                    if isAdding {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                    Text(isAdding ? "正在加入…" : "加入书架")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(canAdd || isAdding ? Color.blue : Color.gray)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .disabled(!canAdd)
+
+            if let addError {
+                Text("加入失败：\(addError)")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
 
             if !isLoading && chapterCount == 0 && loadError == nil {
                 Text("该书源无法获取章节目录，请尝试其他书源")
@@ -196,7 +336,23 @@ struct AddBookView: View {
         }
     }
 
+    private func retryLoadBookDetail() {
+        retryLoadTask?.cancel()
+        let generation = UUID()
+        retryLoadGeneration = generation
+        retryLoadTask = Task {
+            defer {
+                if retryLoadGeneration == generation {
+                    retryLoadGeneration = nil
+                    retryLoadTask = nil
+                }
+            }
+            await loadBookDetail()
+        }
+    }
+
     private func loadBookDetail() async {
+        guard !Task.isCancelled else { return }
         isLoading = true
         loadError = nil
 
@@ -204,6 +360,7 @@ struct AddBookView: View {
             let engine = SourceEngine()
             let resolvedURL = engine.resolveURL(bookURL, base: legadoSource.url)
             let response = try await NetworkClient.shared.fetchString(url: resolvedURL)
+            try Task.checkCancellation()
 
             // Parse book info (intro, wordCount, cover)
             if let infoRule = legadoSource.bookInfoRule {
@@ -211,17 +368,20 @@ struct AddBookView: View {
                 if let introRule = infoRule.intro,
                    let text = try? ruleExecutor.getString(html: response, rule: introRule, baseURL: legadoSource.url),
                    !text.isEmpty {
+                    try Task.checkCancellation()
                     await MainActor.run { detailIntro = text }
                 }
                 if let wcRule = infoRule.wordCount,
                    let text = try? ruleExecutor.getString(html: response, rule: wcRule, baseURL: legadoSource.url),
                    !text.isEmpty {
+                    try Task.checkCancellation()
                     await MainActor.run { wordCount = text }
                 }
                 if let coverRule = infoRule.coverUrl,
                    let url = try? ruleExecutor.getString(html: response, rule: coverRule, baseURL: legadoSource.url),
                    !url.isEmpty {
                     let resolved = engine.resolveURL(url, base: legadoSource.url)
+                    try Task.checkCancellation()
                     await MainActor.run { detailCoverURL = resolved }
                 }
             }
@@ -229,57 +389,75 @@ struct AddBookView: View {
             // Parse TOC — use separate tocUrl if defined, otherwise parse from same page
             if let tocRule = legadoSource.tocRule {
                 var tocResponse = response
+                var tocBaseURL = resolvedURL
                 if let tocUrlRule = legadoSource.bookInfoRule?.tocUrl, !tocUrlRule.isEmpty {
                     let ruleExecutor = RuleExecutor()
-                    if let parsedTocUrl = try? ruleExecutor.getString(html: response, rule: tocUrlRule, baseURL: legadoSource.url),
+                    if let parsedTocUrl = try? ruleExecutor.getString(html: response, rule: tocUrlRule, baseURL: resolvedURL),
                        !parsedTocUrl.isEmpty {
-                        let resolvedTocURL = engine.resolveURL(parsedTocUrl, base: legadoSource.url)
+                        let resolvedTocURL = engine.resolveURL(parsedTocUrl, base: resolvedURL)
                         tocResponse = try await NetworkClient.shared.fetchString(url: resolvedTocURL)
+                        try Task.checkCancellation()
+                        tocBaseURL = resolvedTocURL
                     }
                 }
 
                 // Parse first page of chapters
-                var allChapters = try engine.parseChapterList(response: tocResponse, rule: tocRule, baseURL: legadoSource.url)
+                try Task.checkCancellation()
+                var allChapters = try engine.parseChapterList(response: tocResponse, rule: tocRule, baseURL: tocBaseURL)
+                    .map { ChapterInfo(title: $0.title, url: engine.resolveURL($0.url, base: tocBaseURL)) }
 
                 // Pagination: follow nextTocUrl links
                 if let nextRule = tocRule.nextTocUrl, !nextRule.isEmpty {
                     var visitedUrls: Set<String> = []
                     var currentResponse = tocResponse
+                    var currentBaseURL = tocBaseURL
                     let maxPages = 200  // safety limit
 
                     for _ in 0..<maxPages {
-                        guard let nextUrl = engine.parseNextTocUrl(response: currentResponse, rule: nextRule, baseURL: legadoSource.url) else { break }
-                        let resolvedNext = engine.resolveURL(nextUrl, base: legadoSource.url)
+                        try Task.checkCancellation()
+                        guard let nextUrl = engine.parseNextTocUrl(response: currentResponse, rule: nextRule, baseURL: currentBaseURL) else { break }
+                        let resolvedNext = engine.resolveURL(nextUrl, base: currentBaseURL)
                         guard !visitedUrls.contains(resolvedNext) else { break }
                         visitedUrls.insert(resolvedNext)
 
                         let nextResponse = try await NetworkClient.shared.fetchString(url: resolvedNext)
-                        let pageChapters = try engine.parseChapterList(response: nextResponse, rule: tocRule, baseURL: legadoSource.url)
+                        try Task.checkCancellation()
+                        let pageChapters = try engine.parseChapterList(response: nextResponse, rule: tocRule, baseURL: resolvedNext)
+                            .map { ChapterInfo(title: $0.title, url: engine.resolveURL($0.url, base: resolvedNext)) }
+                        try Task.checkCancellation()
                         guard !pageChapters.isEmpty else { break }
                         allChapters.append(contentsOf: pageChapters)
                         currentResponse = nextResponse
+                        currentBaseURL = resolvedNext
 
                         // Update UI progressively
                         let count = allChapters.count
+                        try Task.checkCancellation()
                         await MainActor.run { chapterCount = count }
                     }
                 }
 
                 // Deduplicate by title+url
+                try Task.checkCancellation()
                 var seen = Set<String>()
                 let deduplicated = allChapters.filter {
                     let key = "\($0.title)|\($0.url)"
                     return seen.insert(key).inserted
                 }
 
+                try Task.checkCancellation()
                 await MainActor.run {
                     chapters = deduplicated
                     chapterCount = deduplicated.count
                 }
             }
 
+            try Task.checkCancellation()
             await MainActor.run { isLoading = false }
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 loadError = error.localizedDescription
                 isLoading = false
@@ -303,44 +481,129 @@ struct AddBookView: View {
         return raw + "字"
     }
 
+    @MainActor
     private func addToBookshelf() {
-        let book = Book(title: title, author: author, sourceType: .bookSource, totalChapters: chapterCount)
-        book.sourceId = sourceId
-        book.sourceBookURL = bookURL
-        book.sourceName = sourceName
-        let engine = SourceEngine()
-        if let dc = detailCoverURL {
-            book.coverURL = dc
-        } else if let c = coverURL {
-            book.coverURL = engine.resolveURL(c, base: legadoSource.url)
-        }
+        guard !isAdding, !added, !chapters.isEmpty else { return }
 
-        modelContext.insert(book)
+        isAdding = true
+        addError = nil
 
-        for (i, info) in chapters.enumerated() {
-            let chapter = Chapter(index: i, title: info.title)
-            chapter.book = book
-            chapter.sourceURL = engine.resolveURL(info.url, base: legadoSource.url)
-            modelContext.insert(chapter)
-        }
+        // Capturing these value types is O(1) for the chapter array's
+        // copy-on-write storage. URL normalization happens off the main actor.
+        let snapshot = AddBookSubmissionSnapshot(
+            title: title,
+            author: author,
+            sourceId: sourceId,
+            sourceBookURL: bookURL,
+            sourceName: sourceName,
+            detailCoverURL: detailCoverURL,
+            sourceCoverURL: coverURL,
+            sourceBaseURL: legadoSource.url,
+            chapters: chapters
+        )
+        let container = modelContext.container
+        let completion = onAdded
 
-        try? modelContext.save()
-        added = true
-
-        // 如果没有封面，异步通过书名+作者搜索
-        if book.coverURL == nil {
-            Task {
-                if let cover = await CoverSearchService.searchCover(title: book.title, author: book.author, bookId: book.id) {
-                    await MainActor.run {
-                        book.coverURL = cover
-                        try? modelContext.save()
+        // Clicking "add" is an intentional commit: this unstructured task is
+        // not tied to the view lifecycle and continues if the sheet is closed.
+        Task { @MainActor in
+            do {
+                // Everything in this closure is value processing or synchronous
+                // access through a context created on the detached executor.
+                let result = try await Task.detached(priority: .userInitiated) {
+                    let engine = SourceEngine()
+                    let resolvedCoverURL: String?
+                    if let detailCoverURL = snapshot.detailCoverURL {
+                        resolvedCoverURL = detailCoverURL
+                    } else if let sourceCoverURL = snapshot.sourceCoverURL {
+                        resolvedCoverURL = engine.resolveURL(
+                            sourceCoverURL,
+                            base: snapshot.sourceBaseURL
+                        )
+                    } else {
+                        resolvedCoverURL = nil
                     }
+
+                    let chapterDrafts = snapshot.chapters.enumerated().map { index, chapter in
+                        AddBookPersistenceDraft.ChapterDraft(
+                            index: index,
+                            title: chapter.title,
+                            sourceURL: engine.resolveURL(
+                                chapter.url,
+                                base: snapshot.sourceBaseURL
+                            )
+                        )
+                    }
+                    let draft = AddBookPersistenceDraft(
+                        title: snapshot.title,
+                        author: snapshot.author,
+                        sourceId: snapshot.sourceId,
+                        sourceBookURL: snapshot.sourceBookURL,
+                        sourceName: snapshot.sourceName,
+                        coverURL: resolvedCoverURL,
+                        chapters: chapterDrafts
+                    )
+                    let bookId = try AddBookPersistenceWorker.addBook(
+                        draft,
+                        in: container
+                    )
+                    return AddBookInsertionResult(
+                        bookId: bookId,
+                        needsCoverSearch: resolvedCoverURL == nil
+                    )
+                }.value
+
+                isAdding = false
+                added = true
+
+                if result.needsCoverSearch {
+                    Self.searchAndPersistCover(
+                        title: snapshot.title,
+                        author: snapshot.author,
+                        bookId: result.bookId,
+                        container: container
+                    )
                 }
+
+                // The callback may dismiss this view, so invoke it only after
+                // all SwiftData inserts and the save have completed.
+                completion?()
+            } catch {
+                isAdding = false
+                addError = error.localizedDescription
             }
         }
+    }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            onAdded?()
+    nonisolated private static func searchAndPersistCover(
+        title: String,
+        author: String,
+        bookId: UUID,
+        container: ModelContainer
+    ) {
+        Task.detached(priority: .utility) {
+            guard let cover = await CoverSearchService.searchCover(
+                title: title,
+                author: author,
+                bookId: bookId
+            ) else {
+                return
+            }
+
+            do {
+                // The context is created only after the async network work and
+                // is then used synchronously without crossing an await point.
+                let applied = try AddBookPersistenceWorker.setCoverIfMissing(
+                    bookId: bookId,
+                    coverURL: cover,
+                    in: container
+                )
+                if !applied {
+                    CoverSearchService.discardDownloadedCover(cover)
+                }
+            } catch {
+                CoverSearchService.discardDownloadedCover(cover)
+            }
         }
     }
 }

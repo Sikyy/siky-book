@@ -1,4 +1,6 @@
 import SwiftUI
+import Nuke
+import NukeUI
 
 struct CoverPickerView: View {
     let book: Book
@@ -6,10 +8,12 @@ struct CoverPickerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var candidates: [CoverCandidate] = []
-    @State private var thumbImages: [UUID: UIImage] = [:]
     @State private var isLoading = true
     @State private var downloadingId: UUID?
     @State private var searchText: String = ""
+    @State private var searchGeneration = UUID()
+    @State private var selectionGeneration = UUID()
+    @State private var selectionTask: Task<Void, Never>?
     @FocusState private var isSearchFocused: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
@@ -26,13 +30,20 @@ struct CoverPickerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button("取消") { cancelSelectionAndDismiss() }
                 }
             }
             .task {
                 searchText = book.title
                 await search(query: book.title)
             }
+            .onDisappear {
+                selectionTask?.cancel()
+                selectionTask = nil
+                selectionGeneration = UUID()
+                searchGeneration = UUID()
+            }
+            .interactiveDismissDisabled(downloadingId != nil)
         }
     }
 
@@ -107,19 +118,11 @@ struct CoverPickerView: View {
 
     private func coverCell(_ candidate: CoverCandidate) -> some View {
         Button {
-            Task { await selectCover(candidate) }
+            startSelection(candidate)
         } label: {
             VStack(spacing: 6) {
                 ZStack {
-                    if let uiImage = thumbImages[candidate.id] {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color(.systemGray6))
-                    }
+                    CandidateCoverThumbnail(candidate: candidate)
                 }
                 .aspectRatio(3.0 / 4.0, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -161,65 +164,120 @@ struct CoverPickerView: View {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
 
+        let generation = UUID()
+        searchGeneration = generation
         isLoading = true
         candidates = []
-        thumbImages = [:]
 
         // 直接用用户输入的关键词搜豆瓣
         let results = await CoverSearchService.searchCandidates(
             title: trimmed, author: book.author
         )
+        guard !Task.isCancelled, searchGeneration == generation else { return }
         candidates = results
         isLoading = false
-
-        // 并发加载缩略图
-        await loadThumbnails(for: results)
     }
 
-    private func loadThumbnails(for items: [CoverCandidate]) async {
-        await withTaskGroup(of: (UUID, UIImage?).self) { group in
-            for candidate in items {
-                group.addTask {
-                    let image = await Self.fetchImage(candidate.thumbURL, needsReferer: candidate.needsReferer)
-                    return (candidate.id, image)
-                }
-            }
-            for await (id, image) in group {
-                if let image {
-                    thumbImages[id] = image
-                }
-            }
+    private func startSelection(_ candidate: CoverCandidate) {
+        selectionTask?.cancel()
+        let generation = UUID()
+        selectionGeneration = generation
+        selectionTask = Task {
+            await selectCover(candidate, generation: generation)
         }
     }
 
-    private static func fetchImage(_ urlString: String, needsReferer: Bool = true) async -> UIImage? {
-        var raw = urlString
-        if raw.hasPrefix("//") { raw = "https:" + raw }
-        guard let url = URL(string: raw) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        if needsReferer {
-            request.setValue("https://book.douban.com", forHTTPHeaderField: "Referer")
-        }
-        request.timeoutInterval = 10
-
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
-              let image = UIImage(data: data) else { return nil }
-        return image
+    private func cancelSelectionAndDismiss() {
+        selectionTask?.cancel()
+        selectionTask = nil
+        selectionGeneration = UUID()
+        dismiss()
     }
 
-    private func selectCover(_ candidate: CoverCandidate) async {
+    private func selectCover(_ candidate: CoverCandidate, generation: UUID) async {
         downloadingId = candidate.id
-        if let localPath = await CoverSearchService.downloadCoverToLocal(
+        let localPath = await CoverSearchService.downloadCoverToLocal(
             candidate.picURL, bookId: book.id, needsReferer: candidate.needsReferer
-        ) {
-            await MainActor.run {
-                onSelected(localPath)
-                dismiss()
+        )
+
+        guard !Task.isCancelled, selectionGeneration == generation else {
+            if let localPath {
+                CoverSearchService.discardDownloadedCover(localPath)
             }
+            return
         }
         downloadingId = nil
+        selectionTask = nil
+
+        if let localPath {
+            onSelected(localPath)
+            dismiss()
+        }
+    }
+}
+
+/// 候选封面按网格可见性惰加载，共享全局 Nuke 内存/磁盘缓存。
+/// 豆瓣图片需要 Referer，因此使用带请求头的 ImageRequest。
+private struct CandidateCoverThumbnail: View {
+    let candidate: CoverCandidate
+
+    private let targetSize = CGSize(width: 120, height: 160)
+
+    var body: some View {
+        Group {
+            if candidate.needsReferer {
+                LazyImage(request: refererRequest) { state in
+                    if let image = state.image {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        placeholder
+                    }
+                }
+                .onDisappear(.cancel)
+            } else {
+                CachedCoverImage(
+                    urlString: normalizedURLString,
+                    targetSize: targetSize
+                ) {
+                    placeholder
+                }
+            }
+        }
+    }
+
+    private var placeholder: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemGray6))
+    }
+
+    private var refererRequest: ImageRequest? {
+        guard let url = CoverURLResolver.resolve(normalizedURLString) else {
+            return nil
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            forHTTPHeaderField: "User-Agent"
+        )
+        urlRequest.setValue("https://book.douban.com", forHTTPHeaderField: "Referer")
+        urlRequest.timeoutInterval = 10
+
+        var request = ImageRequest(urlRequest: urlRequest)
+        request.thumbnail = ImageRequest.ThumbnailOptions(
+            size: targetSize,
+            unit: .points,
+            contentMode: .aspectFill
+        )
+        return request
+    }
+
+    private var normalizedURLString: String {
+        candidate.thumbURL.hasPrefix("//")
+            ? "https:\(candidate.thumbURL)"
+            : candidate.thumbURL
     }
 }

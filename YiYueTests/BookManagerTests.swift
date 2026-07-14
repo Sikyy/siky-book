@@ -2,6 +2,7 @@ import XCTest
 import SwiftData
 @testable import YiYue
 
+@MainActor
 final class BookManagerTests: XCTestCase {
     var container: ModelContainer!
     var context: ModelContext!
@@ -19,7 +20,7 @@ final class BookManagerTests: XCTestCase {
     }
 
     func testAddBook() throws {
-        let book = manager.addBook(title: "三体", author: "刘慈欣", sourceType: .localFile)
+        _ = manager.addBook(title: "三体", author: "刘慈欣", sourceType: .localFile)
         try context.save()
 
         let descriptor = FetchDescriptor<Book>()
@@ -28,16 +29,40 @@ final class BookManagerTests: XCTestCase {
         XCTAssertEqual(books.first?.title, "三体")
     }
 
-    func testDeleteBook() throws {
+    func testDeleteBookWaitsForCleanupAndPersistsDeletion() async throws {
         let book = manager.addBook(title: "三体", author: "刘慈欣", sourceType: .localFile)
         try context.save()
+        let bookID = book.id
+        let cleanup = BookCleanupRecorder()
+        manager = BookManager(modelContext: context) { bookID in
+            await cleanup.record(bookID)
+        }
 
-        manager.deleteBook(book)
-        try context.save()
+        try await manager.deleteBook(book)
 
         let descriptor = FetchDescriptor<Book>()
         let books = try context.fetch(descriptor)
         XCTAssertEqual(books.count, 0)
+        let cleanedIDs = await cleanup.bookIDs
+        XCTAssertEqual(cleanedIDs, [bookID])
+    }
+
+    func testDeleteBookPreservesModelWhenCleanupFails() async throws {
+        let book = manager.addBook(title: "三体", author: "刘慈欣", sourceType: .localFile)
+        try context.save()
+        manager = BookManager(modelContext: context) { _ in
+            throw BookCleanupTestError.failed
+        }
+
+        do {
+            try await manager.deleteBook(book)
+            XCTFail("缓存清理失败时不应删除书籍")
+        } catch BookCleanupTestError.failed {
+            // Expected.
+        }
+
+        let books = try context.fetch(FetchDescriptor<Book>())
+        XCTAssertEqual(books.map(\.id), [book.id])
     }
 
     func testUpdateReadingProgress() {
@@ -60,4 +85,16 @@ final class BookManagerTests: XCTestCase {
 
         XCTAssertEqual(book.readingStatus, .finished)
     }
+}
+
+private actor BookCleanupRecorder {
+    private(set) var bookIDs: [UUID] = []
+
+    func record(_ bookID: UUID) {
+        bookIDs.append(bookID)
+    }
+}
+
+private enum BookCleanupTestError: Error {
+    case failed
 }

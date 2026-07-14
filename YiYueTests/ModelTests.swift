@@ -67,4 +67,85 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(source.isQualityVerified)
         XCTAssertNil(source.qualityScore)
     }
+
+    func testAddBookPersistenceWorkerCreatesCompleteGraph() async throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let testContainer = try ModelContainer(
+            for: Book.self, Chapter.self, BookSource.self,
+            configurations: config
+        )
+        let draft = AddBookPersistenceDraft(
+            title: "后台入库测试",
+            author: "Author",
+            sourceId: UUID(),
+            sourceBookURL: "https://example.com/book",
+            sourceName: "Test Source",
+            coverURL: nil,
+            chapters: [
+                .init(index: 0, title: "Chapter 1", sourceURL: "https://example.com/1"),
+                .init(index: 1, title: "Chapter 2", sourceURL: "https://example.com/2")
+            ]
+        )
+
+        let bookId = try await Task.detached {
+            try AddBookPersistenceWorker.addBook(draft, in: testContainer)
+        }.value
+
+        let verificationContext = ModelContext(testContainer)
+        let expectedId = bookId
+        let descriptor = FetchDescriptor<Book>(
+            predicate: #Predicate<Book> { $0.id == expectedId }
+        )
+        let persistedBook = try XCTUnwrap(verificationContext.fetch(descriptor).first)
+
+        XCTAssertEqual(persistedBook.totalChapters, 2)
+        XCTAssertEqual(persistedBook.chapters.map(\.index).sorted(), [0, 1])
+        XCTAssertEqual(
+            persistedBook.chapters.compactMap(\.sourceURL).sorted(),
+            ["https://example.com/1", "https://example.com/2"]
+        )
+        XCTAssertTrue(persistedBook.chapters.allSatisfy { $0.book?.id == bookId })
+    }
+
+    func testBackgroundCoverUpdateDoesNotReplaceExistingCover() async throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let testContainer = try ModelContainer(
+            for: Book.self, Chapter.self, BookSource.self,
+            configurations: config
+        )
+        let draft = AddBookPersistenceDraft(
+            title: "Cover Test",
+            author: "Author",
+            sourceId: UUID(),
+            sourceBookURL: "https://example.com/book",
+            sourceName: "Test Source",
+            coverURL: nil,
+            chapters: [.init(index: 0, title: "Chapter", sourceURL: "https://example.com/1")]
+        )
+        let (bookId, firstApplied, secondApplied) = try await Task.detached {
+            let bookId = try AddBookPersistenceWorker.addBook(draft, in: testContainer)
+            let firstApplied = try AddBookPersistenceWorker.setCoverIfMissing(
+                bookId: bookId,
+                coverURL: "covers/first.jpg",
+                in: testContainer
+            )
+            let secondApplied = try AddBookPersistenceWorker.setCoverIfMissing(
+                bookId: bookId,
+                coverURL: "covers/second.jpg",
+                in: testContainer
+            )
+            return (bookId, firstApplied, secondApplied)
+        }.value
+
+        XCTAssertTrue(firstApplied)
+        XCTAssertFalse(secondApplied)
+
+        let verificationContext = ModelContext(testContainer)
+        let expectedId = bookId
+        let descriptor = FetchDescriptor<Book>(
+            predicate: #Predicate<Book> { $0.id == expectedId }
+        )
+        let persistedBook = try XCTUnwrap(verificationContext.fetch(descriptor).first)
+        XCTAssertEqual(persistedBook.coverURL, "covers/first.jpg")
+    }
 }

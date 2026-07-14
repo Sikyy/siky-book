@@ -1,7 +1,7 @@
 import Foundation
 import SwiftSoup
 
-struct SearchResult {
+struct SearchResult: Sendable {
     let title: String
     let author: String
     let bookURL: String
@@ -10,17 +10,145 @@ struct SearchResult {
     let intro: String?
 }
 
-struct ChapterInfo {
+struct ChapterInfo: Sendable {
     let title: String
     let url: String
 }
 
-struct SearchRequest {
+struct SearchRequest: Sendable {
     let url: String
     let method: String
     let body: String?
     let headers: [String: String]
     let charset: String?
+}
+
+struct ChapterContentRequest: Sendable, Hashable {
+    let url: String
+    let rule: LegadoSource.ContentRule
+    let baseURL: String
+    var nextChapterURL: String?
+    var maxPages: Int = 20
+}
+
+/// Coalesces concurrent chapter requests so Reader, prefetch, and bulk cache do not
+/// download and parse the same chapter at the same time.
+actor ChapterContentLoader {
+    static let shared = ChapterContentLoader()
+
+    typealias LoadOperation = @Sendable (ChapterContentRequest) async throws -> String?
+
+    private struct Entry {
+        let id: UUID
+        let task: Task<Void, Never>
+        var waiters: [UUID: CheckedContinuation<String?, Error>]
+    }
+
+    private let loadOperation: LoadOperation
+    private var inFlight: [ChapterContentRequest: Entry] = [:]
+
+    init(loadOperation: @escaping LoadOperation = { request in
+        try await SourceEngine().fetchFullContent(
+            url: request.url,
+            rule: request.rule,
+            baseURL: request.baseURL,
+            nextChapterURL: request.nextChapterURL,
+            maxPages: request.maxPages
+        )
+    }) {
+        self.loadOperation = loadOperation
+    }
+
+    func fetch(_ request: ChapterContentRequest) async throws -> String? {
+        try Task.checkCancellation()
+        let waiterID = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                register(
+                    continuation,
+                    waiterID: waiterID,
+                    request: request
+                )
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(waiterID, request: request) }
+        }
+    }
+
+    private func register(
+        _ continuation: CheckedContinuation<String?, Error>,
+        waiterID: UUID,
+        request: ChapterContentRequest
+    ) {
+        if var entry = inFlight[request] {
+            entry.waiters[waiterID] = continuation
+            inFlight[request] = entry
+            PerformanceSignposts.cache.emitEvent(
+                "CoalescedWaiter",
+                "waiters=\(entry.waiters.count)"
+            )
+            return
+        }
+
+        let entryID = UUID()
+        let operation = loadOperation
+        let task = Task.detached(priority: .utility) { [weak self] in
+            let signposter = PerformanceSignposts.cache
+            let signpostID = signposter.makeSignpostID()
+            var intervalResult = "error"
+            var characterCount = 0
+            let intervalState = signposter.beginInterval("ChapterFetch", id: signpostID)
+            defer {
+                signposter.endInterval(
+                    "ChapterFetch",
+                    intervalState,
+                    "result=\(intervalResult, privacy: .public) characters=\(characterCount)"
+                )
+            }
+            let result: Result<String?, Error>
+            do {
+                try Task.checkCancellation()
+                let content = try await operation(request)
+                intervalResult = "success"
+                characterCount = content?.count ?? 0
+                result = .success(content)
+            } catch {
+                intervalResult = Task.isCancelled ? "cancelled" : "error"
+                result = .failure(error)
+            }
+            await self?.finish(request, entryID: entryID, result: result)
+        }
+        inFlight[request] = Entry(
+            id: entryID,
+            task: task,
+            waiters: [waiterID: continuation]
+        )
+    }
+
+    private func cancelWaiter(_ waiterID: UUID, request: ChapterContentRequest) {
+        guard var entry = inFlight[request],
+              let continuation = entry.waiters.removeValue(forKey: waiterID) else { return }
+
+        if entry.waiters.isEmpty {
+            entry.task.cancel()
+            inFlight[request] = nil
+        } else {
+            inFlight[request] = entry
+        }
+        continuation.resume(throwing: CancellationError())
+    }
+
+    private func finish(
+        _ request: ChapterContentRequest,
+        entryID: UUID,
+        result: Result<String?, Error>
+    ) {
+        guard let entry = inFlight[request], entry.id == entryID else { return }
+        inFlight[request] = nil
+        for continuation in entry.waiters.values {
+            continuation.resume(with: result)
+        }
+    }
 }
 
 class SourceEngine {
@@ -123,7 +251,11 @@ class SourceEngine {
                 result.append(ch)
             }
         }
-        return result
+        return Self.removeAdLines(result)
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
     func stripJSTags(_ str: String) -> String {
@@ -197,6 +329,40 @@ class SourceEngine {
     }
 
     func parseContent(response: String, rule: LegadoSource.ContentRule, baseURL: String = "") throws -> String? {
+        guard let content = try parseContentText(response: response, rule: rule, baseURL: baseURL) else { return nil }
+        return applyReplaceRegex(to: content, rule: rule)
+    }
+
+    func fetchFullContent(url: String, rule: LegadoSource.ContentRule, baseURL: String, nextChapterURL: String? = nil, maxPages: Int = 20) async throws -> String? {
+        var currentURL = resolveURL(url, base: baseURL)
+        var visited: Set<String> = []
+        var parts: [String] = []
+        let nextChapterAbsolute = nextChapterURL.map { resolveURL($0, base: baseURL) }
+
+        for _ in 0..<maxPages {
+            guard !visited.contains(currentURL) else { break }
+            visited.insert(currentURL)
+
+            let response = try await NetworkClient.shared.fetchString(url: currentURL)
+            if let content = try parseContentText(response: response, rule: rule, baseURL: currentURL),
+               !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                parts.append(content)
+            }
+
+            guard let rawNext = parseNextContentUrl(response: response, rule: rule, baseURL: currentURL) else { break }
+            let resolvedNext = resolveURL(rawNext, base: currentURL)
+            guard resolvedNext != currentURL,
+                  !visited.contains(resolvedNext),
+                  nextChapterAbsolute != resolvedNext else { break }
+
+            currentURL = resolvedNext
+        }
+
+        guard !parts.isEmpty else { return nil }
+        return applyReplaceRegex(to: parts.joined(separator: "\n"), rule: rule)
+    }
+
+    private func parseContentText(response: String, rule: LegadoSource.ContentRule, baseURL: String = "") throws -> String? {
         guard let contentRule = rule.content else { return nil }
         if isJSONRule(contentRule) || isJSONResponse(response) {
             if let data = response.data(using: .utf8),
@@ -206,9 +372,87 @@ class SourceEngine {
             }
             if isJSONResponse(response) { return nil }
         }
-        let raw = try ruleExecutor.getString(html: response, rule: contentRule, baseURL: baseURL)
+        let raw = try ruleExecutor.getString(html: response, rule: contentRule, baseURL: baseURL, joinMultiple: true)
         guard let raw else { return nil }
         return Self.removeAdLines(cleanContentText(raw))
+    }
+
+    private func parseNextContentUrl(response: String, rule: LegadoSource.ContentRule, baseURL: String) -> String? {
+        guard let nextRule = rule.nextContentUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !nextRule.isEmpty else { return nil }
+
+        if isJSONRule(nextRule) || isJSONResponse(response) {
+            if let data = response.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data),
+               let result = jsonString(from: json, rule: nextRule, baseUrl: baseURL),
+               !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return result
+            }
+            if isJSONResponse(response) { return nil }
+        }
+
+        guard let result = try? ruleExecutor.getString(html: response, rule: nextRule, baseURL: baseURL),
+              !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func applyReplaceRegex(to content: String, rule: LegadoSource.ContentRule) -> String {
+        guard let replaceRegex = rule.replaceRegex?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !replaceRegex.isEmpty else { return content }
+
+        var result = content
+        let rules = replaceRegex
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        for item in rules {
+            let parts = item.components(separatedBy: "##")
+            guard let pattern = parts.first, !pattern.isEmpty else { continue }
+            let replacement = parts.count >= 2 ? parts[1] : ""
+            result = applyRegex(text: result, pattern: pattern, replacement: replacement)
+        }
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func isValidContent(_ text: String?) -> Bool {
+        contentValidationError(text) == nil
+    }
+
+    static func contentValidationError(_ text: String?) -> String? {
+        guard let text else { return "章节内容为空" }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "章节内容为空" }
+
+        // Error/login pages are normally short. Avoid rejecting real novel text merely
+        // because a long chapter mentions words such as “404”, “login”, or “验证码”.
+        guard trimmed.count <= 600 else { return nil }
+        let lower = trimmed.lowercased()
+        let captchaHints = ["验证码", "人机验证", "安全验证", "滑动验证", "captcha"]
+        if captchaHints.contains(where: { lower.contains($0.lowercased()) }) {
+            return "章节需要验证码验证"
+        }
+
+        let loginHints = ["请登录", "登录后", "账号登录", "用户登录"]
+        let isEnglishLoginPage = lower.contains("login") &&
+            (lower.contains("password") || lower.contains("sign in"))
+        if loginHints.contains(where: { lower.contains($0.lowercased()) }) || isEnglishLoginPage {
+            return "章节需要登录"
+        }
+
+        let vipHints = ["vip章节", "付费章节", "订阅本章", "购买本章", "开通会员"]
+        if vipHints.contains(where: { lower.contains($0.lowercased()) }) {
+            return "章节需要付费或会员权限"
+        }
+
+        let errorHints = ["访问异常", "页面不存在", "内容为空"]
+        let isHTTPErrorPage = lower == "404" || lower.contains("404 not found") || lower.hasPrefix("not found")
+        if errorHints.contains(where: { lower.contains($0.lowercased()) }) || isHTTPErrorPage {
+            return "章节页面异常"
+        }
+
+        return nil
     }
 
     private func cleanContentText(_ text: String) -> String {
@@ -217,7 +461,7 @@ class SourceEngine {
         guard let doc = try? SwiftSoup.parseBodyFragment(trimmed),
               let body = doc.body() else { return trimmed }
 
-        try? body.select("script, style").remove()
+        _ = try? body.select("script, style").remove()
 
         var paragraphs: [String] = []
         for node in body.getChildNodes() {
@@ -290,15 +534,20 @@ class SourceEngine {
     }
 
     func resolveURL(_ url: String, base: String) -> String {
-        if url.hasPrefix("http://") || url.hasPrefix("https://") {
-            return url
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            return trimmed
         }
-        if url.hasPrefix("//") {
+        if trimmed.hasPrefix("//") {
             let scheme = base.hasPrefix("https") ? "https:" : "http:"
-            return scheme + url
+            return scheme + trimmed
+        }
+        if let baseURL = URL(string: base),
+           let resolved = URL(string: trimmed, relativeTo: baseURL)?.absoluteURL {
+            return resolved.absoluteString
         }
         let cleanBase = base.hasSuffix("/") ? String(base.dropLast()) : base
-        let cleanPath = url.hasPrefix("/") ? url : "/" + url
+        let cleanPath = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
         return cleanBase + cleanPath
     }
 

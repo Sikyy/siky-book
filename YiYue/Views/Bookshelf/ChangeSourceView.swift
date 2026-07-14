@@ -12,6 +12,7 @@ private struct FoundSource: Identifiable {
     let chapterCount: Int   // 0 = invalid
 }
 
+@MainActor
 struct ChangeSourceView: View {
     let book: Book
     @Environment(\.modelContext) private var modelContext
@@ -28,6 +29,12 @@ struct ChangeSourceView: View {
     @State private var switchingSourceId: UUID?
     @State private var error: String?
     @State private var hasSearched = false
+    @State private var searchTask: Task<Void, Never>?
+    @State private var sourceSwitchTask: Task<Void, Never>?
+    @State private var searchGeneration: UUID?
+    @State private var switchGeneration: UUID?
+    @State private var isViewActive = true
+    @State private var isCommittingSwitch = false
 
     // Pinned / blocked IDs for quick lookup
     private var pinnedIds: Set<String> {
@@ -66,15 +73,62 @@ struct ChangeSourceView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") { close() }
+                        .disabled(isCommittingSwitch)
                 }
             }
             .task {
                 // Only auto-search first time (no cached pinned/blocked data)
                 if book.pinnedSources.isEmpty && book.blockedSourceIds.isEmpty {
-                    await searchAllSources()
+                    startSearch()
                 }
             }
+        }
+        .interactiveDismissDisabled(isCommittingSwitch)
+        .onAppear { isViewActive = true }
+        .onDisappear { cancelOwnedTasks() }
+    }
+
+    // MARK: - Task lifetime
+
+    private func close() {
+        guard !isCommittingSwitch else { return }
+        cancelOwnedTasks()
+        dismiss()
+    }
+
+    private func cancelOwnedTasks() {
+        isViewActive = false
+        searchGeneration = nil
+        switchGeneration = nil
+        searchTask?.cancel()
+        sourceSwitchTask?.cancel()
+        searchTask = nil
+        sourceSwitchTask = nil
+        isSearching = false
+        isSwitching = false
+        switchingSourceId = nil
+        isCommittingSwitch = false
+    }
+
+    private func cancelSearch() {
+        searchGeneration = nil
+        searchTask?.cancel()
+        searchTask = nil
+        isSearching = false
+    }
+
+    private func ensureCurrentSearch(_ generation: UUID) throws {
+        try Task.checkCancellation()
+        guard isViewActive, searchGeneration == generation else {
+            throw CancellationError()
+        }
+    }
+
+    private func ensureCurrentSwitch(_ generation: UUID) throws {
+        try Task.checkCancellation()
+        guard isViewActive, switchGeneration == generation else {
+            throw CancellationError()
         }
     }
 
@@ -116,7 +170,7 @@ struct ChangeSourceView: View {
 
     private func pinnedRow(_ source: PinnedSource) -> some View {
         Button {
-            Task { await switchToPinned(source) }
+            startSwitch(to: source)
         } label: {
             HStack {
                 Text(source.sourceName)
@@ -161,7 +215,7 @@ struct ChangeSourceView: View {
            !(book.pinnedSources.isEmpty && book.blockedSourceIds.isEmpty) {
             Section {
                 Button {
-                    Task { await searchAllSources() }
+                    startSearch()
                 } label: {
                     HStack {
                         Spacer()
@@ -226,7 +280,7 @@ struct ChangeSourceView: View {
 
     private func searchResultRow(_ source: FoundSource) -> some View {
         Button {
-            Task { await switchSource(to: source) }
+            startSwitch(to: source)
         } label: {
             HStack {
                 Text(source.sourceName)
@@ -368,17 +422,40 @@ struct ChangeSourceView: View {
 
     // MARK: - Live search all sources
 
-    private func searchAllSources() async {
+    private func startSearch() {
+        guard isViewActive, !isSearching, !isSwitching else { return }
+        searchTask?.cancel()
+
+        let generation = UUID()
+        searchGeneration = generation
         isSearching = true
         searchedCount = 0
+        totalCount = 0
         foundSources = []
+        error = nil
+
+        searchTask = Task {
+            await searchAllSources(generation: generation)
+        }
+    }
+
+    private func searchAllSources(generation: UUID) async {
+        defer {
+            if searchGeneration == generation {
+                isSearching = false
+                searchGeneration = nil
+                searchTask = nil
+            }
+        }
 
         do {
+            try ensureCurrentSearch(generation)
             var descriptor = FetchDescriptor<BookSource>()
             descriptor.predicate = #Predicate<BookSource> { $0.enabled == true }
             let bookSources = try modelContext.fetch(descriptor)
+            try ensureCurrentSearch(generation)
 
-            await MainActor.run { totalCount = bookSources.count }
+            totalCount = bookSources.count
 
             let snapshots: [(id: UUID, name: String, sourceURL: String, ruleJSON: String)] = bookSources.map {
                 ($0.id, $0.name, $0.sourceURL, $0.ruleJSON)
@@ -396,7 +473,9 @@ struct ChangeSourceView: View {
                 var iterator = snapshots.makeIterator()
 
                 for _ in 0..<min(maxConcurrency, snapshots.count) {
-                    guard let snap = iterator.next() else { break }
+                    guard !Task.isCancelled,
+                          searchGeneration == generation,
+                          let snap = iterator.next() else { break }
                     group.addTask {
                         await Self.searchSingleSource(
                             id: snap.id, name: snap.name,
@@ -408,21 +487,26 @@ struct ChangeSourceView: View {
                 }
 
                 for await result in group {
-                    guard !Task.isCancelled else { break }
+                    guard !Task.isCancelled,
+                          isViewActive,
+                          searchGeneration == generation else {
+                        group.cancelAll()
+                        break
+                    }
 
-                    await MainActor.run {
-                        searchedCount += 1
-                        if let found = result {
-                            let sid = found.sourceId.uuidString
-                            guard !foundSources.contains(where: { $0.sourceId == found.sourceId }) else { return }
+                    searchedCount += 1
+                    if let found = result {
+                        let sid = found.sourceId.uuidString
+                        if !foundSources.contains(where: { $0.sourceId == found.sourceId }) {
                             foundSources.append(found)
 
-                            // Auto-categorize (skip current source and already-categorized)
+                            // Auto-categorize (skip current source and already-categorized).
+                            // Generation is checked immediately before this model mutation;
+                            // there is no suspension until the save finishes.
                             if found.sourceId != currentSourceId &&
                                !existingPinnedIds.contains(sid) &&
                                !existingBlockedIds.contains(sid) {
                                 if found.chapterCount > 0 {
-                                    // Auto-pin valid source
                                     let pinned = PinnedSource(
                                         sourceName: found.sourceName,
                                         sourceId: sid,
@@ -436,7 +520,6 @@ struct ChangeSourceView: View {
                                         book.pinnedSources = list
                                     }
                                 } else {
-                                    // Auto-block invalid source
                                     var ids = book.blockedSourceIds
                                     ids.insert(sid)
                                     book.blockedSourceIds = ids
@@ -446,7 +529,9 @@ struct ChangeSourceView: View {
                         }
                     }
 
-                    if let snap = iterator.next() {
+                    if !Task.isCancelled,
+                       searchGeneration == generation,
+                       let snap = iterator.next() {
                         group.addTask {
                             await Self.searchSingleSource(
                                 id: snap.id, name: snap.name,
@@ -459,15 +544,14 @@ struct ChangeSourceView: View {
                 }
             }
 
-            await MainActor.run {
-                isSearching = false
-                hasSearched = true
-            }
+            try ensureCurrentSearch(generation)
+            hasSearched = true
+        } catch is CancellationError {
+            return
         } catch {
-            await MainActor.run {
-                isSearching = false
-                hasSearched = true
-            }
+            guard isViewActive, searchGeneration == generation else { return }
+            hasSearched = true
+            self.error = "搜索书源失败：\(error.localizedDescription)"
         }
     }
 
@@ -479,7 +563,8 @@ struct ChangeSourceView: View {
         timeoutNanos: UInt64
     ) async -> FoundSource? {
         do {
-            return try await withThrowingTaskGroup(of: FoundSource?.self) { group in
+            try Task.checkCancellation()
+            let result = try await withThrowingTaskGroup(of: FoundSource?.self) { group in
                 group.addTask {
                     try await doSearch(
                         id: id, name: name, sourceURL: sourceURL, ruleJSON: ruleJSON,
@@ -493,6 +578,8 @@ struct ChangeSourceView: View {
                 defer { group.cancelAll() }
                 return try await group.next() ?? nil
             }
+            try Task.checkCancellation()
+            return result
         } catch {
             return nil
         }
@@ -502,6 +589,7 @@ struct ChangeSourceView: View {
         id: UUID, name: String, sourceURL: String, ruleJSON: String,
         bookTitle: String, bookAuthor: String
     ) async throws -> FoundSource? {
+        try Task.checkCancellation()
         let engine = SourceEngine()
         let legado = try LegadoSourceParser.parse(json: ruleJSON, matchingURL: sourceURL)
 
@@ -516,9 +604,11 @@ struct ChangeSourceView: View {
             body: searchReq.body,
             headers: searchReq.headers.isEmpty ? nil : searchReq.headers
         )
+        try Task.checkCancellation()
         guard let searchRule = legado.searchRule else { return nil }
 
         let results = try engine.parseSearchResults(response: html, rule: searchRule, baseURL: legado.url)
+        try Task.checkCancellation()
 
         let titleLower = bookTitle.lowercased()
         let authorLower = bookAuthor.lowercased()
@@ -544,24 +634,32 @@ struct ChangeSourceView: View {
             do {
                 let bookDetailURL = engine.resolveURL(match.bookURL, base: legado.url)
                 let detailHTML = try await NetworkClient.shared.fetchString(url: bookDetailURL)
+                try Task.checkCancellation()
 
                 var tocResponse = detailHTML
+                var tocBaseURL = bookDetailURL
                 if let tocUrlRule = legado.bookInfoRule?.tocUrl, !tocUrlRule.isEmpty {
                     let ruleExecutor = RuleExecutor()
-                    if let parsedTocUrl = try? ruleExecutor.getString(html: detailHTML, rule: tocUrlRule, baseURL: legado.url),
+                    if let parsedTocUrl = try? ruleExecutor.getString(html: detailHTML, rule: tocUrlRule, baseURL: bookDetailURL),
                        !parsedTocUrl.isEmpty {
-                        tocResponse = try await NetworkClient.shared.fetchString(url: engine.resolveURL(parsedTocUrl, base: legado.url))
+                        tocBaseURL = engine.resolveURL(parsedTocUrl, base: bookDetailURL)
+                        tocResponse = try await NetworkClient.shared.fetchString(url: tocBaseURL)
+                        try Task.checkCancellation()
                     }
                 }
 
-                let chapters = try engine.parseChapterList(response: tocResponse, rule: tocRule, baseURL: legado.url)
+                let chapters = try engine.parseChapterList(response: tocResponse, rule: tocRule, baseURL: tocBaseURL)
+                try Task.checkCancellation()
                 chapterCount = chapters.count
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 // Validation failed — treat as 0 chapters
                 chapterCount = 0
             }
         }
 
+        try Task.checkCancellation()
         return FoundSource(
             id: id, sourceName: name, sourceId: id,
             bookURL: match.bookURL, ruleJSON: ruleJSON, sourceURL: sourceURL,
@@ -571,107 +669,204 @@ struct ChangeSourceView: View {
 
     // MARK: - Switch source (from search result — ruleJSON in memory)
 
-    private func switchSource(to source: FoundSource) async {
+    private func startSwitch(to source: FoundSource) {
+        guard isViewActive, !isSwitching else { return }
+        cancelSearch()
+
+        let generation = UUID()
+        switchGeneration = generation
         isSwitching = true
         switchingSourceId = source.sourceId
         error = nil
 
+        sourceSwitchTask = Task {
+            await switchSource(to: source, generation: generation)
+        }
+    }
+
+    private func switchSource(to source: FoundSource, generation: UUID) async {
+        defer { finishSwitchIfCurrent(generation) }
         do {
-            let chapters = try await fetchChapters(ruleJSON: source.ruleJSON, sourceURL: source.sourceURL, bookURL: source.bookURL)
-            await applySwitch(sourceId: source.sourceId, sourceName: source.sourceName, bookURL: source.bookURL, ruleJSON: source.ruleJSON, sourceURL: source.sourceURL, chapters: chapters)
+            try ensureCurrentSwitch(generation)
+            let chapters = try await fetchChapters(
+                ruleJSON: source.ruleJSON,
+                sourceURL: source.sourceURL,
+                bookURL: source.bookURL,
+                generation: generation
+            )
+            try ensureCurrentSwitch(generation)
+            try await applySwitch(
+                sourceId: source.sourceId,
+                sourceName: source.sourceName,
+                bookURL: source.bookURL,
+                ruleJSON: source.ruleJSON,
+                sourceURL: source.sourceURL,
+                chapters: chapters,
+                generation: generation
+            )
+        } catch is CancellationError {
+            return
         } catch {
-            await MainActor.run {
-                self.error = describeError(error)
-                isSwitching = false
-                switchingSourceId = nil
-            }
+            guard isViewActive, switchGeneration == generation else { return }
+            self.error = describeError(error)
         }
     }
 
     // MARK: - Switch source (from pinned — need DB lookup for ruleJSON)
 
-    private func switchToPinned(_ source: PinnedSource) async {
-        guard let sourceUUID = UUID(uuidString: source.sourceId) else { return }
+    private func startSwitch(to source: PinnedSource) {
+        guard isViewActive, !isSwitching else { return }
+        guard let sourceUUID = UUID(uuidString: source.sourceId) else {
+            error = "收藏的书源标识无效"
+            return
+        }
+        cancelSearch()
+
+        let generation = UUID()
+        switchGeneration = generation
         isSwitching = true
         switchingSourceId = sourceUUID
         error = nil
 
+        sourceSwitchTask = Task {
+            await switchToPinned(source, sourceUUID: sourceUUID, generation: generation)
+        }
+    }
+
+    private func switchToPinned(
+        _ source: PinnedSource,
+        sourceUUID: UUID,
+        generation: UUID
+    ) async {
+        defer { finishSwitchIfCurrent(generation) }
         do {
+            try ensureCurrentSwitch(generation)
             let descriptor = FetchDescriptor<BookSource>(
                 predicate: #Predicate<BookSource> { $0.id == sourceUUID }
             )
             guard let bookSource = try modelContext.fetch(descriptor).first else {
+                try ensureCurrentSwitch(generation)
                 // Source deleted — auto-unpin
-                await MainActor.run {
-                    unpinSource(source)
-                    self.error = "该书源已被删除，已自动取消收藏"
-                    isSwitching = false
-                    switchingSourceId = nil
-                }
+                unpinSource(source)
+                self.error = "该书源已被删除，已自动取消收藏"
                 return
             }
 
-            let chapters = try await fetchChapters(ruleJSON: bookSource.ruleJSON, sourceURL: bookSource.sourceURL, bookURL: source.bookURL)
-            await applySwitch(sourceId: sourceUUID, sourceName: source.sourceName, bookURL: source.bookURL, ruleJSON: bookSource.ruleJSON, sourceURL: bookSource.sourceURL, chapters: chapters)
+            let ruleJSON = bookSource.ruleJSON
+            let sourceURL = bookSource.sourceURL
+            try ensureCurrentSwitch(generation)
+            let chapters = try await fetchChapters(
+                ruleJSON: ruleJSON,
+                sourceURL: sourceURL,
+                bookURL: source.bookURL,
+                generation: generation
+            )
+            try ensureCurrentSwitch(generation)
+            try await applySwitch(
+                sourceId: sourceUUID,
+                sourceName: source.sourceName,
+                bookURL: source.bookURL,
+                ruleJSON: ruleJSON,
+                sourceURL: sourceURL,
+                chapters: chapters,
+                generation: generation
+            )
+        } catch is CancellationError {
+            return
         } catch {
-            await MainActor.run {
-                self.error = describeError(error)
-                isSwitching = false
-                switchingSourceId = nil
-            }
+            guard isViewActive, switchGeneration == generation else { return }
+            self.error = describeError(error)
         }
+    }
+
+    private func finishSwitchIfCurrent(_ generation: UUID) {
+        guard switchGeneration == generation else { return }
+        isSwitching = false
+        switchingSourceId = nil
+        isCommittingSwitch = false
+        switchGeneration = nil
+        sourceSwitchTask = nil
     }
 
     // MARK: - Shared: fetch chapters from a source
 
-    private func fetchChapters(ruleJSON: String, sourceURL: String, bookURL: String) async throws -> [ChapterInfo] {
+    private func fetchChapters(
+        ruleJSON: String,
+        sourceURL: String,
+        bookURL: String,
+        generation: UUID
+    ) async throws -> [ChapterInfo] {
+        try ensureCurrentSwitch(generation)
         let legado = try LegadoSourceParser.parse(json: ruleJSON, matchingURL: sourceURL)
         let engine = SourceEngine()
         let resolvedURL = engine.resolveURL(bookURL, base: legado.url)
         let response = try await NetworkClient.shared.fetchString(url: resolvedURL)
+        try ensureCurrentSwitch(generation)
 
         guard let tocRule = legado.tocRule else { throw ChangeSourceError.noTocRule }
 
         // Separate TOC page
         var tocResponse = response
+        var tocBaseURL = resolvedURL
         if let tocUrlRule = legado.bookInfoRule?.tocUrl, !tocUrlRule.isEmpty {
             let ruleExecutor = RuleExecutor()
-            if let parsedTocUrl = try? ruleExecutor.getString(html: response, rule: tocUrlRule, baseURL: legado.url),
+            if let parsedTocUrl = try? ruleExecutor.getString(html: response, rule: tocUrlRule, baseURL: resolvedURL),
                !parsedTocUrl.isEmpty {
-                tocResponse = try await NetworkClient.shared.fetchString(url: engine.resolveURL(parsedTocUrl, base: legado.url))
+                let resolvedTocURL = engine.resolveURL(parsedTocUrl, base: resolvedURL)
+                tocResponse = try await NetworkClient.shared.fetchString(url: resolvedTocURL)
+                try ensureCurrentSwitch(generation)
+                tocBaseURL = resolvedTocURL
             }
         }
 
         // First page
-        var allChapters = try engine.parseChapterList(response: tocResponse, rule: tocRule, baseURL: legado.url)
+        var allChapters = try engine.parseChapterList(response: tocResponse, rule: tocRule, baseURL: tocBaseURL)
+            .map { ChapterInfo(title: $0.title, url: engine.resolveURL($0.url, base: tocBaseURL)) }
+        try ensureCurrentSwitch(generation)
 
         // Pagination
         if let nextRule = tocRule.nextTocUrl, !nextRule.isEmpty {
             var visitedUrls: Set<String> = []
             var currentResponse = tocResponse
+            var currentBaseURL = tocBaseURL
             for _ in 0..<200 {
-                guard let nextUrl = engine.parseNextTocUrl(response: currentResponse, rule: nextRule, baseURL: legado.url) else { break }
-                let resolvedNext = engine.resolveURL(nextUrl, base: legado.url)
+                try ensureCurrentSwitch(generation)
+                guard let nextUrl = engine.parseNextTocUrl(response: currentResponse, rule: nextRule, baseURL: currentBaseURL) else { break }
+                let resolvedNext = engine.resolveURL(nextUrl, base: currentBaseURL)
                 guard !visitedUrls.contains(resolvedNext) else { break }
                 visitedUrls.insert(resolvedNext)
                 let nextResponse = try await NetworkClient.shared.fetchString(url: resolvedNext)
-                let pageChapters = try engine.parseChapterList(response: nextResponse, rule: tocRule, baseURL: legado.url)
+                try ensureCurrentSwitch(generation)
+                let pageChapters = try engine.parseChapterList(response: nextResponse, rule: tocRule, baseURL: resolvedNext)
+                    .map { ChapterInfo(title: $0.title, url: engine.resolveURL($0.url, base: resolvedNext)) }
+                try ensureCurrentSwitch(generation)
                 guard !pageChapters.isEmpty else { break }
                 allChapters.append(contentsOf: pageChapters)
                 currentResponse = nextResponse
+                currentBaseURL = resolvedNext
             }
         }
 
         // Deduplicate
         var seen = Set<String>()
         let deduplicated = allChapters.filter { seen.insert("\($0.title)|\($0.url)").inserted }
+        try ensureCurrentSwitch(generation)
         guard !deduplicated.isEmpty else { throw ChangeSourceError.noChapters }
         return deduplicated
     }
 
     // MARK: - Shared: apply chapter switch to Book
 
-    private func applySwitch(sourceId: UUID, sourceName: String, bookURL: String, ruleJSON: String, sourceURL: String, chapters: [ChapterInfo]) async {
+    private func applySwitch(
+        sourceId: UUID,
+        sourceName: String,
+        bookURL: String,
+        ruleJSON: String,
+        sourceURL: String,
+        chapters: [ChapterInfo],
+        generation: UUID
+    ) async throws {
+        try ensureCurrentSwitch(generation)
         let baseURL: String
         if let legado = try? LegadoSourceParser.parse(json: ruleJSON, matchingURL: sourceURL) {
             baseURL = legado.url
@@ -679,42 +874,81 @@ struct ChangeSourceView: View {
             baseURL = sourceURL
         }
         let engine = SourceEngine()
-
-        await MainActor.run {
-            // Delete old chapters
-            for chapter in book.chapters {
-                modelContext.delete(chapter)
-            }
-
-            // Create new chapters
-            for (i, info) in chapters.enumerated() {
-                let ch = Chapter(index: i, title: info.title)
-                ch.book = book
-                ch.sourceURL = engine.resolveURL(info.url, base: baseURL)
-                modelContext.insert(ch)
-            }
-
-            // Update book
-            book.sourceId = sourceId
-            book.sourceBookURL = bookURL
-            book.sourceName = sourceName
-            book.totalChapters = chapters.count
-
-            if book.lastReadChapterIndex >= chapters.count {
-                book.lastReadChapterIndex = max(0, chapters.count - 1)
-                book.lastReadPosition = 0
-            }
-
-            try? modelContext.save()
-            isSwitching = false
-            switchingSourceId = nil
+        let bookID = book.id
+        guard try persistedBook(withID: bookID) != nil else {
+            throw ChangeSourceError.bookUnavailable
         }
+
+        // This is the commit boundary. User-driven dismissal stays available
+        // while networking, then is disabled until cache cleanup and the
+        // synchronous SwiftData transaction have both finished.
+        try ensureCurrentSwitch(generation)
+        isCommittingSwitch = true
+
+        // Source URLs and rules are embedded in persisted jobs. Drain and
+        // discard that intent before replacing the chapter list.
+        do {
+            try await ChapterDownloadManager.shared.clear(bookID: bookID)
+        } catch {
+            try ensureCurrentSwitch(generation)
+            throw ChangeSourceError.cacheClearFailed(error.localizedDescription)
+        }
+
+        try ensureCurrentSwitch(generation)
+        guard let currentBook = try persistedBook(withID: bookID) else {
+            throw ChangeSourceError.bookUnavailable
+        }
+
+        // There is no suspension from this point through save, so dismissal
+        // cannot interleave with mutations of Book, Chapter, or ModelContext.
+        for chapter in currentBook.chapters {
+            modelContext.delete(chapter)
+        }
+
+        for (index, info) in chapters.enumerated() {
+            let chapter = Chapter(index: index, title: info.title)
+            chapter.book = currentBook
+            chapter.sourceURL = engine.resolveURL(info.url, base: baseURL)
+            modelContext.insert(chapter)
+        }
+
+        currentBook.sourceId = sourceId
+        currentBook.sourceBookURL = bookURL
+        currentBook.sourceName = sourceName
+        currentBook.totalChapters = chapters.count
+
+        if currentBook.lastReadChapterIndex >= chapters.count {
+            currentBook.lastReadChapterIndex = max(0, chapters.count - 1)
+            currentBook.lastReadPosition = 0
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw ChangeSourceError.saveFailed(error.localizedDescription)
+        }
+    }
+
+    private func persistedBook(withID bookID: UUID) throws -> Book? {
+        let targetID = bookID
+        var descriptor = FetchDescriptor<Book>(
+            predicate: #Predicate<Book> { $0.id == targetID }
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
     }
 
     private func describeError(_ error: Error) -> String {
         switch error {
         case ChangeSourceError.noTocRule:  return "该书源没有目录规则"
         case ChangeSourceError.noChapters: return "该书源无法获取章节目录"
+        case ChangeSourceError.bookUnavailable:
+            return "书籍已不存在，换源已取消"
+        case ChangeSourceError.cacheClearFailed(let detail):
+            return "无法清理旧缓存，已保留原书源：\(detail)"
+        case ChangeSourceError.saveFailed(let detail):
+            return "无法保存换源结果：\(detail)"
         default: return "换源失败：\(error.localizedDescription)"
         }
     }
@@ -723,4 +957,7 @@ struct ChangeSourceView: View {
 private enum ChangeSourceError: Error {
     case noTocRule
     case noChapters
+    case bookUnavailable
+    case cacheClearFailed(String)
+    case saveFailed(String)
 }

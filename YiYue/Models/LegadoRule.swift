@@ -1,6 +1,6 @@
 import Foundation
 
-struct LegadoSource {
+struct LegadoSource: Sendable {
     let name: String
     let url: String
     let group: String?
@@ -11,7 +11,7 @@ struct LegadoSource {
     let tocRule: TocRule?
     let contentRule: ContentRule?
 
-    struct SearchRule {
+    struct SearchRule: Sendable {
         let bookList: String?
         let name: String?
         let author: String?
@@ -21,7 +21,7 @@ struct LegadoSource {
         let intro: String?
     }
 
-    struct BookInfoRule {
+    struct BookInfoRule: Sendable {
         let name: String?
         let author: String?
         let intro: String?
@@ -30,16 +30,17 @@ struct LegadoSource {
         let wordCount: String?
     }
 
-    struct TocRule {
+    struct TocRule: Sendable {
         let chapterList: String?
         let chapterName: String?
         let chapterUrl: String?
         let nextTocUrl: String?
     }
 
-    struct ContentRule {
+    struct ContentRule: Sendable, Hashable {
         let content: String?
         let replaceRegex: String?
+        let nextContentUrl: String?
     }
 }
 
@@ -118,7 +119,8 @@ enum LegadoSourceParser {
             contentRule: content.map {
                 LegadoSource.ContentRule(
                     content: $0["content"] as? String,
-                    replaceRegex: $0["replaceRegex"] as? String
+                    replaceRegex: $0["replaceRegex"] as? String,
+                    nextContentUrl: $0["nextContentUrl"] as? String
                 )
             }
         )

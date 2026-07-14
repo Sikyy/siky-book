@@ -18,8 +18,8 @@ final class ReaderSettingsTests: XCTestCase {
     func testDefaultValues() {
         XCTAssertEqual(settings.fontSize, 17)
         XCTAssertEqual(settings.lineSpacing, 2.0, accuracy: 0.01)
-        XCTAssertEqual(settings.fontFamily, .pingfang)
-        XCTAssertEqual(settings.theme, .pureBlack)
+        XCTAssertEqual(settings.fontFamily, .system)
+        XCTAssertEqual(settings.theme, .paper)
         XCTAssertEqual(settings.horizontalPadding, 28)
         XCTAssertEqual(settings.pageMode, .horizontal)
     }
@@ -43,12 +43,12 @@ final class ReaderSettingsTests: XCTestCase {
     }
 
     func testThemeColors() {
-        let pureBlack = ReaderTheme.pureBlack
-        XCTAssertEqual(pureBlack.backgroundHex, "#121212")
-        XCTAssertEqual(pureBlack.textHex, "#d4d4d4")
+        let dark = ReaderTheme.dark
+        XCTAssertEqual(dark.backgroundHex, "#121212")
+        XCTAssertEqual(dark.textHex, "#d4d4d4")
 
-        let warmBlack = ReaderTheme.warmBlack
-        XCTAssertEqual(warmBlack.backgroundHex, "#1a1814")
+        let paper = ReaderTheme.paper
+        XCTAssertEqual(paper.backgroundHex, "#f5efe4")
     }
 
     func testFontSizeClamping() {
@@ -65,5 +65,133 @@ final class ReaderSettingsTests: XCTestCase {
 
         settings.lineSpacing = 3.0
         XCTAssertEqual(settings.lineSpacing, 2.5, accuracy: 0.01)
+    }
+
+    func testPreparedWindowPrioritizesNextThenPreviousChapter() {
+        XCTAssertEqual(
+            ReaderPreparedChapterWindow.adjacentIndices(
+                currentIndex: 2,
+                chapterCount: 5
+            ),
+            [3, 1]
+        )
+        XCTAssertEqual(
+            ReaderPreparedChapterWindow.adjacentIndices(
+                currentIndex: 0,
+                chapterCount: 5
+            ),
+            [1]
+        )
+    }
+
+    func testPreparedWindowRequiresMatchingLayoutAndSource() {
+        let chapterID = UUID()
+        let source = ReaderChapterSourceIdentity(
+            bookSourceID: UUID(),
+            chapterSourceURL: "https://example.com/chapter/1"
+        )
+        let layout = makeLayoutKey(width: 390, fontSize: 17)
+        var window = ReaderPreparedChapterWindow()
+        window.store(
+            chapterID: chapterID,
+            sourceIdentity: source,
+            content: "第一段",
+            paragraphs: ["第一段"],
+            pages: [[ReaderView.PageFragment(id: 1, text: "第一段", indent: true)]],
+            layoutKey: layout
+        )
+
+        XCTAssertNotNil(
+            window.preparedEntry(
+                chapterID: chapterID,
+                sourceIdentity: source,
+                layoutKey: layout
+            )
+        )
+        XCTAssertNil(
+            window.preparedEntry(
+                chapterID: chapterID,
+                sourceIdentity: source,
+                layoutKey: makeLayoutKey(width: 390, fontSize: 18)
+            )
+        )
+        XCTAssertNil(
+            window.preparedEntry(
+                chapterID: chapterID,
+                sourceIdentity: ReaderChapterSourceIdentity(
+                    bookSourceID: source.bookSourceID,
+                    chapterSourceURL: "https://example.com/chapter/changed"
+                ),
+                layoutKey: layout
+            )
+        )
+    }
+
+    func testPreparedWindowInvalidatesOnlyLayout() {
+        let chapterID = UUID()
+        let source = ReaderChapterSourceIdentity(
+            bookSourceID: UUID(),
+            chapterSourceURL: "https://example.com/chapter/1"
+        )
+        let layout = makeLayoutKey(width: 390, fontSize: 17)
+        var window = ReaderPreparedChapterWindow()
+        window.store(
+            chapterID: chapterID,
+            sourceIdentity: source,
+            content: "第一段",
+            paragraphs: ["第一段"],
+            pages: [[ReaderView.PageFragment(id: 1, text: "第一段", indent: true)]],
+            layoutKey: layout
+        )
+
+        window.invalidateLayouts()
+
+        XCTAssertNil(
+            window.preparedEntry(
+                chapterID: chapterID,
+                sourceIdentity: source,
+                layoutKey: layout
+            )
+        )
+        XCTAssertEqual(
+            window.parsedEntry(chapterID: chapterID, sourceIdentity: source)?.content,
+            "第一段"
+        )
+        XCTAssertEqual(
+            window.content(chapterID: chapterID, sourceIdentity: source),
+            "第一段"
+        )
+    }
+
+    func testPreparedWindowRetainsOnlyThreeChapterWindow() {
+        let source = ReaderChapterSourceIdentity(
+            bookSourceID: UUID(),
+            chapterSourceURL: nil
+        )
+        let ids = (0..<5).map { _ in UUID() }
+        var window = ReaderPreparedChapterWindow()
+        for id in ids {
+            window.storeContent("正文", chapterID: id, sourceIdentity: source)
+        }
+
+        window.retain(chapterIDs: Set(ids[1...3]))
+
+        XCTAssertEqual(window.count, 3)
+        XCTAssertNil(window.content(chapterID: ids[0], sourceIdentity: source))
+        XCTAssertNotNil(window.content(chapterID: ids[2], sourceIdentity: source))
+        XCTAssertNil(window.content(chapterID: ids[4], sourceIdentity: source))
+    }
+
+    private func makeLayoutKey(width: Double, fontSize: Double) -> ReaderChapterLayoutKey {
+        ReaderChapterLayoutKey(
+            width: width,
+            height: 844,
+            fontSize: fontSize,
+            lineSpacing: 2,
+            fontFamily: "System",
+            usesSystemFont: true,
+            horizontalPadding: 28,
+            bottomReserve: 72
+        )
     }
 }

@@ -9,10 +9,19 @@
 /* Begin PBXBuildFile section */
 		012404E47B3AFC12572247BA /* DocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0975DBAB71C57D0A603A1C72 /* DocumentPicker.swift */; };
 		03835B9F1D21F42F7FE5D7F2 /* SourceSelectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735474E251C3747C68C6C869 /* SourceSelectView.swift */; };
+		A09E9D141A6B4C6F98CE0001 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = A09E9D141A6B4C6F98CE0004 /* Nuke */; };
+		A09E9D141A6B4C6F98CE0002 /* NukeUI in Frameworks */ = {isa = PBXBuildFile; productRef = A09E9D141A6B4C6F98CE0005 /* NukeUI */; };
 		1174DBB8371B3E6D31CFF1B6 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = DC8AA3D756D86094E7543BF0 /* SwiftSoup */; };
 		15C3BA85A090859C615A26A1 /* YiYueApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C14CDDA1179B1F60381F893 /* YiYueApp.swift */; };
 		179296A13A0BAEDA2BE564CA /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B740020C3895911020C015E /* ModelTests.swift */; };
 		1BEB14A012317BF0D332D924 /* SourceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 542309D43B39B62127057473 /* SourceEngine.swift */; };
+		C0DEC0A10000000000000001 /* ChapterContentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0A10000000000000002 /* ChapterContentStore.swift */; };
+		C0DEC0A20000000000000001 /* PerformanceSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0A20000000000000002 /* PerformanceSignposts.swift */; };
+		C0DEC0A30000000000000001 /* ChapterDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0A30000000000000002 /* ChapterDownloadManager.swift */; };
+		C0DEC0A40000000000000001 /* ChapterDownloadSystemTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0A40000000000000002 /* ChapterDownloadSystemTask.swift */; };
+		C0DEC0A50000000000000001 /* ReaderCachePresentationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0A50000000000000002 /* ReaderCachePresentationState.swift */; };
+		C0DEC0B10000000000000001 /* ChapterDownloadManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0B10000000000000002 /* ChapterDownloadManagerTests.swift */; };
+		C0DEC0B20000000000000001 /* ReaderCachePresentationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0B20000000000000002 /* ReaderCachePresentationStateTests.swift */; };
 		1DC77CC3320456701B27563B /* SearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DB8C5202FAEAD2CDFA673C /* SearchService.swift */; };
 		1F3326DA827E46E07561ACCC /* ImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F981D463439090ACB6B72E0E /* ImportService.swift */; };
 		2464C7D7740B85695F6305E3 /* EncodingDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78D28B485A3136705B90CC6 /* EncodingDetector.swift */; };
@@ -84,6 +93,13 @@
 		46B9728B658231E861FAC363 /* ChapterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterListView.swift; sourceTree = "<group>"; };
 		52D15EC2268B99A237102047 /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enums.swift; sourceTree = "<group>"; };
 		542309D43B39B62127057473 /* SourceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEngine.swift; sourceTree = "<group>"; };
+		C0DEC0A10000000000000002 /* ChapterContentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterContentStore.swift; sourceTree = "<group>"; };
+		C0DEC0A20000000000000002 /* PerformanceSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceSignposts.swift; sourceTree = "<group>"; };
+		C0DEC0A30000000000000002 /* ChapterDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterDownloadManager.swift; sourceTree = "<group>"; };
+		C0DEC0A40000000000000002 /* ChapterDownloadSystemTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterDownloadSystemTask.swift; sourceTree = "<group>"; };
+		C0DEC0A50000000000000002 /* ReaderCachePresentationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderCachePresentationState.swift; sourceTree = "<group>"; };
+		C0DEC0B10000000000000002 /* ChapterDownloadManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterDownloadManagerTests.swift; sourceTree = "<group>"; };
+		C0DEC0B20000000000000002 /* ReaderCachePresentationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderCachePresentationStateTests.swift; sourceTree = "<group>"; };
 		5842D1CB418434169DE7A410 /* RuleExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleExecutor.swift; sourceTree = "<group>"; };
 		5ACCBA1C2DA40AB29567D744 /* JSExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSExecutor.swift; sourceTree = "<group>"; };
 		5B01B2114786590A45E91187 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -105,7 +121,7 @@
 		B7274D44AD6EF74DC056EA35 /* BookshelfView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfView.swift; sourceTree = "<group>"; };
 		B78D28B485A3136705B90CC6 /* EncodingDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingDetector.swift; sourceTree = "<group>"; };
 		B9086A1B9802DD7E245D6253 /* ChapterSplitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterSplitter.swift; sourceTree = "<group>"; };
-		BD15F82ADFC31215298D6FCF /* YiYue.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = YiYue.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BD15F82ADFC31215298D6FCF /* YiYue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YiYue.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D075DEF90BF070FBED77D143 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		D68860057A126AE3AAB1F3EB /* AddBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBookView.swift; sourceTree = "<group>"; };
 		DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportTests.swift; sourceTree = "<group>"; };
@@ -125,6 +141,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A09E9D141A6B4C6F98CE0001 /* Nuke in Frameworks */,
+				A09E9D141A6B4C6F98CE0002 /* NukeUI in Frameworks */,
 				1174DBB8371B3E6D31CFF1B6 /* SwiftSoup in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -210,6 +228,8 @@
 			isa = PBXGroup;
 			children = (
 				A429EE5AB15C3491B6E9E3AA /* BookManagerTests.swift */,
+				C0DEC0B10000000000000002 /* ChapterDownloadManagerTests.swift */,
+				C0DEC0B20000000000000002 /* ReaderCachePresentationStateTests.swift */,
 				F7DEBEB31A2EEC414767DE9F /* ChapterSplitterTests.swift */,
 				AD1AE3338CC2D95CCB471820 /* EncodingDetectorTests.swift */,
 				FC433380EEF0DE2AD6847EB8 /* ImportServiceTests.swift */,
@@ -227,6 +247,7 @@
 			isa = PBXGroup;
 			children = (
 				46B9728B658231E861FAC363 /* ChapterListView.swift */,
+				C0DEC0A50000000000000002 /* ReaderCachePresentationState.swift */,
 				3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */,
 				246D61D2A8723A2CFFFB5C83 /* ReaderSettingsView.swift */,
 				D075DEF90BF070FBED77D143 /* ReaderView.swift */,
@@ -238,6 +259,10 @@
 			isa = PBXGroup;
 			children = (
 				77867B555471B2523A7F35BD /* BookManager.swift */,
+				C0DEC0A10000000000000002 /* ChapterContentStore.swift */,
+				C0DEC0A30000000000000002 /* ChapterDownloadManager.swift */,
+				C0DEC0A40000000000000002 /* ChapterDownloadSystemTask.swift */,
+				C0DEC0A20000000000000002 /* PerformanceSignposts.swift */,
 				F0BE63E6D4231737B49EEEFF /* CoverSearchService.swift */,
 				F981D463439090ACB6B72E0E /* ImportService.swift */,
 				5ACCBA1C2DA40AB29567D744 /* JSExecutor.swift */,
@@ -301,6 +326,8 @@
 			);
 			name = YiYue;
 			packageProductDependencies = (
+				A09E9D141A6B4C6F98CE0004 /* Nuke */,
+				A09E9D141A6B4C6F98CE0005 /* NukeUI */,
 				DC8AA3D756D86094E7543BF0 /* SwiftSoup */,
 			);
 			productName = YiYue;
@@ -333,8 +360,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = B75BCEA6B89607DB97D777DA /* Build configuration list for PBXProject "YiYue" */;
 			developmentRegion = en;
@@ -346,6 +371,7 @@
 			mainGroup = 251AED647B2701AE16A3C392;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A09E9D141A6B4C6F98CE0003 /* XCRemoteSwiftPackageReference "Nuke" */,
 				F617006101F575D451AE9D41 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -376,6 +402,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				AC9A76280A99A89A254D81E9 /* BookManagerTests.swift in Sources */,
+				C0DEC0B10000000000000001 /* ChapterDownloadManagerTests.swift in Sources */,
+				C0DEC0B20000000000000001 /* ReaderCachePresentationStateTests.swift in Sources */,
 				F25779FC798600D6911B97A5 /* ChapterSplitterTests.swift in Sources */,
 				90D71F7F71AF09E10058AC16 /* EncodingDetectorTests.swift in Sources */,
 				D8E53825335B20AEC604DBD2 /* ImportServiceTests.swift in Sources */,
@@ -415,6 +443,7 @@
 				4650F8DF7503331156A434B3 /* LegadoRule.swift in Sources */,
 				A406B298323372D82AFFBE58 /* NetworkClient.swift in Sources */,
 				CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */,
+				C0DEC0A50000000000000001 /* ReaderCachePresentationState.swift in Sources */,
 				36F42549D8E8A6330F6E3BD5 /* ReaderSettings.swift in Sources */,
 				D0AEC5482AB72944ECB49053 /* ReaderSettingsView.swift in Sources */,
 				CC4B845643A4C4D677077460 /* ReaderTheme.swift in Sources */,
@@ -424,6 +453,10 @@
 				49B589EB361503DD8A8C95A2 /* SearchView.swift in Sources */,
 				A5011DAFF23DCADB51D8FDD9 /* SeriesBookView.swift in Sources */,
 				1BEB14A012317BF0D332D924 /* SourceEngine.swift in Sources */,
+				C0DEC0A10000000000000001 /* ChapterContentStore.swift in Sources */,
+				C0DEC0A30000000000000001 /* ChapterDownloadManager.swift in Sources */,
+				C0DEC0A40000000000000001 /* ChapterDownloadSystemTask.swift in Sources */,
+				C0DEC0A20000000000000001 /* PerformanceSignposts.swift in Sources */,
 				D3C66BB9A85E7D92498CF288 /* SourceImportService.swift in Sources */,
 				85A96A5FEF5A9B6C2A40AD43 /* SourceListView.swift in Sources */,
 				03835B9F1D21F42F7FE5D7F2 /* SourceSelectView.swift in Sources */,
@@ -521,6 +554,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_TEAM = 2FD7YDCHXB;
 				INFOPLIST_FILE = YiYue/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -603,6 +637,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_TEAM = 2FD7YDCHXB;
 				INFOPLIST_FILE = YiYue/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -666,6 +701,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A09E9D141A6B4C6F98CE0003 /* XCRemoteSwiftPackageReference "Nuke" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kean/Nuke.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 13.0.0;
+			};
+		};
 		F617006101F575D451AE9D41 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
@@ -677,6 +720,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A09E9D141A6B4C6F98CE0004 /* Nuke */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A09E9D141A6B4C6F98CE0003 /* XCRemoteSwiftPackageReference "Nuke" */;
+			productName = Nuke;
+		};
+		A09E9D141A6B4C6F98CE0005 /* NukeUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A09E9D141A6B4C6F98CE0003 /* XCRemoteSwiftPackageReference "Nuke" */;
+			productName = NukeUI;
+		};
 		DC8AA3D756D86094E7543BF0 /* SwiftSoup */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F617006101F575D451AE9D41 /* XCRemoteSwiftPackageReference "SwiftSoup" */;

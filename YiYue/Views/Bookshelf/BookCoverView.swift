@@ -1,4 +1,95 @@
 import SwiftUI
+import Nuke
+import NukeUI
+
+/// 统一的封面加载视图。远程图片使用 Nuke 的内存/磁盘缓存，且按展示尺寸直接下采样。
+struct CachedCoverImage<Placeholder: View>: View {
+    private let url: URL?
+    private let targetSize: CGSize
+    private let contentMode: SwiftUI.ContentMode
+    private let placeholder: () -> Placeholder
+
+    init(
+        url: URL?,
+        targetSize: CGSize,
+        contentMode: SwiftUI.ContentMode = .fill,
+        @ViewBuilder placeholder: @escaping () -> Placeholder
+    ) {
+        self.url = url
+        self.targetSize = targetSize
+        self.contentMode = contentMode
+        self.placeholder = placeholder
+    }
+
+    init(
+        urlString: String?,
+        targetSize: CGSize,
+        contentMode: SwiftUI.ContentMode = .fill,
+        @ViewBuilder placeholder: @escaping () -> Placeholder
+    ) {
+        self.init(
+            url: CoverURLResolver.resolve(urlString),
+            targetSize: targetSize,
+            contentMode: contentMode,
+            placeholder: placeholder
+        )
+    }
+
+    var body: some View {
+        LazyImage(request: imageRequest) { state in
+            if let image = state.image {
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            } else {
+                placeholder()
+            }
+        }
+        // LazyImage 默认即为 cancel；显式声明，避免列表离屏后继续占用网络与解码资源。
+        .onDisappear(.cancel)
+    }
+
+    private var imageRequest: ImageRequest? {
+        guard let url else { return nil }
+
+        var request = ImageRequest(url: url)
+        request.thumbnail = ImageRequest.ThumbnailOptions(
+            size: targetSize,
+            unit: .points,
+            contentMode: contentMode == .fit ? .aspectFit : .aspectFill
+        )
+        return request
+    }
+}
+
+enum CoverURLResolver {
+    /// 支持远程 URL、file URL，以及 Documents 下的相对路径（如 covers/xxx.jpg）。
+    static func resolve(_ value: String?) -> URL? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+
+        if let url = URL(string: value),
+           let scheme = url.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" || scheme == "file" {
+            return url
+        }
+
+        let documents = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .standardizedFileURL
+        let localFile = documents
+            .appendingPathComponent(value)
+            .standardizedFileURL
+
+        guard localFile.path == documents.path ||
+                localFile.path.hasPrefix(documents.path + "/") else {
+            return nil
+        }
+        return localFile
+    }
+}
 
 struct BookCoverView: View {
     let book: Book
@@ -14,15 +105,10 @@ struct BookCoverView: View {
     private var coverImage: some View {
         ZStack(alignment: .topTrailing) {
             ZStack {
-                if let coverURL = book.coverURL, !coverURL.isEmpty, let url = Self.resolveURL(coverURL) {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFill()
-                        } else {
-                            placeholderGradient
-                        }
-                    }
-                } else {
+                CachedCoverImage(
+                    urlString: book.coverURL,
+                    targetSize: CGSize(width: 120, height: 160)
+                ) {
                     placeholderGradient
                 }
             }
@@ -36,17 +122,6 @@ struct BookCoverView: View {
 
             badge
         }
-    }
-
-    /// 解析封面 URL：本地相对路径 → Documents 下绝对路径，远程 URL 直接返回
-    private static func resolveURL(_ coverURL: String) -> URL? {
-        if coverURL.hasPrefix("http://") || coverURL.hasPrefix("https://") || coverURL.hasPrefix("file://") {
-            return URL(string: coverURL)
-        }
-        // 本地相对路径，如 "covers/xxx.jpg"
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let localFile = docs.appendingPathComponent(coverURL)
-        return FileManager.default.fileExists(atPath: localFile.path) ? localFile : nil
     }
 
     private var placeholderGradient: some View {

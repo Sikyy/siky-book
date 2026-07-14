@@ -24,7 +24,9 @@ struct LegadoRuleTests {
                 "chapterUrl": "@href"
             },
             "ruleContent": {
-                "content": "#content@text"
+                "content": "#content@text",
+                "nextContentUrl": ".next@href",
+                "replaceRegex": "广告A"
             }
         }
         """
@@ -36,6 +38,8 @@ struct LegadoRuleTests {
         #expect(source.searchRule?.name == ".result-item-title a@text")
         #expect(source.tocRule?.chapterList == "#list dd a")
         #expect(source.contentRule?.content == "#content@text")
+        #expect(source.contentRule?.nextContentUrl == ".next@href")
+        #expect(source.contentRule?.replaceRegex == "广告A")
     }
 
     @Test func parseSearchURL() throws {

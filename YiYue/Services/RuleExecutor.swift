@@ -14,13 +14,13 @@ class RuleExecutor {
         return try doc.select(selector).array()
     }
 
-    func getString(html: String, rule: String, baseURL: String = "") throws -> String? {
+    func getString(html: String, rule: String, baseURL: String = "", joinMultiple: Bool = false) throws -> String? {
         let doc = try SwiftSoup.parse(html, baseURL)
-        return try evaluateRule(root: doc, rule: rule, baseURL: baseURL)
+        return try evaluateRule(root: doc, rule: rule, baseURL: baseURL, joinMultiple: joinMultiple)
     }
 
-    func getString(element: Element, rule: String, baseURL: String = "") throws -> String? {
-        return try evaluateRule(root: element, rule: rule, baseURL: baseURL)
+    func getString(element: Element, rule: String, baseURL: String = "", joinMultiple: Bool = false) throws -> String? {
+        return try evaluateRule(root: element, rule: rule, baseURL: baseURL, joinMultiple: joinMultiple)
     }
 
     // MARK: - Rule evaluation
@@ -33,7 +33,7 @@ class RuleExecutor {
         return s.trimmingCharacters(in: .whitespaces)
     }
 
-    private func evaluateRule(root: Element, rule: String, baseURL: String) throws -> String? {
+    private func evaluateRule(root: Element, rule: String, baseURL: String, joinMultiple: Bool) throws -> String? {
         let parts = rule.components(separatedBy: "||")
         for part in parts {
             let trimmed = stripJSFromRule(part.trimmingCharacters(in: .whitespaces))
@@ -49,7 +49,7 @@ class RuleExecutor {
             let andParts = mainRule.components(separatedBy: "&&")
             var combined = ""
             for (i, andPart) in andParts.enumerated() {
-                if let val = try executeSingle(root: root, rule: andPart.trimmingCharacters(in: .whitespaces)), !val.isEmpty {
+                if let val = try executeSingle(root: root, rule: andPart.trimmingCharacters(in: .whitespaces), joinMultiple: joinMultiple), !val.isEmpty {
                     if i > 0 && !combined.isEmpty { combined += " " }
                     combined += val
                 }
@@ -66,14 +66,14 @@ class RuleExecutor {
         return nil
     }
 
-    private func executeSingle(root: Element, rule: String) throws -> String? {
+    private func executeSingle(root: Element, rule: String, joinMultiple: Bool) throws -> String? {
         let (cleanRule, regexPattern, regexReplacement) = splitRegex(rule)
 
         var text: String
         if isLegadoFormat(cleanRule) {
-            text = try legadoGetString(root: root, rule: cleanRule)
+            text = try legadoGetString(root: root, rule: cleanRule, joinMultiple: joinMultiple)
         } else {
-            text = try cssGetString(root: root, rule: cleanRule)
+            text = try cssGetString(root: root, rule: cleanRule, joinMultiple: joinMultiple)
         }
 
         if let pattern = regexPattern {
@@ -100,7 +100,7 @@ class RuleExecutor {
         return current
     }
 
-    private func legadoGetString(root: Element, rule: String) throws -> String {
+    private func legadoGetString(root: Element, rule: String, joinMultiple: Bool) throws -> String {
         let segments = splitLegadoSegments(rule)
         guard !segments.isEmpty else { return "" }
 
@@ -108,7 +108,11 @@ class RuleExecutor {
         var attrName = "text"
 
         for (i, seg) in segments.enumerated() {
-            if isLegadoSelector(seg) {
+            let isFinalCustomAttribute = i == segments.count - 1 &&
+                !seg.hasPrefix("tag.") &&
+                !seg.hasPrefix("class.") &&
+                !seg.hasPrefix("id.")
+            if !isFinalCustomAttribute && isLegadoSelector(seg) {
                 selectorSegments.append(seg)
             } else {
                 attrName = seg
@@ -122,6 +126,10 @@ class RuleExecutor {
         var current: [Element] = [root]
         for seg in selectorSegments {
             current = try applyLegadoSelector(elements: current, segment: seg)
+        }
+
+        if joinMultiple {
+            return try joinAttrValues(elements: current, attr: attrName)
         }
 
         guard let target = current.first else { return "" }
@@ -291,17 +299,18 @@ class RuleExecutor {
 
     // MARK: - CSS selector path
 
-    private func cssGetString(root: Element, rule: String) throws -> String {
+    private func cssGetString(root: Element, rule: String, joinMultiple: Bool) throws -> String {
         let (selector, attr) = splitAttribute(rule)
 
-        let target: Element
         if selector.isEmpty || selector == "@" || selector == "body" {
-            target = root
+            return try getAttrValue(element: root, attr: attr)
+        } else if joinMultiple {
+            let found = try root.select(selector).array()
+            return try joinAttrValues(elements: found, attr: attr)
         } else {
             guard let found = try root.select(selector).first() else { return "" }
-            target = found
+            return try getAttrValue(element: found, attr: attr)
         }
-        return try getAttrValue(element: target, attr: attr)
     }
 
     private func extractCSSSelector(from rule: String) -> String {
@@ -323,6 +332,13 @@ class RuleExecutor {
         default:
             return try element.attr(attr)
         }
+    }
+
+    private func joinAttrValues(elements: [Element], attr: String) throws -> String {
+        try elements
+            .map { try getAttrValue(element: $0, attr: attr).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
     private func splitAttribute(_ rule: String) -> (selector: String, attr: String) {

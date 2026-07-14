@@ -11,8 +11,8 @@ struct ReaderMenuOverlay: View {
     let chapters: [Chapter]
     var onCache: ((Int?) -> Void)? = nil
     var onCancelCache: (() -> Void)? = nil
-    var isCaching: Bool = false
-    var cacheProgress: String? = nil
+    var onResumeCache: (() -> Void)? = nil
+    var cacheState: ReaderCachePresentationState = .unavailable
 
     @State private var showChapterList = false
     @State private var sliderValue: Double = 0
@@ -62,37 +62,7 @@ struct ReaderMenuOverlay: View {
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)
             Spacer()
-            if let onCache {
-                if isCaching {
-                    Button {
-                        onCancelCache?()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "pause.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.7))
-                            if let cacheProgress {
-                                Text(cacheProgress)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.white.opacity(0.7))
-                            }
-                        }
-                    }
-                    .frame(width: 44)
-                } else {
-                    Menu {
-                        Button("缓存后100章") { onCache(100) }
-                        Button("缓存全部") { onCache(nil) }
-                    } label: {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
-                    .frame(width: 44)
-                }
-            } else {
-                Color.clear.frame(width: 44, height: 1)
-            }
+            cacheTopBarControl
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -102,10 +72,211 @@ struct ReaderMenuOverlay: View {
         .environment(\.colorScheme, .dark)
     }
 
+    @ViewBuilder
+    private var cacheTopBarControl: some View {
+        if let onCache {
+            switch cacheState {
+            case .unavailable:
+                cacheControlPlaceholder
+
+            case .checking:
+                VStack(spacing: 2) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white.opacity(0.8))
+                    Text("检查中")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+                .frame(width: 56, height: 36)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("正在检查已有缓存")
+
+            case .empty:
+                Menu {
+                    Button("缓存后100章") { onCache(100) }
+                    Button("缓存全部") { onCache(nil) }
+                } label: {
+                    cacheTopLabel(
+                        icon: "arrow.down.circle",
+                        text: "缓存",
+                        color: .white.opacity(0.85)
+                    )
+                }
+                .accessibilityLabel("缓存小说")
+
+            case let .partial(cached, total):
+                Menu {
+                    Button("缓存后100章") { onCache(100) }
+                    Button("补全剩余 \(max(0, total - cached)) 章") { onCache(nil) }
+                } label: {
+                    cacheTopLabel(
+                        icon: "arrow.down.circle.fill",
+                        text: cacheCountText(cached: cached, total: total),
+                        color: .white.opacity(0.85)
+                    )
+                }
+                .accessibilityLabel("已缓存 \(cached) 章，共 \(total) 章")
+
+            case let .queued(position, cached, total):
+                Button {
+                    onCancelCache?()
+                } label: {
+                    cacheTopLabel(
+                        icon: "clock.fill",
+                        text: position.map { "排队 \($0)" } ?? cacheCountText(cached: cached, total: total),
+                        color: .white.opacity(0.78)
+                    )
+                }
+                .accessibilityLabel(queuedAccessibilityLabel(position: position, cached: cached, total: total))
+                .accessibilityHint("轻点暂停缓存任务")
+
+            case let .running(processed, target, cached, total):
+                Button {
+                    onCancelCache?()
+                } label: {
+                    VStack(spacing: 2) {
+                        ZStack {
+                            Circle()
+                                .stroke(.white.opacity(0.2), lineWidth: 2)
+                            Circle()
+                                .trim(from: 0, to: taskProgress(processed: processed, target: target))
+                                .stroke(.white.opacity(0.85), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
+                        .frame(width: 18, height: 18)
+                        Text("\(processed)/\(target)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(width: 56, height: 36)
+                }
+                .accessibilityLabel(
+                    "缓存进度 \(processed)/\(target)，全书已缓存 \(cached)/\(total)"
+                )
+                .accessibilityHint("轻点暂停")
+
+            case let .pausing(inFlight, cached, total):
+                VStack(spacing: 2) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white.opacity(0.8))
+                    Text("暂停中")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+                .frame(width: 56, height: 36)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "正在暂停缓存，尚有 \(inFlight) 个请求，全书已缓存 \(cached)/\(total)"
+                )
+
+            case let .paused(cached, total):
+                Button {
+                    onResumeCache?()
+                } label: {
+                    cacheTopLabel(
+                        icon: "arrow.clockwise.circle.fill",
+                        text: cacheCountText(cached: cached, total: total),
+                        color: .orange
+                    )
+                }
+                .accessibilityLabel("缓存已暂停，已缓存 \(cached)/\(total)")
+                .accessibilityHint("轻点继续缓存")
+
+            case let .failed(cached, total, error):
+                Button {
+                    onResumeCache?()
+                } label: {
+                    cacheTopLabel(
+                        icon: "exclamationmark.triangle.fill",
+                        text: "重试",
+                        color: .red.opacity(0.9)
+                    )
+                }
+                .accessibilityLabel("缓存失败，已缓存 \(cached)/\(total)")
+                .accessibilityHint(error ?? "轻点重试")
+
+            case let .complete(total):
+                cacheTopLabel(
+                    icon: "checkmark.circle.fill",
+                    text: "\(total)/\(total)",
+                    color: .green
+                )
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("已全部缓存，共 \(total) 章")
+            }
+        } else {
+            cacheControlPlaceholder
+        }
+    }
+
+    private var cacheControlPlaceholder: some View {
+        Color.clear
+            .frame(width: 56, height: 36)
+            .accessibilityHidden(true)
+    }
+
+    private func cacheTopLabel(icon: String, text: String, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .medium))
+            Text(text)
+                .font(.system(size: 9, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .foregroundStyle(color)
+        .frame(width: 56, height: 36)
+    }
+
+    private var cacheStatusMessage: (text: String, color: Color)? {
+        switch cacheState {
+        case let .pausing(_, cached, total):
+            return ("正在暂停 · 已缓存 \(cacheCountText(cached: cached, total: total))", .orange)
+        case let .paused(cached, total):
+            return ("缓存已暂停 · 已缓存 \(cacheCountText(cached: cached, total: total))", .orange)
+        case let .failed(cached, total, error):
+            let prefix = "缓存失败 · 已缓存 \(cacheCountText(cached: cached, total: total))"
+            guard let error, !error.isEmpty else { return (prefix, .red) }
+            return ("\(prefix)\n\(error)", .red)
+        default:
+            return nil
+        }
+    }
+
+    private func cacheCountText(cached: Int, total: Int) -> String {
+        let safeTotal = max(0, total)
+        let safeCached = min(max(0, cached), safeTotal)
+        return "\(safeCached)/\(safeTotal)"
+    }
+
+    private func taskProgress(processed: Int, target: Int) -> Double {
+        guard target > 0 else { return 0 }
+        return min(max(Double(processed) / Double(target), 0), 1)
+    }
+
+    private func queuedAccessibilityLabel(position: Int?, cached: Int, total: Int) -> String {
+        let positionText = position.map { "，当前第 \($0) 位" } ?? ""
+        return "缓存任务排队中\(positionText)，全书已缓存 \(cached)/\(total)"
+    }
+
     // MARK: - Bottom Panel
 
     private var bottomPanel: some View {
         VStack(spacing: 16) {
+            if let status = cacheStatusMessage {
+                Text(status.text)
+                    .font(.system(size: 11))
+                    .foregroundStyle(status.color.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
             if showSettings {
                 settingsControls
             } else {
@@ -330,50 +501,163 @@ struct ReaderMenuOverlay: View {
     // MARK: - Chapter List
 
     private var chapterListContent: some View {
-        List(chapters) { chapter in
-            Button {
-                currentChapterIndex = chapter.index
-                showChapterList = false
-            } label: {
-                HStack {
-                    Text(chapter.title)
-                        .font(.body)
-                        .foregroundStyle(chapter.index == currentChapterIndex ? .blue : .primary)
-                    Spacer()
-                    if chapter.index == currentChapterIndex {
-                        Image(systemName: "book.fill")
-                            .foregroundStyle(.blue)
-                            .font(.caption)
-                    } else if chapter.isCached || chapter.content != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green.opacity(0.6))
-                            .font(.caption2)
+        ScrollViewReader { proxy in
+            List(chapters) { chapter in
+                Button {
+                    currentChapterIndex = chapter.index
+                    showChapterList = false
+                } label: {
+                    HStack {
+                        Text(chapter.title)
+                            .font(.body)
+                            .foregroundStyle(chapter.index == currentChapterIndex ? .blue : .primary)
+                        Spacer()
+                        if chapter.index == currentChapterIndex {
+                            Image(systemName: "book.fill")
+                                .foregroundStyle(.blue)
+                                .font(.caption)
+                        } else if chapter.isCached {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green.opacity(0.6))
+                                .font(.caption2)
+                        }
                     }
                 }
+                .id(chapter.index)
+            }
+            .onAppear {
+                scrollToCurrentChapter(with: proxy, animated: false)
+            }
+            .onChange(of: currentChapterIndex) { _, _ in
+                scrollToCurrentChapter(with: proxy, animated: true)
             }
         }
         .navigationTitle("目录")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                if isCaching, let progress = cacheProgress {
-                    Button {
-                        onCancelCache?()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "pause.fill")
-                                .font(.system(size: 10))
-                            Text(progress)
-                                .font(.caption)
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                } else if onCache != nil {
-                    Button("缓存全部") { onCache?(nil) }
-                }
+                chapterListCacheControl
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("关闭") { showChapterList = false }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var chapterListCacheControl: some View {
+        if let onCache {
+            switch cacheState {
+            case .unavailable:
+                EmptyView()
+
+            case .checking:
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("检查缓存")
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("正在检查已有缓存")
+
+            case .empty:
+                Button("缓存全部") { onCache(nil) }
+
+            case let .partial(cached, total):
+                Button {
+                    onCache(nil)
+                } label: {
+                    Label(
+                        "补全 \(max(0, total - cached)) 章",
+                        systemImage: "arrow.down.circle"
+                    )
+                }
+                .accessibilityLabel("已缓存 \(cached)/\(total)，补全剩余章节")
+
+            case let .queued(position, cached, total):
+                Button {
+                    onCancelCache?()
+                } label: {
+                    Label(
+                        position.map { "排队第 \($0) 位" } ?? "排队中",
+                        systemImage: "clock"
+                    )
+                }
+                .accessibilityLabel(queuedAccessibilityLabel(position: position, cached: cached, total: total))
+                .accessibilityHint("轻点暂停缓存任务")
+
+            case let .running(processed, target, cached, total):
+                Button {
+                    onCancelCache?()
+                } label: {
+                    Label(
+                        "\(processed)/\(target) · 已存 \(cacheCountText(cached: cached, total: total))",
+                        systemImage: "pause.fill"
+                    )
+                    .font(.caption)
+                }
+                .accessibilityLabel(
+                    "缓存进度 \(processed)/\(target)，全书已缓存 \(cached)/\(total)"
+                )
+                .accessibilityHint("轻点暂停")
+
+            case let .pausing(inFlight, cached, total):
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("暂停中")
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(
+                    "正在暂停缓存，尚有 \(inFlight) 个请求，全书已缓存 \(cached)/\(total)"
+                )
+
+            case let .paused(cached, total):
+                Button {
+                    onResumeCache?()
+                } label: {
+                    Label(
+                        "继续 \(cacheCountText(cached: cached, total: total))",
+                        systemImage: "arrow.clockwise.circle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                }
+                .accessibilityLabel("缓存已暂停，已缓存 \(cached)/\(total)，继续缓存")
+
+            case let .failed(cached, total, error):
+                Button {
+                    onResumeCache?()
+                } label: {
+                    Label("重试缓存", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+                .accessibilityLabel("缓存失败，已缓存 \(cached)/\(total)")
+                .accessibilityHint(error ?? "轻点重试")
+
+            case let .complete(total):
+                Label("已缓存 \(total)/\(total)", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("已全部缓存，共 \(total) 章")
+            }
+        }
+    }
+
+    private func scrollToCurrentChapter(with proxy: ScrollViewProxy, animated: Bool) {
+        guard chapters.contains(where: { $0.index == currentChapterIndex }) else { return }
+
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(currentChapterIndex, anchor: .center)
+                }
+            } else {
+                proxy.scrollTo(currentChapterIndex, anchor: .center)
             }
         }
     }

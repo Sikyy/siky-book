@@ -5,6 +5,9 @@ options:
     iOS: "17.0"
   groupSortPosition: top
 packages:
+  Nuke:
+    url: https://github.com/kean/Nuke.git
+    from: "13.0.0"
   SwiftSoup:
     url: https://github.com/scinfu/SwiftSoup.git
     from: "2.7.0"
@@ -19,6 +22,11 @@ targets:
       properties:
         UILaunchScreen: {}
         CFBundleDisplayName: 已阅
+        BGTaskSchedulerPermittedIdentifiers:
+          - "$(PRODUCT_BUNDLE_IDENTIFIER).chapter-cache.user"
+          - "$(PRODUCT_BUNDLE_IDENTIFIER).chapter-cache.resume"
+        UIBackgroundModes:
+          - processing
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -45,6 +53,10 @@ targets:
         CURRENT_PROJECT_VERSION: "4"
         SWIFT_VERSION: "5.9"
     dependencies:
+      - package: Nuke
+        product: Nuke
+      - package: Nuke
+        product: NukeUI
       - package: SwiftSoup
   YiYueTests:
     type: bundle.unit-test

@@ -31,6 +31,9 @@ struct SearchView: View {
                     searchService = SearchService(modelContext: modelContext)
                 }
             }
+            .onDisappear {
+                searchService?.cancelSearch()
+            }
             .sheet(item: $selectedResult) { result in
                 SourceSelectView(result: result, onAdded: {
                     selectedResult = nil
@@ -73,13 +76,25 @@ struct SearchView: View {
             VStack(spacing: 12) {
                 Spacer()
                 ProgressView()
-                progressText(service)
+                if service.isPreparingSources {
+                    Text("正在准备书源…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    progressText(service)
+                    Button("暂停") {
+                        service.pauseSearch()
+                    }
+                    .font(.caption)
+                }
                 Spacer()
             }
         } else if !service.results.isEmpty {
             VStack(spacing: 0) {
                 if service.isSearching {
                     progressBar(service)
+                } else if service.isSearchPaused {
+                    continuationBar(service)
                 }
                 List(service.results) { result in
                     Button { selectedResult = result } label: {
@@ -88,7 +103,13 @@ struct SearchView: View {
                 }
                 .listStyle(.plain)
             }
-        } else if service.searchedCount > 0 {
+        } else if let error = service.searchError {
+            placeholder(icon: "exclamationmark.triangle", text: error)
+        } else if service.isSearchPaused {
+            pausedPlaceholder(service)
+        } else if service.isSearchFinished && service.totalCount == 0 {
+            placeholder(icon: "books.vertical", text: "没有启用的书源")
+        } else if service.isSearchFinished {
             placeholder(icon: "magnifyingglass", text: "未找到相关书籍")
         } else {
             placeholder(icon: "text.magnifyingglass", text: "输入书名开始搜索")
@@ -102,9 +123,9 @@ struct SearchView: View {
             progressText(service)
             Spacer()
             Button {
-                service.cancelSearch()
+                service.pauseSearch()
             } label: {
-                Text("停止")
+                Text("暂停")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -112,6 +133,62 @@ struct SearchView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(Color(.systemGray6).opacity(0.8))
+    }
+
+    private func continuationBar(_ service: SearchService) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("已暂停，剩余 \(service.remainingCount) 个书源")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                progressText(service)
+            }
+            HStack(spacing: 12) {
+                Button("继续搜索") {
+                    service.continueSearch()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Button("搜索全部剩余") {
+                    service.searchAllRemaining()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(.systemGray6).opacity(0.8))
+    }
+
+    private func pausedPlaceholder(_ service: SearchService) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary.opacity(0.4))
+            Text("当前批次暂未发现结果")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("已搜索 \(service.searchedCount)/\(service.totalCount) 个书源，仍有 \(service.remainingCount) 个")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            HStack(spacing: 12) {
+                Button("继续搜索") {
+                    service.continueSearch()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("搜索全部剩余") {
+                    service.searchAllRemaining()
+                }
+                .buttonStyle(.bordered)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 24)
     }
 
     private func progressText(_ service: SearchService) -> some View {
@@ -168,20 +245,14 @@ struct SearchView: View {
 
     @ViewBuilder
     private func coverView(_ result: AggregatedSearchResult) -> some View {
-        if let urlString = result.coverURL, let url = URL(string: urlString) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    coverPlaceholder(result.title)
-                }
-            }
-            .frame(width: 48, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-        } else {
+        CachedCoverImage(
+            urlString: result.coverURL,
+            targetSize: CGSize(width: 48, height: 64)
+        ) {
             coverPlaceholder(result.title)
         }
+        .frame(width: 48, height: 64)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     private func coverPlaceholder(_ title: String) -> some View {

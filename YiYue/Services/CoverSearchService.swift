@@ -99,6 +99,21 @@ enum CoverSearchService {
         await downloadCover(remoteURL, bookId: bookId, needsReferer: needsReferer)
     }
 
+    /// 删除一次尚未采用的本地封面下载；只接受 covers 目录内的相对路径。
+    static func discardDownloadedCover(_ relativePath: String) {
+        guard relativePath.hasPrefix("covers/"),
+              !relativePath.contains(".."),
+              !relativePath.hasPrefix("/") else {
+            return
+        }
+
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let fileURL = documents.appendingPathComponent(relativePath).standardizedFileURL
+        let coversDirectory = documents.appendingPathComponent("covers", isDirectory: true).standardizedFileURL
+        guard fileURL.path.hasPrefix(coversDirectory.path + "/") else { return }
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
     // MARK: - 标题匹配打分
 
     /// 计算豆瓣结果与书架书名的匹配度（0~100）
@@ -325,10 +340,12 @@ enum CoverSearchService {
         }
         request.timeoutInterval = 15
 
+        var downloadedFile: URL?
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
             guard data.count > 1000 else { return nil } // 太小的不是有效图片
+            try Task.checkCancellation()
 
             let coversDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("covers", isDirectory: true)
@@ -336,13 +353,21 @@ enum CoverSearchService {
 
             let rawExt = url.pathExtension
             let ext = (rawExt.isEmpty || rawExt == "image") ? "jpg" : rawExt
-            let filename = "\(bookId.uuidString).\(ext)"
+            // 每次使用唯一文件名，取消中的下载不会覆盖当前正在使用的封面。
+            let filename = "\(bookId.uuidString)-\(UUID().uuidString).\(ext)"
             let localFile = coversDir.appendingPathComponent(filename)
-            try data.write(to: localFile)
+            downloadedFile = localFile
+            try Task.checkCancellation()
+            try data.write(to: localFile, options: .atomic)
+            try Task.checkCancellation()
 
             // 存相对路径，避免重装后容器路径变化导致失效
             return "covers/\(filename)"
-        } catch {}
+        } catch {
+            if let downloadedFile {
+                try? FileManager.default.removeItem(at: downloadedFile)
+            }
+        }
         return nil
     }
 

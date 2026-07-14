@@ -14,11 +14,13 @@ struct BookshelfView: View {
     @State private var showingCacheManage = false
     @State private var coverPickerBook: Book?
     @State private var changeSourceBook: Book?
+    @State private var deletingBookIDs: Set<UUID> = []
+    @State private var deletionError: String?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
 
     private var groupedItems: [BookshelfItem] {
-        BookshelfItem.group(books)
+        BookshelfItem.group(books.filter { !deletingBookIDs.contains($0.id) })
     }
 
     var body: some View {
@@ -117,10 +119,25 @@ struct BookshelfView: View {
             } message: {
                 Text(importError ?? "")
             }
+            .alert(
+                "删除失败",
+                isPresented: Binding(
+                    get: { deletionError != nil },
+                    set: { if !$0 { deletionError = nil } }
+                )
+            ) {
+                Button("确定") { deletionError = nil }
+            } message: {
+                Text(deletionError ?? "")
+            }
             .sheet(item: $coverPickerBook) { book in
                 CoverPickerView(book: book) { localPath in
+                    let previousCover = book.coverURL
                     book.coverURL = localPath
                     try? modelContext.save()
+                    if let previousCover, previousCover != localPath {
+                        CoverSearchService.discardDownloadedCover(previousCover)
+                    }
                 }
             }
             .sheet(item: $changeSourceBook) { book in
@@ -135,18 +152,26 @@ struct BookshelfView: View {
 
 
     private func deleteBook(_ book: Book) {
-        // Delete all chapters belonging to this book
         let bookId = book.id
-        let descriptor = FetchDescriptor<Chapter>(
-            predicate: #Predicate<Chapter> { $0.book?.id == bookId }
-        )
-        if let chapters = try? modelContext.fetch(descriptor) {
-            for chapter in chapters {
-                modelContext.delete(chapter)
+        guard deletingBookIDs.insert(bookId).inserted else { return }
+        let bookTitle = book.title
+        let coverURL = book.coverURL
+        // Cache lifetime follows an explicit book deletion. Do not infer
+        // orphans from the launch-time @Query snapshot: SwiftData can publish
+        // a transient partial result while the persistent store is loading.
+        Task { @MainActor in
+            defer { deletingBookIDs.remove(bookId) }
+            let manager = BookManager(modelContext: modelContext)
+            do {
+                try await manager.deleteBook(book)
+            } catch {
+                deletionError = "无法删除《\(bookTitle)》：\(error.localizedDescription)"
+                return
+            }
+            if let coverURL {
+                CoverSearchService.discardDownloadedCover(coverURL)
             }
         }
-        modelContext.delete(book)
-        try? modelContext.save()
     }
 
     private var emptyState: some View {

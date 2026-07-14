@@ -7,7 +7,9 @@ final class Chapter {
     var book: Book?
     var index: Int
     var title: String
+    /// Authoritative for local imports; remote chapters use this only as a legacy/failure fallback.
     var content: String?
+    /// For remote chapters, indicates user-managed/protected cache (not temporary prefetch).
     var isCached: Bool
     var sourceURL: String?
 

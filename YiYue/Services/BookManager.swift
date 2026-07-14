@@ -1,11 +1,21 @@
 import Foundation
 import SwiftData
 
-class BookManager {
-    private let modelContext: ModelContext
+@MainActor
+final class BookManager {
+    typealias CacheCleanup = @MainActor (UUID) async throws -> Void
 
-    init(modelContext: ModelContext) {
+    private let modelContext: ModelContext
+    private let cleanupCache: CacheCleanup
+
+    init(
+        modelContext: ModelContext,
+        cleanupCache: @escaping CacheCleanup = { bookID in
+            try await ChapterDownloadManager.shared.clear(bookID: bookID)
+        }
+    ) {
         self.modelContext = modelContext
+        self.cleanupCache = cleanupCache
     }
 
     func addBook(title: String, author: String, sourceType: SourceType) -> Book {
@@ -14,8 +24,20 @@ class BookManager {
         return book
     }
 
-    func deleteBook(_ book: Book) {
+    /// Deletes queue intent and disk cache before committing the model delete.
+    /// Callers receive either cleanup or persistence failures instead of leaving
+    /// an unstructured best-effort task running after this method returns.
+    func deleteBook(_ book: Book) async throws {
+        let bookID = book.id
+        try await cleanupCache(bookID)
+        try Task.checkCancellation()
         modelContext.delete(book)
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
     }
 
     func updateProgress(book: Book, chapterIndex: Int, position: Double) {

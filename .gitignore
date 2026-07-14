@@ -3,6 +3,7 @@
 *.xcodeproj/xcuserdata/
 xcuserdata/
 DerivedData/
+build/
 *.xccheckout
 *.moved-aside
 *.hmap

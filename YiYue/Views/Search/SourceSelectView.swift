@@ -70,20 +70,14 @@ struct SourceSelectView: View {
 
     @ViewBuilder
     private var bookCover: some View {
-        if let urlString = result.coverURL, let url = URL(string: urlString) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    coverPlaceholder
-                }
-            }
-            .frame(width: 60, height: 80)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        } else {
+        CachedCoverImage(
+            urlString: result.coverURL,
+            targetSize: CGSize(width: 60, height: 80)
+        ) {
             coverPlaceholder
         }
+        .frame(width: 60, height: 80)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private var coverPlaceholder: some View {
