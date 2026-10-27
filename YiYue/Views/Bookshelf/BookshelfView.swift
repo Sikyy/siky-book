@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import SwiftData
 
 struct BookshelfView: View {
@@ -104,10 +105,14 @@ struct BookshelfView: View {
                 SearchView()
             }
             .sheet(isPresented: $showingFilePicker) {
-                DocumentPicker { url in
+                DocumentPicker(contentTypes: [.plainText, UTType(filenameExtension: "epub") ?? .data]) { url in
                     let service = ImportService(modelContext: modelContext)
                     do {
-                        _ = try service.importTXT(from: url)
+                        if url.pathExtension.lowercased() == "epub" {
+                            _ = try service.importEPUB(from: url)
+                        } else {
+                            _ = try service.importTXT(from: url)
+                        }
                     } catch {
                         importError = error.localizedDescription
                         showingError = true
