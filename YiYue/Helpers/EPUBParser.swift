@@ -61,14 +61,20 @@ enum EPUBParser {
 
         // TOC titles: nav.xhtml (EPUB3) or toc.ncx (EPUB2)
         var tocTitles: [String: String] = [:]
+        var tocEntries: [(path: String, fragment: String?, title: String)] = []
+        func addEntry(_ href: String, from dir: String, title: String) {
+            let path = resolve(href, from: dir)
+            let frag = href.components(separatedBy: "#").dropFirst().first.flatMap { $0.isEmpty ? nil : ($0.removingPercentEncoding ?? $0) }
+            tocEntries.append((path, frag, title))
+            if tocTitles[path] == nil { tocTitles[path] = title }
+        }
         if let nav = manifest.values.first(where: { $0.props.contains("nav") }) {
             let navPath = resolve(nav.href, from: opfDir)
             if let d = try? zip.read(navPath),
                let doc = try? SwiftSoup.parse(String(decoding: d, as: UTF8.self)) {
                 let navDir = (navPath as NSString).deletingLastPathComponent
                 for a in (try? doc.select("nav a[href]").array()) ?? [] {
-                    let key = resolve((try? a.attr("href")) ?? "", from: navDir)
-                    if tocTitles[key] == nil, let t = try? a.text(), !t.isEmpty { tocTitles[key] = t }
+                    if let t = try? a.text(), !t.isEmpty { addEntry((try? a.attr("href")) ?? "", from: navDir, title: t) }
                 }
             }
         }
@@ -81,8 +87,7 @@ enum EPUBParser {
                 for p in (try? doc.select("navPoint").array()) ?? [] {
                     guard let src = try? p.select("content").first()?.attr("src"),
                           let label = try? p.select("navLabel > text").first()?.text(), !label.isEmpty else { continue }
-                    let key = resolve(src, from: ncxDir)
-                    if tocTitles[key] == nil { tocTitles[key] = label }
+                    addEntry(src, from: ncxDir, title: label)
                 }
             }
         }
@@ -97,11 +102,25 @@ enum EPUBParser {
             guard let d = try? zip.read(path) else { continue }
             let html = String(data: d, encoding: .utf8) ?? EncodingDetector.decodeToString(d)
             guard let doc = try? SwiftSoup.parse(html) else { continue }
+            let entries = tocEntries.filter { $0.path == path }
+            let fragEntries = entries.filter { $0.fragment != nil }
+            if fragEntries.count >= 2 || (fragEntries.count == 1 && entries.count >= 2) {
+                let parts = splitByAnchors(doc, entries: entries)
+                for part in parts where part.text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
+                    chapters.append(.init(title: part.title, text: part.text))
+                }
+                continue
+            }
             let text = bodyText(doc)
             if text.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 { continue }
             var chTitle = tocTitles[path]
-            if chTitle == nil { chTitle = (try? doc.select("h1, h2, h3").first()?.text()).flatMap { $0.isEmpty ? nil : $0 } }
-            if chTitle == nil { chTitle = (try? doc.title()).flatMap { $0.isEmpty ? nil : $0 } }
+            if chTitle == nil { chTitle = (try? doc.select("h2, h3").first()?.text()).flatMap { $0.isEmpty ? nil : $0 } }
+            if chTitle == nil, chapters.isEmpty { chTitle = (try? doc.select("h1").first()?.text()).flatMap { $0.isEmpty ? nil : $0 } }
+            if chTitle == nil {
+                // Fall back to the first short line of text, which is usually the chapter heading.
+                let first = text.components(separatedBy: "\n").first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+                chTitle = first.count <= 30 ? first : nil
+            }
             chapters.append(.init(title: chTitle ?? "第\(chapters.count + 1)节", text: text))
         }
         guard !chapters.isEmpty else { throw EPUBError.noContent }
@@ -111,6 +130,45 @@ enum EPUBParser {
             coverData: coverData,
             chapters: chapters
         )
+    }
+
+
+    /// Splits one XHTML file into several chapters at the TOC anchors that point into it.
+    private static func splitByAnchors(_ doc: Document, entries: [(path: String, fragment: String?, title: String)]) -> [ParsedEPUB.Chapter] {
+        guard let body = doc.body() else { return [] }
+        _ = try? body.select("script, style, svg, img").remove()
+        let all = (try? body.getAllElements().array()) ?? []
+        var order: [ObjectIdentifier: Int] = [:]
+        for (i, el) in all.enumerated() { order[ObjectIdentifier(el)] = i }
+        let blocks = (try? body.select("p, h1, h2, h3, h4, h5, h6, li, pre, div").array()) ?? []
+        // keep leaf-ish blocks: skip containers that hold other blocks
+        let leafBlocks = blocks.filter { el in
+            if el.tagName() != "div" { return true }
+            return ((try? el.select("p, h1, h2, h3, h4, h5, h6, li, pre").isEmpty()) ?? true)
+        }
+        func blockIndex(forAnchor frag: String?) -> Int {
+            guard let frag, let anchor = try? doc.getElementById(frag), let ao = order[ObjectIdentifier(anchor)] else { return 0 }
+            var parent: Element? = anchor
+            while let p = parent {
+                if let i = leafBlocks.firstIndex(where: { $0 === p }) { return i }
+                parent = p.parent()
+            }
+            return leafBlocks.firstIndex(where: { (order[ObjectIdentifier($0)] ?? 0) >= ao }) ?? leafBlocks.count
+        }
+        var starts: [(index: Int, title: String)] = entries.map { (blockIndex(forAnchor: $0.fragment), $0.title) }
+        starts.sort { $0.index < $1.index }
+        var result: [ParsedEPUB.Chapter] = []
+        for (i, s) in starts.enumerated() {
+            let end = i + 1 < starts.count ? starts[i + 1].index : leafBlocks.count
+            guard s.index < end else { continue }
+            let texts = leafBlocks[s.index..<end].compactMap { el -> String? in
+                let t = ((try? el.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                return t.isEmpty ? nil : t
+            }
+            result.append(.init(title: s.title, text: texts.joined(separator: "\n")))
+        }
+        // Text before the first anchor (e.g. a preface or front matter) is dropped when it is only the file header.
+        return result
     }
 
     private static func bodyText(_ doc: Document) -> String {
