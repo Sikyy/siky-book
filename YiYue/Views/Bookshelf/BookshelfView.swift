@@ -19,10 +19,38 @@ struct BookshelfView: View {
     @State private var deletingBookIDs: Set<UUID> = []
     @State private var deletionError: String?
 
+    private var sortTabs: some View {
+        HStack(spacing: 20) {
+            ForEach(ShelfSort.allCases) { sort in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { shelfSortRaw = sort.rawValue }
+                } label: {
+                    VStack(spacing: 4) {
+                        Text(sort.title)
+                            .font(shelfSort == sort ? .subheadline.weight(.semibold) : .subheadline)
+                            .foregroundStyle(shelfSort == sort ? Color.white : Color.secondary)
+                        Capsule()
+                            .fill(shelfSort == sort ? Color.white : Color.clear)
+                            .frame(width: 16, height: 2)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(shelfSort == sort ? .isSelected : [])
+            }
+            Spacer()
+        }
+        .frame(height: 36)
+        .padding(.horizontal, 16)
+    }
+
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
 
+    @AppStorage("shelfSort") private var shelfSortRaw = ShelfSort.recent.rawValue
+    private var shelfSort: ShelfSort { ShelfSort(rawValue: shelfSortRaw) ?? .recent }
+
     private var groupedItems: [BookshelfItem] {
-        BookshelfItem.group(books.filter { !deletingBookIDs.contains($0.id) })
+        let items = BookshelfItem.group(books.filter { !deletingBookIDs.contains($0.id) })
+        return shelfSort.sorted(items)
     }
 
     var body: some View {
@@ -31,6 +59,7 @@ struct BookshelfView: View {
                 if books.isEmpty {
                     emptyState
                 } else {
+                    sortTabs
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(groupedItems) { item in
                             switch item {
@@ -272,4 +301,40 @@ struct BookshelfView: View {
     )
     return BookshelfView()
         .modelContainer(container)
+}
+
+
+enum ShelfSort: String, CaseIterable, Identifiable {
+    case recent, progress, added, title
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .recent: return "最近阅读"
+        case .progress: return "进度"
+        case .added: return "添加时间"
+        case .title: return "书名"
+        }
+    }
+
+    func sorted(_ items: [BookshelfItem]) -> [BookshelfItem] {
+        func books(_ i: BookshelfItem) -> [Book] {
+            switch i { case .single(let b): return [b]; case .series(_, let bs): return bs }
+        }
+        func name(_ i: BookshelfItem) -> String {
+            switch i { case .single(let b): return b.title; case .series(let n, _): return n }
+        }
+        func recent(_ i: BookshelfItem) -> Date { books(i).compactMap(\.lastReadDate).max() ?? .distantPast }
+        func added(_ i: BookshelfItem) -> Date { books(i).map(\.addedDate).max() ?? .distantPast }
+        func prog(_ i: BookshelfItem) -> Double { books(i).map(\.progress).max() ?? 0 }
+        switch self {
+        case .recent:
+            return items.sorted { (recent($0), added($0)) > (recent($1), added($1)) }
+        case .progress:
+            return items.sorted { (prog($0), recent($0)) > (prog($1), recent($1)) }
+        case .added:
+            return items.sorted { added($0) > added($1) }
+        case .title:
+            return items.sorted { name($0).localizedStandardCompare(name($1)) == .orderedAscending }
+        }
+    }
 }

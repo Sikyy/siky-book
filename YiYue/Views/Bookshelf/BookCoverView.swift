@@ -98,7 +98,6 @@ struct BookCoverView: View {
         VStack(spacing: 4) {
             coverImage
             titleLabel
-            statusLabel
         }
     }
 
@@ -121,6 +120,29 @@ struct BookCoverView: View {
             }
 
             badge
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if book.readingStatus == .reading {
+                Text("\(Int(book.progress * 100))%")
+                    .font(.caption2.monospacedDigit())
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.6))
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+                    .padding(.trailing, 4)
+                    .padding(.bottom, 6)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        switch book.readingStatus {
+        case .reading: return "《\(book.title)》,读到 \(Int(book.progress * 100))%"
+        case .finished: return "《\(book.title)》,已读完"
+        case .unread: return "《\(book.title)》,未读"
         }
     }
 
@@ -161,51 +183,31 @@ struct BookCoverView: View {
 
     @ViewBuilder
     private var badge: some View {
-        switch book.readingStatus {
-        case .unread:
+        if book.readingStatus == .finished {
+            Text("读完")
+                .font(.caption2.bold())
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Color.accentColor)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .padding(4)
+        } else if book.readingStatus == .unread {
             Text("新")
-                .font(.system(size: 8))
-                .padding(.horizontal, 4)
+                .font(.caption2.bold())
+                .padding(.horizontal, 5)
                 .padding(.vertical, 2)
                 .background(Color.blue.opacity(0.9))
                 .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
                 .padding(4)
-        case .finished:
-            Image(systemName: "checkmark")
-                .font(.system(size: 8, weight: .bold))
-                .padding(4)
-                .background(Color.green.opacity(0.9))
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .padding(4)
-        case .reading:
-            EmptyView()
         }
     }
 
     private var titleLabel: some View {
         Text(book.title)
-            .font(.caption2)
-            .foregroundStyle(.gray)
+            .font(.footnote)
+            .foregroundStyle(.white)
             .lineLimit(1)
-    }
-
-    @ViewBuilder
-    private var statusLabel: some View {
-        switch book.readingStatus {
-        case .reading:
-            Text("\(Int(book.progress * 100))%")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-        case .unread:
-            Text("未读")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary.opacity(0.5))
-        case .finished:
-            Text("已读完")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary.opacity(0.5))
-        }
     }
 }
