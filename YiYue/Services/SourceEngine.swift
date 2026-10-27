@@ -588,14 +588,19 @@ class SourceEngine {
     }
 
     private func evaluateJSONPath(_ path: String, in json: Any) -> Any? {
-        let clean: String
-        if path.hasPrefix("$.") {
-            clean = String(path.dropFirst(2))
-        } else if path.hasPrefix("$[") {
-            clean = String(path.dropFirst(1))
+        var clean: String
+        let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if p.hasPrefix("$.") {
+            clean = String(p.dropFirst(2))
+        } else if p.hasPrefix("$[") {
+            clean = String(p.dropFirst(1))
+        } else if p.range(of: "^[A-Za-z_][A-Za-z0-9_]*([.\\[][^@ ]*)?$", options: .regularExpression) != nil {
+            // Legado also accepts JSON paths without the "$." prefix ("data.list", "data.books[*]").
+            clean = p
         } else {
             return nil
         }
+        if clean.hasSuffix("[*]") { clean = String(clean.dropLast(3)) }
         guard !clean.isEmpty else { return json }
 
         var current: Any = json
@@ -652,7 +657,7 @@ class SourceEngine {
             var result: String?
             if pathRule.contains("{{$.") {
                 result = expandTemplate(pathRule, element: json)
-            } else if isJSONRule(pathRule) {
+            } else if isJSONRule(pathRule) || json is [String: Any] {
                 if let val = evaluateJSONPath(pathRule, in: json) {
                     result = stringValue(val)
                 }
