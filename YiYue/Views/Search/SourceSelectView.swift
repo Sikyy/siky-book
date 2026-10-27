@@ -50,9 +50,6 @@ struct SourceSelectView: View {
                                 Text(source.sourceName)
                                     .font(.body)
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
