@@ -29,6 +29,7 @@ final class Book {
     var totalChapters: Int
     var addedDate: Date
     var lastReadDate: Date?
+    var pinnedDate: Date?
     var seriesName: String?
     var seriesIndex: Int?
 

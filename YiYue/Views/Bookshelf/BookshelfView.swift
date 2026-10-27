@@ -50,7 +50,13 @@ struct BookshelfView: View {
 
     private var groupedItems: [BookshelfItem] {
         let items = BookshelfItem.group(books.filter { !deletingBookIDs.contains($0.id) })
-        return shelfSort.sorted(items)
+        let sorted = shelfSort.sorted(items)
+        func pin(_ i: BookshelfItem) -> Date? {
+            if case .single(let b) = i { return b.pinnedDate }
+            return nil
+        }
+        let pinned = sorted.filter { pin($0) != nil }.sorted { (pin($0) ?? .distantPast) > (pin($1) ?? .distantPast) }
+        return pinned + sorted.filter { pin($0) == nil }
     }
 
     var body: some View {
@@ -71,6 +77,18 @@ struct BookshelfView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
+                                    Button {
+                                        selectedBook = book
+                                    } label: {
+                                        Label("继续阅读", systemImage: "book")
+                                    }
+                                    Button {
+                                        book.pinnedDate = book.pinnedDate == nil ? Date() : nil
+                                        try? modelContext.save()
+                                    } label: {
+                                        Label(book.pinnedDate == nil ? "置顶" : "取消置顶",
+                                              systemImage: book.pinnedDate == nil ? "pin" : "pin.slash")
+                                    }
                                     if book.sourceType == .bookSource {
                                         Button {
                                             changeSourceBook = book
@@ -110,18 +128,33 @@ struct BookshelfView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
-                        Button(action: { showingCacheManage = true }) {
-                            Image(systemName: "arrow.down.circle")
-                                .foregroundStyle(.white)
-                        }
-                        Button(action: { showingSources = true }) {
-                            Image(systemName: "list.bullet.rectangle")
-                                .foregroundStyle(.white)
-                        }
-                        Button(action: { showingFilePicker = true }) {
+                        Menu {
+                            Button { showingFilePicker = true } label: {
+                                Label("导入本地书", systemImage: "doc.badge.plus")
+                            }
+                            Button { showingSources = true } label: {
+                                Label("导入书源", systemImage: "link.badge.plus")
+                            }
+                            Button { showingSearch = true } label: {
+                                Label("去搜索", systemImage: "magnifyingglass")
+                            }
+                        } label: {
                             Image(systemName: "plus")
                                 .foregroundStyle(.white)
                         }
+                        .accessibilityLabel("添加")
+                        Menu {
+                            Button { showingCacheManage = true } label: {
+                                Label("缓存管理", systemImage: "arrow.down.circle")
+                            }
+                            Button { showingSources = true } label: {
+                                Label("书源管理", systemImage: "list.bullet.rectangle")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .foregroundStyle(.white)
+                        }
+                        .accessibilityLabel("更多")
                     }
                 }
             }

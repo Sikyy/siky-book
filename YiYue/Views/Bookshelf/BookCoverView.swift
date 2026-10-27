@@ -134,6 +134,16 @@ struct BookCoverView: View {
                     .padding(.bottom, 6)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if book.pinnedDate != nil {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(Color.black.opacity(0.5), in: Circle())
+                    .padding(4)
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
     }
