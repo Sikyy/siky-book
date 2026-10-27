@@ -4,6 +4,7 @@ import SwiftData
 
 struct BookshelfView: View {
     @Query(sort: \Book.addedDate, order: .reverse) private var books: [Book]
+    @Query private var bookSources: [BookSource]
     @Environment(\.modelContext) private var modelContext
     @State private var showingFilePicker = false
     @State private var showingSearch = false
@@ -180,17 +181,46 @@ struct BookshelfView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "book.closed")
-                .font(.system(size: 48))
-                .foregroundStyle(.gray.opacity(0.3))
-            Text("书架空空如也")
-                .foregroundStyle(.gray.opacity(0.5))
+        VStack(spacing: 8) {
+            Spacer(minLength: 0)
+            Image(systemName: "books.vertical")
+                .font(.system(size: 52))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 8)
+            Text("书架还是空的")
+                .font(.title3.weight(.semibold))
+            Text("导入书源后可搜书,也可以直接导入本地 txt")
                 .font(.subheadline)
-            Spacer()
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 16)
+            VStack(spacing: 12) {
+                if bookSources.isEmpty {
+                    Button { showingSources = true } label: {
+                        Label("导入书源", systemImage: "link.badge.plus")
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button { showingSearch = true } label: {
+                        Label("去搜索", systemImage: "magnifyingglass")
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                Button { showingFilePicker = true } label: {
+                    Label("导入本地书", systemImage: "doc.badge.plus")
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.bordered)
+            }
+            .buttonBorderShape(.roundedRectangle(radius: 14))
+            .controlSize(.large)
+            .frame(maxWidth: 320)
+            .padding(.horizontal, 32)
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 400)
+        .frame(maxWidth: .infinity, minHeight: 500)
     }
 }
 
