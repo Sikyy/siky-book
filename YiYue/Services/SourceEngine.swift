@@ -190,7 +190,34 @@ class SourceEngine {
             searchUrl = first
         }
 
-        let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        // Legado page groups: "<first,next>" -> first on page 1, next afterwards.
+        if let regex = try? NSRegularExpression(pattern: "<([^<>]*)>") {
+            let ns = searchUrl as NSString
+            let matches = regex.matches(in: searchUrl, range: NSRange(location: 0, length: ns.length)).reversed()
+            for m in matches {
+                let inner = ns.substring(with: m.range(at: 1))
+                let options = inner.components(separatedBy: ",")
+                let pick = options[min(max(page, 1), options.count) - 1]
+                searchUrl = (searchUrl as NSString).replacingCharacters(in: m.range, with: pick)
+            }
+        }
+        // Legado allows the option JSON on the next line: "url,\n{...}"
+        searchUrl = searchUrl.replacingOccurrences(of: ",\n{", with: ",{")
+        searchUrl = searchUrl.replacingOccurrences(of: ", {", with: ",{")
+
+        var charsetName: String?
+        if let r = searchUrl.range(of: "[\"']?charset[\"']?\\s*:\\s*[\"']([^\"']+)[\"']", options: .regularExpression) {
+            let frag = String(searchUrl[r])
+            charsetName = frag.components(separatedBy: CharacterSet(charactersIn: "\"'")).dropLast().last
+        }
+        let queryAllowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&=+#"))
+        var encoded = keyword.addingPercentEncoding(withAllowedCharacters: queryAllowed) ?? keyword
+        if let cs = charsetName?.lowercased(), cs == "gbk" || cs == "gb2312" || cs == "gb18030" {
+            let cf = CFStringConvertEncodingToNSStringEncoding(CFStringConvertIANACharSetNameToEncoding("GB18030" as CFString))
+            if let data = keyword.data(using: String.Encoding(rawValue: cf)) {
+                encoded = data.map { String(format: "%%%02X", $0) }.joined()
+            }
+        }
         searchUrl = searchUrl.replacingOccurrences(of: "baseUrl", with: source.url)
         searchUrl = searchUrl.replacingOccurrences(of: "{{key}}", with: encoded)
         searchUrl = searchUrl.replacingOccurrences(of: "{{page}}", with: String(page))

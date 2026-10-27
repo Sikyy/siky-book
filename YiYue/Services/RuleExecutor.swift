@@ -86,8 +86,16 @@ class RuleExecutor {
 
     private func isLegadoFormat(_ rule: String) -> Bool {
         let r = rule.trimmingCharacters(in: .whitespaces)
-        return r.hasPrefix("tag.") || r.hasPrefix("class.") || r.hasPrefix("id.") ||
-               r.contains("@tag.") || r.contains("@class.") || r.contains("@id.")
+        if r.hasPrefix("tag.") || r.hasPrefix("class.") || r.hasPrefix("id.") ||
+           r.contains("@tag.") || r.contains("@class.") || r.contains("@id.") { return true }
+        // Legado default rules may also use bare names/CSS per segment ("h3@a@href", ".t_t@a.-1", "tr!0").
+        let lower = r.lowercased()
+        if lower.hasPrefix("@css:") || lower.hasPrefix("@xpath:") || lower.hasPrefix("@json:") ||
+           r.hasPrefix("//") || r.hasPrefix("$.") || r.hasPrefix("$[") || r.hasPrefix(":") { return false }
+        if r.contains("@") { return true }
+        // A rule without "@" that is a plain tag with optional index/exclusion ("tr!0", "td.0").
+        let simple = r.range(of: "^[A-Za-z][A-Za-z0-9]*([.!\\[].*)?$", options: .regularExpression) != nil
+        return simple && !r.contains(" ") && !r.contains("#") && !r.contains(">")
     }
 
     private func legadoSelect(root: Element, rule: String) throws -> [Element] {
@@ -189,12 +197,23 @@ class RuleExecutor {
         var result: [Element]
 
         if segment.hasPrefix("class.") {
-            result = try selectByClass(elements: elements, className: name, index: index, range: range)
+            if name.contains(" ") {
+                let css = name.split(separator: " ").map { "." + $0 }.joined()
+                var found: [Element] = []
+                for el in elements { found.append(contentsOf: try el.select(css).array()) }
+                result = applyIndexOrRange(found, index: index, range: range)
+            } else {
+                result = try selectByClass(elements: elements, className: name, index: index, range: range)
+            }
         } else if segment.hasPrefix("id.") {
             result = try selectById(elements: elements, id: name, index: index)
-        } else {
-            // tag. prefix or bare name — both select by tag
+        } else if segment.hasPrefix("tag.") || name.range(of: "^[A-Za-z][A-Za-z0-9]*$", options: .regularExpression) != nil {
             result = try selectByTag(elements: elements, tag: name, index: index, range: range)
+        } else {
+            // Bare segment that is not a simple tag: treat as a CSS selector.
+            var found: [Element] = []
+            for el in elements { found.append(contentsOf: try el.select(name).array()) }
+            result = applyIndexOrRange(found, index: index, range: range)
         }
 
         // Apply exclude filter (e.g. "!0" removes index 0)
