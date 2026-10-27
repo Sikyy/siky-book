@@ -169,7 +169,9 @@ class SourceEngine {
             searchUrl = jsResult
         }
 
-        if searchUrl.contains("\n") {
+        // A "url,{json}" config may itself span several lines (method/body/charset); that is one URL, not alternatives.
+        let hasJSONConfig = searchUrl.range(of: ",\\s*\\{", options: .regularExpression) != nil && !searchUrl.trimmingCharacters(in: .whitespaces).hasPrefix("@js:")
+        if searchUrl.contains("\n") && !hasJSONConfig {
             let lines = searchUrl.components(separatedBy: "\n")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
@@ -202,7 +204,7 @@ class SourceEngine {
             }
         }
         // Legado allows the option JSON on the next line: "url,\n{...}"
-        searchUrl = searchUrl.replacingOccurrences(of: ",\n{", with: ",{")
+        searchUrl = searchUrl.replacingOccurrences(of: ",\\s*\\{", with: ",{", options: .regularExpression)
         searchUrl = searchUrl.replacingOccurrences(of: ", {", with: ",{")
 
         var charsetName: String?
