@@ -83,7 +83,7 @@ enum LegadoSourceParser {
 
         return LegadoSource(
             name: obj["bookSourceName"] as? String ?? "",
-            url: obj["bookSourceUrl"] as? String ?? "",
+            url: (obj["bookSourceUrl"] as? String ?? "").components(separatedBy: "#").first ?? "", // Legado allows a "#comment" suffix on the source URL
             group: obj["bookSourceGroup"] as? String,
             header: obj["header"] as? String,
             searchURL: obj["searchUrl"] as? String,
