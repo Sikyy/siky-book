@@ -14,7 +14,7 @@ enum JSExecutor {
         ctx.setObject(page, forKeyedSubscript: "searchPage" as NSString)
         setupJavaBridge(ctx, baseUrl: baseUrl)
 
-        let result = ctx.evaluateScript(jsCode)
+        let result = evaluate(ctx, jsCode)
         if let ex = ctx.exception { ctx.exception = nil; _ = ex }
 
         if let str = result?.toString(), str != "undefined", !str.isEmpty {
@@ -35,7 +35,7 @@ enum JSExecutor {
         ctx.setObject(baseUrl, forKeyedSubscript: "baseUrl" as NSString)
         setupJavaBridge(ctx, content: result, baseUrl: baseUrl)
 
-        let val = ctx.evaluateScript(jsCode)
+        let val = evaluate(ctx, jsCode)
         if let ex = ctx.exception { ctx.exception = nil; _ = ex }
 
         if let str = val?.toString(), str != "undefined", !str.isEmpty {
@@ -45,6 +45,18 @@ enum JSExecutor {
             return r
         }
         return nil
+    }
+
+    /// Runs a script on a worker thread and gives up after a few seconds, so a source with a runaway loop cannot freeze a search.
+    private static func evaluate(_ ctx: JSContext, _ code: String) -> JSValue? {
+        let sem = DispatchSemaphore(value: 0)
+        var out: JSValue?
+        DispatchQueue.global(qos: .userInitiated).async {
+            out = ctx.evaluateScript(code)
+            sem.signal()
+        }
+        if sem.wait(timeout: .now() + 8) == .timedOut { return nil }
+        return out
     }
 
     private static func makeContext() -> JSContext {
