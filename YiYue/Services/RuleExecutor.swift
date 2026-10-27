@@ -182,6 +182,16 @@ class RuleExecutor {
     }
 
     private func applyLegadoSelector(elements: [Element], segment: String) throws -> [Element] {
+        // Legado index list: ".book_tag.0:1:2" picks several elements of the match.
+        if let r = segment.range(of: "\\.-?\\d+(:-?\\d+)+$", options: .regularExpression) {
+            let base = String(segment[..<r.lowerBound])
+            let idxs = segment[segment.index(after: r.lowerBound)...].split(separator: ":").compactMap { Int($0) }
+            let all = try applyLegadoSelector(elements: elements, segment: base)
+            return idxs.compactMap { i in
+                let k = i < 0 ? all.count + i : i
+                return (k >= 0 && k < all.count) ? all[k] : nil
+            }
+        }
         let rest: String
         if segment.hasPrefix("tag.") {
             rest = String(segment.dropFirst(4))
