@@ -127,7 +127,7 @@ enum JSExecutor {
 
     private static func syncFetch(url: String, method: String, body: String?, headers: [String: String]?) -> String {
         guard let u = URL(string: url) else { return "" }
-        var req = URLRequest(url: u, timeoutInterval: 10)
+        var req = URLRequest(url: u, timeoutInterval: 6)
         req.httpMethod = method
         req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         if let body { req.httpBody = Data(body.utf8); req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type") }
@@ -137,7 +137,7 @@ enum JSExecutor {
             if let data { out = String(data: data, encoding: .utf8) ?? "" }
             sem.signal()
         }.resume()
-        _ = sem.wait(timeout: .now() + 12)
+        _ = sem.wait(timeout: .now() + 7)
         return out
     }
 }
