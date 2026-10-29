@@ -235,29 +235,32 @@ struct BookshelfView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 16)
-            VStack(spacing: 12) {
+            VStack(spacing: 10) {
                 if bookSources.isEmpty {
                     Button { showingSources = true } label: {
                         Label("导入书源", systemImage: "link.badge.plus")
-                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .font(.body)
+                            .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
                     Button { showingSearch = true } label: {
                         Label("去搜索", systemImage: "magnifyingglass")
-                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .font(.body)
+                            .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.borderedProminent)
                 }
                 Button { showingFilePicker = true } label: {
                     Label("导入本地书", systemImage: "doc.badge.plus")
-                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .font(.body)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
             }
-            .buttonBorderShape(.roundedRectangle(radius: 14))
-            .controlSize(.large)
-            .frame(maxWidth: 320)
+            .buttonBorderShape(.roundedRectangle(radius: 12))
+            .controlSize(.regular)
+            .frame(maxWidth: 260)
             .padding(.horizontal, 32)
             Spacer(minLength: 0)
         }
