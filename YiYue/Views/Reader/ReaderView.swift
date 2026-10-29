@@ -10,6 +10,9 @@ struct ReaderView: View {
     @State private var currentChapterIndex: Int
     @State private var showMenu = false
     @State private var currentPageIndex: Int = 0
+    /// nil means the reader follows the system brightness.
+    @State private var manualBrightness: Double?
+    @State private var entryBrightness: Double = ReaderScreenBrightness.current
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var settings = ReaderSettings()
@@ -146,7 +149,17 @@ struct ReaderView: View {
                     onCancelCache: { cancelCaching() },
                     onResumeCache: { resumeCaching() },
                     cacheState: cachePresentationState,
-                    onRefreshToc: book.sourceId == nil ? nil : { await refreshTableOfContents() }
+                    onRefreshToc: book.sourceId == nil ? nil : { await refreshTableOfContents() },
+                    brightness: manualBrightness ?? ReaderScreenBrightness.current,
+                    isFollowingSystemBrightness: manualBrightness == nil,
+                    onBrightnessChange: { value in
+                        manualBrightness = value
+                        ReaderScreenBrightness.set(value)
+                    },
+                    onFollowSystemBrightness: {
+                        manualBrightness = nil
+                        ReaderScreenBrightness.set(entryBrightness)
+                    }
                 )
             }
         }
@@ -224,6 +237,8 @@ struct ReaderView: View {
         }
         .onAppear {
             UIDevice.current.isBatteryMonitoringEnabled = true
+            entryBrightness = ReaderScreenBrightness.current
+            applyKeepScreenAwake()
             footerClock = Self.footerTimeFormatter.string(from: Date())
             loadChapters()
             recomputePages(position: .first)
@@ -251,10 +266,13 @@ struct ReaderView: View {
             cacheTask?.cancel()
             persistReadingPosition()
             try? modelContext.save()
+            ReaderScreenBrightness.set(entryBrightness)
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         .onChange(of: currentPageIndex) { _, _ in
             persistReadingPosition()
         }
+        .onChange(of: settings.keepScreenAwake) { _, _ in applyKeepScreenAwake() }
         .onChange(of: settings.fontSize) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
         .onChange(of: settings.lineSpacing) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
         .onChange(of: settings.fontFamily) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
@@ -3166,6 +3184,10 @@ struct ReaderView: View {
         manager.updateProgress(book: book, chapterIndex: currentChapterIndex, position: chapterPositionFraction)
     }
 
+    private func applyKeepScreenAwake() {
+        UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
+    }
+
     private static let footerTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -3478,5 +3500,24 @@ private struct StaticPageView: View {
         .padding(.horizontal, horizontalPadding)
         .padding(.top, 20)
         .padding(.bottom, bottomReserve)
+    }
+}
+
+/// Screen brightness of the reader's window. Kept in one place so the reader can
+/// restore the system value when it closes.
+enum ReaderScreenBrightness {
+    static var current: Double {
+        Double(windowScene?.screen.brightness ?? 1)
+    }
+
+    static func set(_ value: Double) {
+        windowScene?.screen.brightness = CGFloat(min(max(value, 0), 1))
+    }
+
+    private static var windowScene: UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
     }
 }

@@ -257,8 +257,12 @@ struct BookshelfView: View {
                     Label("导入本地书", systemImage: "doc.badge.plus")
                         .font(.body)
                         .frame(maxWidth: .infinity, minHeight: 44)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+                        )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
             }
             .buttonBorderShape(.roundedRectangle(radius: 12))
             .controlSize(.regular)

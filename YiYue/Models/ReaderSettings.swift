@@ -62,6 +62,8 @@ class ReaderSettings {
     var fontFamily: FontFamily
     var theme: ReaderTheme
     var pageMode: PageMode
+    /// Keeps the screen awake while the reader is open. On by default.
+    var keepScreenAwake: Bool
 
     init() {
         let defaults = UserDefaults.standard
@@ -71,6 +73,8 @@ class ReaderSettings {
         self.fontFamily = FontFamily(rawValue: defaults.string(forKey: "reader.fontFamily") ?? "") ?? .system
         self.theme = ReaderTheme(rawValue: defaults.string(forKey: "reader.theme") ?? "") ?? .paper
         self.pageMode = Self.loadPageMode(from: defaults)
+        let storedKeepAwake = defaults.object(forKey: "reader.keepScreenAwake") as? Bool
+        self.keepScreenAwake = storedKeepAwake ?? true
     }
 
     func save(markPageModeExplicit: Bool = false) {
@@ -81,6 +85,7 @@ class ReaderSettings {
         defaults.set(fontFamily.rawValue, forKey: "reader.fontFamily")
         defaults.set(theme.rawValue, forKey: "reader.theme")
         defaults.set(pageMode.rawValue, forKey: Self.pageModeKey)
+        defaults.set(keepScreenAwake, forKey: "reader.keepScreenAwake")
         if markPageModeExplicit {
             defaults.set(true, forKey: Self.pageModeExplicitKey)
         }

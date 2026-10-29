@@ -22,6 +22,10 @@ struct ReaderMenuOverlay: View {
     var onResumeCache: (() -> Void)? = nil
     var cacheState: ReaderCachePresentationState = .unavailable
     var onRefreshToc: (() async -> TocRefreshOutcome)? = nil
+    var brightness: Double = 1
+    var isFollowingSystemBrightness: Bool = true
+    var onBrightnessChange: ((Double) -> Void)? = nil
+    var onFollowSystemBrightness: (() -> Void)? = nil
 
     private var theme: ReaderTheme { settings.theme }
 
@@ -35,6 +39,8 @@ struct ReaderMenuOverlay: View {
     @State private var tocToast: String?
     @State private var tocToastRetryable = false
     @State private var tocToastTask: Task<Void, Never>?
+    @State private var brightnessValue: Double = 1
+    @State private var followSystemFlash = false
 
     var body: some View {
         ZStack {
@@ -45,19 +51,32 @@ struct ReaderMenuOverlay: View {
 
             VStack(spacing: 0) {
                 topBar
+                if onBrightnessChange != nil {
+                    brightnessBar
+                }
                 Spacer()
                 bottomPanel
             }
         }
-        .onAppear { sliderValue = Double(currentChapterIndex) }
+        .onAppear {
+            sliderValue = Double(currentChapterIndex)
+            brightnessValue = brightness
+        }
+        .onChange(of: brightness) { _, newValue in
+            if !isFollowingSystemBrightness {
+                brightnessValue = newValue
+            }
+        }
+        .onChange(of: isFollowingSystemBrightness) { _, following in
+            if following { brightnessValue = brightness }
+        }
         .onChange(of: currentChapterIndex) { _, newValue in
             sliderValue = Double(newValue)
         }
         .sheet(isPresented: $showChapterList) {
-            NavigationStack {
-                chapterListContent
-            }
-            .presentationDetents([.medium, .large])
+            chapterListContent
+                .presentationDetents([.medium, .large])
+                .presentationBackground(theme.menuBackground)
         }
     }
 
@@ -484,6 +503,94 @@ struct ReaderMenuOverlay: View {
                     .foregroundStyle(theme.menuSecondary)
                     .frame(width: 26)
             }
+
+            // Keep screen awake
+            Rectangle()
+                .fill(theme.menuSeparator)
+                .frame(height: 1)
+
+            HStack {
+                Text("保持屏幕常亮")
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.menuPrimary)
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { settings.keepScreenAwake },
+                    set: { value in
+                        settings.keepScreenAwake = value
+                        settings.save()
+                    }
+                ))
+                .labelsHidden()
+                .tint(theme.menuPrimary)
+                .accessibilityLabel("保持屏幕常亮")
+                .accessibilityValue(settings.keepScreenAwake ? "已开启" : "已关闭")
+            }
+            .frame(height: 44)
+        }
+    }
+
+    // MARK: - Brightness
+
+    private var brightnessBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                onFollowSystemBrightness?()
+                flashFollowSystem()
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(
+                        isFollowingSystemBrightness || followSystemFlash
+                            ? theme.menuPrimary
+                            : theme.menuSecondary
+                    )
+                    .frame(width: 20, height: 20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(followSystemFlash ? theme.menuSelectedFill : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("跟随系统亮度")
+
+            Image(systemName: "sun.min")
+                .font(.system(size: 14))
+                .foregroundStyle(theme.menuSecondary)
+
+            Slider(
+                value: Binding(
+                    get: { brightnessValue },
+                    set: { newValue in
+                        brightnessValue = newValue
+                        onBrightnessChange?(newValue)
+                    }
+                ),
+                in: 0...1
+            )
+            .tint(theme.menuPrimary)
+            .accessibilityLabel("屏幕亮度")
+            .accessibilityValue("\(Int((brightnessValue * 100).rounded()))%")
+
+            Image(systemName: "sun.max")
+                .font(.system(size: 16))
+                .foregroundStyle(theme.menuPrimary)
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 44)
+        .background(theme.menuBackground, ignoresSafeAreaEdges: .top)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.menuSeparator).frame(height: 1)
+        }
+    }
+
+    private func flashFollowSystem() {
+        withAnimation(.easeInOut(duration: 0.15)) { followSystemFlash = true }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.15)) { followSystemFlash = false }
+            }
         }
     }
 
@@ -530,9 +637,16 @@ struct ReaderMenuOverlay: View {
 
     private var chapterListContent: some View {
         VStack(spacing: 0) {
+            chapterListHeader
             chapterSearchRow
-            if !chapterSearchKeyword.isEmpty {
-                Text("\(filteredChapters.count) 章")
+            if let tocToast {
+                tocToastBar(tocToast)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+            }
+            if !chapterSearchKeyword.isEmpty && !filteredChapters.isEmpty {
+                Text("找到 \(filteredChapters.count) 章")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.menuSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -545,23 +659,28 @@ struct ReaderMenuOverlay: View {
                 chapterList
             }
         }
-        .overlay(alignment: .top) {
-            if let tocToast {
-                tocToastBar(tocToast)
-                    .padding(.top, 4)
-                    .transition(.opacity)
-            }
-        }
-        .navigationTitle("目录")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+        .background(theme.menuBackground.ignoresSafeArea())
+    }
+
+    /// Plain header row: cache control on the left, title centred, close on the right.
+    private var chapterListHeader: some View {
+        ZStack {
+            Text("目录")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(theme.menuPrimary)
+
+            HStack {
                 chapterListCacheControl
-            }
-            ToolbarItem(placement: .topBarTrailing) {
+                Spacer()
                 Button("关闭") { showChapterList = false }
+                    .font(.system(size: 15))
+                    .foregroundStyle(theme.menuPrimary)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭")
             }
         }
+        .padding(.horizontal, 16)
+        .frame(height: 48)
     }
 
     private var chapterSearchKeyword: String {
@@ -580,12 +699,21 @@ struct ReaderMenuOverlay: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 14))
                     .foregroundStyle(theme.menuSecondary)
-                TextField("搜索章节", text: $chapterSearch)
+                TextField("", text: $chapterSearch)
                     .font(.system(size: 14))
                     .foregroundStyle(theme.menuPrimary)
+                    .tint(theme.menuPrimary)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityLabel("搜索章节")
+                    .overlay(alignment: .leading) {
+                        if chapterSearch.isEmpty {
+                            Text("搜索章节")
+                                .font(.system(size: 14))
+                                .foregroundStyle(theme.menuSecondary)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 if !chapterSearch.isEmpty {
                     Button {
                         chapterSearch = ""
@@ -651,11 +779,10 @@ struct ReaderMenuOverlay: View {
                 .font(.system(size: 13))
                 .foregroundStyle(theme.menuPrimary)
                 .padding(.horizontal, 14)
-                .frame(height: 32)
+                .frame(maxWidth: .infinity, minHeight: 32)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(theme.menuBackground)
-                        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                        .fill(theme.menuPrimary.opacity(0.08))
                 )
         }
         .buttonStyle(.plain)
@@ -719,20 +846,18 @@ struct ReaderMenuOverlay: View {
                             .foregroundStyle(theme.menuPrimary)
                             .fontWeight(chapter.index == currentChapterIndex ? .semibold : .regular)
                         Spacer()
-                        if chapter.index == currentChapterIndex {
-                            Image(systemName: "book.fill")
-                                .foregroundStyle(theme.menuPrimary)
-                                .font(.caption)
-                        } else if chapter.isCached {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green.opacity(0.6))
-                                .font(.caption2)
+                        if chapter.index != currentChapterIndex && chapter.isCached {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(theme.menuSecondary)
+                                .font(.system(size: 12, weight: .medium))
                         }
                     }
                 }
                 .id(chapter.index)
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(theme.menuBackground)
             .onAppear {
                 scrollToCurrentChapter(with: proxy, animated: false)
             }
