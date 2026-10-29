@@ -30,6 +30,8 @@ struct ReaderMenuOverlay: View {
     var onJumpToMark: ((ReadingMark) -> Void)? = nil
     var onOpenNote: ((ReadingMark) -> Void)? = nil
     var onAddBookmarkHere: (() -> Void)? = nil
+    /// 书签面板顶部「写笔记」:摘录取当前页第一段。
+    var onWriteNoteHere: (() -> Void)? = nil
 
     private var theme: ReaderTheme { settings.theme }
 
@@ -54,10 +56,11 @@ struct ReaderMenuOverlay: View {
 
     var body: some View {
         ZStack {
+            // 正文自己处理「点一下收菜单」和「长按直接选段」,这一层只负责铺底色,
+            // 不能再吃掉手势——否则菜单开着时长按正文没反应。
             Color.clear
                 .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture { onDismiss() }
+                .allowsHitTesting(false)
 
             VStack(spacing: 0) {
                 topBar
@@ -704,6 +707,9 @@ struct ReaderMenuOverlay: View {
                     chapterList
                 }
             case .bookmarks:
+                if onWriteNoteHere != nil {
+                    writeNoteRow
+                }
                 addBookmarkRow
                 markList(
                     marks: bookmarks,
@@ -780,6 +786,32 @@ struct ReaderMenuOverlay: View {
     private func openPanel(_ segment: ReaderPanelSegment) {
         panelSegment = segment
         withAnimation(.easeInOut(duration: 0.2)) { showChapterList = true }
+    }
+
+    /// 书签面板顶部:直接给当前页第一段写笔记。
+    private var writeNoteRow: some View {
+        Button {
+            onWriteNoteHere?()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 12, weight: .medium))
+                Text("写笔记")
+                    .font(.system(size: 14))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(theme.menuPrimary)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("给当前这一页写笔记")
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.menuPrimary.opacity(0.06))
+                .frame(height: 1)
+        }
     }
 
     /// Full-width row above the bookmark list; it used to crowd the header.

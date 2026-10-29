@@ -39,9 +39,15 @@ final class Book {
     @Relationship(deleteRule: .cascade, inverse: \ReadingMark.book)
     var marks: [ReadingMark] = []
 
+    /// Whole-book reading position, using the same formula as the reader's
+    /// footer: (chapter index + position inside that chapter) / total chapters.
+    /// Counting whole chapters only made the shelf badge read 0% while the
+    /// reader said 17%.
     var progress: Double {
         guard totalChapters > 0 else { return 0 }
-        return Double(lastReadChapterIndex) / Double(totalChapters)
+        let chapterFraction = min(max(lastReadPosition, 0), 1)
+        let overall = (Double(lastReadChapterIndex) + chapterFraction) / Double(totalChapters)
+        return min(max(overall, 0), 1)
     }
 
     /// Pinned sources for quick "换源" access. Stored as JSON in alternativeSourcesJSON.

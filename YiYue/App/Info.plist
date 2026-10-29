@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>已阅</string>
+	<string>今日已阅</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

@@ -59,6 +59,8 @@ struct ReaderView: View {
     /// drawn, interactions wait, and a few retries run before the reader offers
     /// a way out instead of trapping.
     @State private var storeUnavailable = false
+    /// 关闭阅读页:先让正文淡出 0.28 秒,再真正退出,不要一帧硬切到书架。
+    @State private var isClosing = false
     @State private var storeRecoveryTask: Task<Void, Never>?
     @State private var adjacentPreparationTask: Task<Void, Never>?
     @State private var loadingIndicatorTask: Task<Void, Never>?
@@ -144,6 +146,16 @@ struct ReaderView: View {
     /// background: the book and chapters this reader was handed are then
     /// destroyed and any property access traps in SwiftData. Re-fetch them by
     /// their plain ids the moment the scene is active again.
+    /// 关闭阅读页:正文淡出后再退出,交给书架接上去。
+    private func closeReader() {
+        guard !isClosing else { return }
+        withAnimation(.easeOut(duration: 0.28)) { isClosing = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(280))
+            dismiss()
+        }
+    }
+
     private func refreshModelAfterSceneReset() {
         storeRecoveryTask?.cancel()
         storeRecoveryTask = nil
@@ -273,7 +285,7 @@ struct ReaderView: View {
                     chapterTitle: currentChapter?.title ?? "",
                     settings: settings,
                     onDismiss: { showMenu = false },
-                    onBack: { dismiss() },
+                    onBack: { closeReader() },
                     chapters: chapters,
                     onCache: book.sourceId != nil ? { count in cacheChapters(count: count) } : nil,
                     onCancelCache: { cancelCaching() },
@@ -300,7 +312,8 @@ struct ReaderView: View {
                             markID: mark.id
                         )
                     },
-                    onAddBookmarkHere: { addBookmarkAtCurrentPage() }
+                    onAddBookmarkHere: { addBookmarkAtCurrentPage() },
+                    onWriteNoteHere: { writeNoteAtCurrentPage() }
                 )
             }
 
@@ -322,6 +335,11 @@ struct ReaderView: View {
                 .transition(.opacity)
             }
 
+            // 关闭阅读页:整页在 0.28 秒里淡到书架的底色,退出就没有硬切的一帧。
+            Color.black
+                .opacity(isClosing ? 1 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
         }
         .sheet(item: $noteDraft) { draft in
             NoteEditorView(
@@ -341,6 +359,10 @@ struct ReaderView: View {
         .statusBarHidden(!showMenu)
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
         .preferredColorScheme(settings.theme.isDark ? .dark : .light)
+        .onChange(of: showMenu) { _, open in
+            // 菜单开着就不该同时有选中段,toolbar 和菜单会叠在一起。
+            if open { selection = nil }
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
@@ -598,6 +620,10 @@ struct ReaderView: View {
                         )
                         .contentShape(Rectangle())
                         .onLongPressGesture(minimumDuration: 0.35) {
+                            // 菜单开着时长按正文:先收菜单,直接开始选段。
+                            if showMenu {
+                                showMenu = false
+                            }
                             selection = ReaderSelection(
                                 paragraphIndex: index,
                                 text: para,
@@ -1263,6 +1289,9 @@ struct ReaderView: View {
             bottomReserve: pageBottomReserve,
             selectedParagraphIndex: selection?.paragraphIndex,
             onSelectParagraph: { index, text, frame in
+                if showMenu {
+                    showMenu = false
+                }
                 selection = ReaderSelection(
                     paragraphIndex: index,
                     text: text,
@@ -1276,6 +1305,10 @@ struct ReaderView: View {
     // MARK: - Tap Handling
 
     private func handleTap(location: CGPoint) {
+        if showMenu {
+            withAnimation(.easeInOut(duration: 0.2)) { showMenu = false }
+            return
+        }
         if selection != nil {
             selection = nil
             return
@@ -1292,6 +1325,10 @@ struct ReaderView: View {
     }
 
     private func handlePageTap(location: CGPoint, screenSize: CGSize, totalPages: Int) {
+        if showMenu {
+            withAnimation(.easeInOut(duration: 0.2)) { showMenu = false }
+            return
+        }
         if selection != nil {
             selection = nil
             return
@@ -3583,7 +3620,9 @@ struct ReaderView: View {
     }
 
     /// Bookmarks the first paragraph visible on the current page.
-    private func addBookmarkAtCurrentPage() {
+    /// The paragraph the current page starts at, skipping a heading repeated in
+    /// the body. Used by the bookmark and the note entry points in the menu.
+    private func currentPageAnchorParagraph() -> (index: Int, text: String)? {
         let paragraphIndex: Int
         if settings.pageMode == .scroll {
             paragraphIndex = visibleParagraphIndex
@@ -3591,9 +3630,9 @@ struct ReaderView: View {
                   let first = page.first?.paragraphIndex {
             paragraphIndex = first
         } else {
-            return
+            return nil
         }
-        guard cachedParagraphs.indices.contains(paragraphIndex) else { return }
+        guard cachedParagraphs.indices.contains(paragraphIndex) else { return nil }
         var chosen = paragraphIndex
         var text = cachedParagraphs[chosen]
         // The first paragraph of a chapter is often the chapter title itself;
@@ -3603,12 +3642,28 @@ struct ReaderView: View {
             chosen += 1
             text = cachedParagraphs[chosen]
         }
+        return (chosen, text)
+    }
+
+    private func addBookmarkAtCurrentPage() {
+        guard let anchor = currentPageAnchorParagraph() else { return }
         addBookmark(from: ReaderSelection(
-            paragraphIndex: chosen,
-            text: text,
+            paragraphIndex: anchor.index,
+            text: anchor.text,
             frame: .zero,
             chapterIndex: currentChapterIndex
         ))
+    }
+
+    /// 书签面板顶部的「写笔记」:摘录取当前页第一段,直接进笔记编辑。
+    private func writeNoteAtCurrentPage() {
+        guard let anchor = currentPageAnchorParagraph() else { return }
+        showMenu = false
+        noteDraft = NoteDraft(
+            chapterIndex: currentChapterIndex,
+            paragraphIndex: anchor.index,
+            excerpt: anchor.text
+        )
     }
 
     /// True when the paragraph is the chapter heading repeated in the body.

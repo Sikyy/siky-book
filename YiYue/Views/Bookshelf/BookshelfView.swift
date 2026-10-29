@@ -47,6 +47,9 @@ struct BookshelfView: View {
     /// Order captured when a book is opened; the shelf keeps it until the reader
     /// is dismissed so the rearrangement happens once, where the user can see it.
     @State private var frozenItemIDs: [String]?
+    /// 从阅读页回来时书架从 98% 定到 100%,之后才开始排序动画。
+    @State private var shelfSettleScale: CGFloat = 1
+    @State private var returnSortTask: Task<Void, Never>?
     /// The book being read, remembered across the full-screen cover.
     @State private var openedBookID: UUID?
     /// Bumped to ask the scroll view to go back to the top after a long read.
@@ -146,6 +149,7 @@ struct BookshelfView: View {
                         shelfProxy.scrollTo(shelfTopAnchor, anchor: .top)
                     }
                 }
+                .scaleEffect(shelfSettleScale)
             }
             .background(Color.black)
             .navigationTitle("书架")
@@ -276,6 +280,14 @@ struct BookshelfView: View {
         defer { openedBookID = nil }
         guard let frozen = frozenItemIDs else { return }
 
+        // 书架先从 98% 定到 100%,排序动画等它落定再开始,两段不叠在一起。
+        if !reduceMotion {
+            shelfSettleScale = BookshelfSortTransition.shelfSettleScale
+            withAnimation(.easeOut(duration: BookshelfSortTransition.shelfSettleDuration)) {
+                shelfSettleScale = 1
+            }
+        }
+
         let itemID = openedBookID.flatMap { BookshelfItem.itemID(containing: $0, in: liveItems) }
         let previousIndex = itemID.flatMap { frozen.firstIndex(of: $0) }
         let now = Date()
@@ -285,22 +297,28 @@ struct BookshelfView: View {
 
         // Reduce Motion, or the same book twice inside the guard interval: no motion.
         guard !reduceMotion, mayAnimate else {
+            returnSortTask?.cancel()
             frozenItemIDs = nil
             return
         }
         if let itemID { lastSortAnimation = (itemID, now) }
 
-        switch BookshelfSortTransition.mode(previousIndex: previousIndex) {
-        case .reorderInPlace:
-            withAnimation(.easeInOut(duration: BookshelfSortTransition.reorderDuration)) {
-                frozenItemIDs = nil
+        returnSortTask?.cancel()
+        returnSortTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(Int(BookshelfSortTransition.shelfSettleDuration * 1000) + 20))
+            guard !Task.isCancelled else { return }
+            switch BookshelfSortTransition.mode(previousIndex: previousIndex) {
+            case .reorderInPlace:
+                withAnimation(.easeInOut(duration: BookshelfSortTransition.reorderDuration)) {
+                    frozenItemIDs = nil
+                }
+            case .scrollAndPopIn:
+                withAnimation(.easeInOut(duration: BookshelfSortTransition.reorderDuration)) {
+                    frozenItemIDs = nil
+                }
+                scrollToTopToken += 1
+                if let itemID { startPopIn(itemID: itemID) }
             }
-        case .scrollAndPopIn:
-            withAnimation(.easeInOut(duration: BookshelfSortTransition.reorderDuration)) {
-                frozenItemIDs = nil
-            }
-            scrollToTopToken += 1
-            if let itemID { startPopIn(itemID: itemID) }
         }
     }
 
