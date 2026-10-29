@@ -7,6 +7,29 @@ struct BookshelfView: View {
     @Query private var bookSources: [BookSource]
     @Environment(\.modelContext) private var modelContext
     @State private var showingFilePicker = false
+
+#if DEBUG
+    /// Debug-only: the Team's simulator is recreated between sessions, so the
+    /// book used to check the reader has to be recreatable from the app.
+    private func seedSampleBook() {
+        let paragraphs = String(
+            repeating: "　　山路上没有灯,只有月光从松枝间漏下来,落在石阶上像一层薄霜。他提着灯笼走了半个时辰,忽然听见前面有人咳嗽。\n\n",
+            count: 8
+        )
+        var text = ""
+        for index in 1...7 {
+            text += "第\(index)章 夜行\n\n\(paragraphs)"
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("示例书.txt")
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            _ = try ImportService(modelContext: modelContext).importTXT(from: url)
+        } catch {
+            importError = error.localizedDescription
+            showingError = true
+        }
+    }
+#endif
     @State private var showingSearch = false
     @State private var showingSources = false
     @State private var importError: String?
@@ -19,10 +42,25 @@ struct BookshelfView: View {
     @State private var changeSourceBook: Book?
     @State private var deletingBookIDs: Set<UUID> = []
     @State private var deletionError: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Order captured when a book is opened; the shelf keeps it until the reader
+    /// is dismissed so the rearrangement happens once, where the user can see it.
+    @State private var frozenItemIDs: [String]?
+    /// The book being read, remembered across the full-screen cover.
+    @State private var openedBookID: UUID?
+    /// Bumped to ask the scroll view to go back to the top after a long read.
+    @State private var scrollToTopToken = 0
+    @State private var popInItemID: String?
+    @State private var popInProgress: Double = 1
+    @State private var lastSortAnimation: (itemID: String, date: Date)?
+
+    private let shelfTopAnchor = "shelf-top"
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
 
-    private var groupedItems: [BookshelfItem] {
+    /// The order the shelf would show right now.
+    private var liveItems: [BookshelfItem] {
         let items = BookshelfItem.group(books.filter { !deletingBookIDs.contains($0.id) })
         let sorted = BookshelfItem.sortedByRecentRead(items)
         func pin(_ i: BookshelfItem) -> Date? {
@@ -33,60 +71,80 @@ struct BookshelfView: View {
         return pinned + sorted.filter { pin($0) == nil }
     }
 
+    /// What the grid actually renders: the frozen order while a book is open.
+    private var groupedItems: [BookshelfItem] {
+        guard let frozenItemIDs else { return liveItems }
+        return BookshelfItem.applying(order: frozenItemIDs, to: liveItems)
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                if books.isEmpty {
-                    emptyState
-                } else {
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(groupedItems) { item in
-                            switch item {
-                            case .single(let book):
-                                Button {
-                                    selectedBook = book
-                                } label: {
-                                    BookCoverView(book: book)
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu {
+            ScrollViewReader { shelfProxy in
+                ScrollView {
+                    if books.isEmpty {
+                        emptyState
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 16) {
+                            ForEach(groupedItems) { item in
+                                switch item {
+                                case .single(let book):
                                     Button {
-                                        selectedBook = book
+                                        openReader(book)
                                     } label: {
-                                        Label("继续阅读", systemImage: "book")
+                                        BookCoverView(book: book)
+                                            .scaleEffect(popInScale(for: book))
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                                    .fill(Color.white.opacity(popInTint(for: book)))
+                                                    .allowsHitTesting(false)
+                                            }
                                     }
-                                    Button {
-                                        book.pinnedDate = book.pinnedDate == nil ? Date() : nil
-                                        try? modelContext.save()
-                                    } label: {
-                                        Label(book.pinnedDate == nil ? "置顶" : "取消置顶",
-                                              systemImage: book.pinnedDate == nil ? "pin" : "pin.slash")
-                                    }
-                                    if book.sourceType == .bookSource {
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
                                         Button {
-                                            changeSourceBook = book
+                                            openReader(book)
                                         } label: {
-                                            Label("换源", systemImage: "arrow.triangle.2.circlepath")
+                                            Label("继续阅读", systemImage: "book")
+                                        }
+                                        Button {
+                                            book.pinnedDate = book.pinnedDate == nil ? Date() : nil
+                                            try? modelContext.save()
+                                        } label: {
+                                            Label(book.pinnedDate == nil ? "置顶" : "取消置顶",
+                                                  systemImage: book.pinnedDate == nil ? "pin" : "pin.slash")
+                                        }
+                                        if book.sourceType == .bookSource {
+                                            Button {
+                                                changeSourceBook = book
+                                            } label: {
+                                                Label("换源", systemImage: "arrow.triangle.2.circlepath")
+                                            }
+                                        }
+                                        Button {
+                                            coverPickerBook = book
+                                        } label: {
+                                            Label("修改封面", systemImage: "photo.on.rectangle")
+                                        }
+                                        Button(role: .destructive) {
+                                            deleteBook(book)
+                                        } label: {
+                                            Label("删除", systemImage: "trash")
                                         }
                                     }
-                                    Button {
-                                        coverPickerBook = book
-                                    } label: {
-                                        Label("修改封面", systemImage: "photo.on.rectangle")
-                                    }
-                                    Button(role: .destructive) {
-                                        deleteBook(book)
-                                    } label: {
-                                        Label("删除", systemImage: "trash")
-                                    }
+                                case .series(let name, let seriesBooks):
+                                    SeriesBookView(seriesName: name, books: seriesBooks)
                                 }
-                            case .series(let name, let seriesBooks):
-                                SeriesBookView(seriesName: name, books: seriesBooks)
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .id(shelfTopAnchor)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                }
+                .onChange(of: scrollToTopToken) { _, _ in
+                    withAnimation(.easeOut(duration: BookshelfSortTransition.scrollDuration)) {
+                        shelfProxy.scrollTo(shelfTopAnchor, anchor: .top)
+                    }
                 }
             }
             .background(Color.black)
@@ -105,6 +163,11 @@ struct BookshelfView: View {
                             Button { showingFilePicker = true } label: {
                                 Label("导入本地书", systemImage: "doc.badge.plus")
                             }
+#if DEBUG
+                            Button { seedSampleBook() } label: {
+                                Label("导入示例书", systemImage: "wand.and.stars")
+                            }
+#endif
                             Button { showingSources = true } label: {
                                 Label("导入书源", systemImage: "link.badge.plus")
                             }
@@ -190,13 +253,78 @@ struct BookshelfView: View {
             .sheet(item: $changeSourceBook) { book in
                 ChangeSourceView(book: book)
             }
-            .fullScreenCover(item: $selectedBook) { book in
+            .fullScreenCover(item: $selectedBook, onDismiss: { handleReturnFromReader() }) { book in
                 ReaderView(book: book, startChapterIndex: book.lastReadChapterIndex, startPosition: book.lastReadPosition)
             }
         }
         .preferredColorScheme(.dark)
     }
 
+
+    // MARK: - Returning from the reader
+
+    private func openReader(_ book: Book) {
+        frozenItemIDs = groupedItems.map(\.id)
+        openedBookID = book.id
+        selectedBook = book
+    }
+
+    /// Called once the reader has been dismissed: the book that was just read
+    /// has already moved to the front in `liveItems`, so the frozen order is
+    /// released inside one animation, or the shelf scrolls up and pops it in.
+    private func handleReturnFromReader() {
+        defer { openedBookID = nil }
+        guard let frozen = frozenItemIDs else { return }
+
+        let itemID = openedBookID.flatMap { BookshelfItem.itemID(containing: $0, in: liveItems) }
+        let previousIndex = itemID.flatMap { frozen.firstIndex(of: $0) }
+        let now = Date()
+        let mayAnimate = itemID.map {
+            BookshelfSortTransition.shouldAnimate(itemID: $0, lastAnimated: lastSortAnimation, now: now)
+        } ?? true
+
+        // Reduce Motion, or the same book twice inside the guard interval: no motion.
+        guard !reduceMotion, mayAnimate else {
+            frozenItemIDs = nil
+            return
+        }
+        if let itemID { lastSortAnimation = (itemID, now) }
+
+        switch BookshelfSortTransition.mode(previousIndex: previousIndex) {
+        case .reorderInPlace:
+            withAnimation(.easeInOut(duration: BookshelfSortTransition.reorderDuration)) {
+                frozenItemIDs = nil
+            }
+        case .scrollAndPopIn:
+            withAnimation(.easeInOut(duration: BookshelfSortTransition.reorderDuration)) {
+                frozenItemIDs = nil
+            }
+            scrollToTopToken += 1
+            if let itemID { startPopIn(itemID: itemID) }
+        }
+    }
+
+    private func popInScale(for book: Book) -> CGFloat {
+        guard popInItemID == book.id.uuidString else { return 1 }
+        return 1 + (BookshelfSortTransition.popInScale - 1) * (1 - popInProgress)
+    }
+
+    private func popInTint(for book: Book) -> Double {
+        guard popInItemID == book.id.uuidString else { return 0 }
+        return BookshelfSortTransition.popInTint * (1 - popInProgress)
+    }
+
+    private func startPopIn(itemID: String) {
+        popInItemID = itemID
+        popInProgress = 0
+        withAnimation(.easeOut(duration: BookshelfSortTransition.popInDuration)) {
+            popInProgress = 1
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(BookshelfSortTransition.popInDuration))
+            if popInItemID == itemID { popInItemID = nil }
+        }
+    }
 
     private func deleteBook(_ book: Book) {
         let bookId = book.id

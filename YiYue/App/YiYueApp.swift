@@ -6,6 +6,21 @@ import Nuke
 struct YiYueApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
+    /// One container for the whole app run. `.modelContainer(for:)` builds the
+    /// container inside the scene and can build it again when the scene is
+    /// rebuilt; a second container resets the first one's context, which
+    /// destroys every model instance a view is still holding — the reader's
+    /// book, for instance — and the next property access traps in SwiftData.
+    private static let sharedContainer: ModelContainer = {
+        let schema = Schema([Book.self, Chapter.self, BookSource.self, ReadingMark.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        do {
+            return try ModelContainer(for: schema, configurations: [configuration])
+        } catch {
+            fatalError("无法打开数据存储：\(error)")
+        }
+    }()
+
     init() {
         ChapterDownloadSystemTask.shared.register()
         var configuration = ImagePipeline.Configuration.withDataCache(
@@ -22,7 +37,7 @@ struct YiYueApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(for: [Book.self, Chapter.self, BookSource.self, ReadingMark.self])
+        .modelContainer(Self.sharedContainer)
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:

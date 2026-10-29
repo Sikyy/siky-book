@@ -14,9 +14,11 @@ private struct FoundSource: Identifiable {
 
 @MainActor
 struct ChangeSourceView: View {
-    let book: Book
+    @State private var book: Book
+    private let bookID: UUID
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     // Search state
     @State private var foundSources: [FoundSource] = []
@@ -35,6 +37,11 @@ struct ChangeSourceView: View {
     @State private var switchGeneration: UUID?
     @State private var isViewActive = true
     @State private var isCommittingSwitch = false
+
+    init(book: Book) {
+        self.bookID = book.id
+        self._book = State(initialValue: book)
+    }
 
     // Pinned / blocked IDs for quick lookup
     private var pinnedIds: Set<String> {
@@ -85,6 +92,14 @@ struct ChangeSourceView: View {
             }
         }
         .interactiveDismissDisabled(isCommittingSwitch)
+        .onChange(of: scenePhase) { _, phase in
+            // The background context reset destroys `book`; swap in a fresh
+            // instance before the sheet draws again.
+            guard phase == .active,
+                  let fresh = SwiftDataRefetch.book(id: bookID, in: modelContext),
+                  fresh !== book else { return }
+            book = fresh
+        }
         .onAppear { isViewActive = true }
         .onDisappear { cancelOwnedTasks() }
     }

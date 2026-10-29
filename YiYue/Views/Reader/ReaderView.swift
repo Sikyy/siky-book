@@ -6,7 +6,12 @@ import UIKit
 
 @MainActor
 struct ReaderView: View {
-    let book: Book
+    /// Replaced on foreground (see `refreshModelAfterSceneReset`): iOS 27 resets
+    /// the SwiftData main context when the scene goes to the background, which
+    /// makes every model instance held here unusable.
+    @State private var book: Book
+    /// Plain copy of the book id, valid even when `book` itself has been reset.
+    private let bookID: UUID
     @State private var chapters: [Chapter] = []
     @State private var currentChapterIndex: Int
     @State private var showMenu = false
@@ -23,6 +28,13 @@ struct ReaderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var settings = ReaderSettings()
+    /// Values the page layout draws with. They are plain copies so a layout pass
+    /// never reaches into SwiftData: after a context reset that traps.
+    @State private var bookTitle: String
+    @State private var bookChapterCount: Int
+    @State private var chapterTitles: [String] = []
+    @State private var currentChapterID: UUID?
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isLoadingContent = false
     @State private var isPaginating = false
     @State private var loadError: String?
@@ -42,6 +54,12 @@ struct ReaderView: View {
     @State private var pendingCacheReconciliationMarker: String?
     @State private var chapterLoadTask: Task<Void, Never>?
     @State private var prefetchTask: Task<Void, Never>?
+    /// Set when the book cannot be read back after a scene reset. Nothing may
+    /// touch the destroyed models then, so the page keeps what it has already
+    /// drawn, interactions wait, and a few retries run before the reader offers
+    /// a way out instead of trapping.
+    @State private var storeUnavailable = false
+    @State private var storeRecoveryTask: Task<Void, Never>?
     @State private var adjacentPreparationTask: Task<Void, Never>?
     @State private var loadingIndicatorTask: Task<Void, Never>?
     @State private var paginationIndicatorTask: Task<Void, Never>?
@@ -108,9 +126,104 @@ struct ReaderView: View {
     }
 
     init(book: Book, startChapterIndex: Int = 0, startPosition: Double = 0) {
-        self.book = book
+        self.bookID = book.id
+        self._book = State(initialValue: book)
+        self._bookTitle = State(initialValue: book.title)
+        self._bookChapterCount = State(initialValue: book.totalChapters)
         self._currentChapterIndex = State(initialValue: startChapterIndex)
         self._restorePositionFraction = State(initialValue: startPosition > 0 ? startPosition : nil)
+    }
+
+    /// Whether the reader is allowed to draw and read its models. Panels that
+    /// touch SwiftData stay hidden outside the active phase.
+    private var sceneIsActive: Bool {
+        scenePhase == .active
+    }
+
+    /// iOS 27 resets the SwiftData main context when the scene goes to the
+    /// background: the book and chapters this reader was handed are then
+    /// destroyed and any property access traps in SwiftData. Re-fetch them by
+    /// their plain ids the moment the scene is active again.
+    private func refreshModelAfterSceneReset() {
+        storeRecoveryTask?.cancel()
+        storeRecoveryTask = nil
+        if let fresh = SwiftDataRefetch.book(id: bookID, in: modelContext) {
+            storeUnavailable = false
+            if fresh !== book {
+                book = fresh
+                chapters = []
+                loadChapters()
+            }
+        } else {
+            // 取不到:不对已销毁的实例做任何读取,页面停在原处,先等着重试。
+            storeUnavailable = true
+            scheduleStoreRecovery(attempt: 0)
+        }
+        if let markID = noteDraft?.markID {
+            noteDraft?.mark = SwiftDataRefetch.readingMark(id: markID, in: modelContext)
+        }
+    }
+
+    /// The store did not answer right away. Give it a few patient tries; if it
+    /// keeps failing the reader says so and lets the reader go back to the
+    /// shelf, where a fresh query reloads everything anyway.
+    private func scheduleStoreRecovery(attempt: Int) {
+        storeRecoveryTask?.cancel()
+        storeRecoveryTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(attempt == 0 ? 250 : 500))
+            guard !Task.isCancelled, scenePhase == .active else { return }
+            if let fresh = SwiftDataRefetch.book(id: bookID, in: modelContext) {
+                book = fresh
+                chapters = []
+                loadChapters()
+                storeUnavailable = false
+            } else if attempt < 3 {
+                scheduleStoreRecovery(attempt: attempt + 1)
+            }
+        }
+    }
+
+    /// Quiet notice over the untouched page when its data did not come back.
+    private var storeUnavailableNotice: some View {
+        VStack(spacing: 12) {
+            Text("数据暂时没读回来")
+                .font(.subheadline.weight(.medium))
+            Text("回书架重进这本书就能接着读,阅读位置不会丢。")
+                .font(.footnote)
+                .multilineTextAlignment(.center)
+                .opacity(0.7)
+            Button("返回书架") { dismiss() }
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 2)
+        }
+        .foregroundStyle(settings.theme.textColor)
+        .padding(22)
+        .background(settings.theme.backgroundColor.opacity(0.96), in: .rect(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(settings.theme.textColor.opacity(0.12))
+        )
+        .padding(32)
+    }
+
+    /// Copies everything the page layout needs out of SwiftData. Called whenever
+    /// the book or its chapters change, never during a layout pass.
+    private func refreshLayoutSnapshots() {
+        bookTitle = book.title
+        bookChapterCount = max(book.totalChapters, chapters.count)
+        chapterTitles = chapters.map(\.title)
+        let index = currentChapterIndex
+        currentChapterID = (index >= 0 && index < chapters.count) ? chapters[index].id : nil
+    }
+
+    /// Chapter title by index from the snapshot, never from a live model.
+    private func chapterTitle(at index: Int) -> String {
+        guard index >= 0, index < chapterTitles.count else { return "" }
+        return chapterTitles[index]
+    }
+
+    private var currentChapterTitle: String {
+        chapterTitle(at: currentChapterIndex)
     }
 
     /// O(1) access — chapters sorted by index, indices are 0-based contiguous
@@ -122,6 +235,7 @@ struct ReaderView: View {
     /// Load the already-related chapters once, avoiding a second predicate fetch.
     private func loadChapters() {
         chapters = book.chapters.sorted { $0.index < $1.index }
+        refreshLayoutSnapshots()
         guard book.sourceId != nil else {
             cacheSummary = nil
             isCheckingCacheSummary = false
@@ -141,12 +255,17 @@ struct ReaderView: View {
                 .ignoresSafeArea()
 
             readingContent
+                .allowsHitTesting(!storeUnavailable)
 
-            if let selection {
+            if storeUnavailable {
+                storeUnavailableNotice
+            }
+
+            if sceneIsActive, let selection {
                 selectionToolbar(for: selection)
             }
 
-            if showMenu {
+            if sceneIsActive, showMenu {
                 ReaderMenuOverlay(
                     book: book,
                     currentChapterIndex: $currentChapterIndex,
@@ -177,7 +296,8 @@ struct ReaderView: View {
                             chapterIndex: mark.chapterIndex,
                             paragraphIndex: mark.paragraphIndex,
                             excerpt: mark.excerpt,
-                            mark: mark
+                            mark: mark,
+                            markID: mark.id
                         )
                     },
                     onAddBookmarkHere: { addBookmarkAtCurrentPage() }
@@ -221,7 +341,20 @@ struct ReaderView: View {
         .statusBarHidden(!showMenu)
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
         .preferredColorScheme(settings.theme.isDark ? .dark : .light)
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                // Re-fetch before the first draw, so the reader never renders
+                // with a model the background reset has already destroyed.
+                refreshModelAfterSceneReset()
+            case .inactive, .background:
+                break
+            @unknown default:
+                break
+            }
+        }
         .onChange(of: currentChapterIndex) { _, newValue in
+            currentChapterID = chapters.indices.contains(newValue) ? chapters[newValue].id : nil
             tapSentinel = nil
             pendingHorizontalChapterTransition = nil
             horizontalTransitionCommitTask?.cancel()
@@ -489,7 +622,7 @@ struct ReaderView: View {
                 visibleParagraphIndex = index
             }
         }
-        .id(currentChapter?.id)
+        .id(currentChapterID)
         .contentShape(Rectangle())
         .onTapGesture { location in
             handleTap(location: location)
@@ -1107,15 +1240,11 @@ struct ReaderView: View {
     }
 
     private var prevChapterTitle: String {
-        let i = currentChapterIndex - 1
-        guard i >= 0, i < chapters.count else { return "" }
-        return chapters[i].title
+        chapterTitle(at: currentChapterIndex - 1)
     }
 
     private var nextChapterTitle: String {
-        let i = currentChapterIndex + 1
-        guard i < chapters.count else { return "" }
-        return chapters[i].title
+        chapterTitle(at: currentChapterIndex + 1)
     }
 
     private func pageView(
@@ -1124,7 +1253,7 @@ struct ReaderView: View {
     ) -> some View {
         StaticPageView(
             fragments: fragments,
-            chapterTitle: chapterTitle ?? currentChapter?.title ?? "",
+            chapterTitle: chapterTitle ?? currentChapterTitle,
             fontSize: settings.fontSize,
             lineSpacing: settings.lineSpacing,
             fontFamily: settings.fontFamily.rawValue,
@@ -3538,7 +3667,7 @@ struct ReaderView: View {
         let chapterFraction = pageCount > 1
             ? Double(min(max(currentPage - 1, 0), pageCount - 1)) / Double(pageCount - 1)
             : 0
-        let overall = (Double(currentChapterIndex) + chapterFraction) / Double(max(book.totalChapters, 1))
+        let overall = (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
         let percentText = "\(Int((overall * 100).rounded()))%"
         let color = settings.theme.statusBarColor
         return GeometryReader { geo in
@@ -3547,7 +3676,7 @@ struct ReaderView: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(color)
                 HStack(spacing: 8) {
-                    Text(book.title)
+                    Text(bookTitle)
                         .font(.system(size: 11))
                         .foregroundStyle(color)
                         .lineLimit(1)
@@ -3903,6 +4032,9 @@ struct NoteDraft: Identifiable {
     let paragraphIndex: Int
     let excerpt: String
     var mark: ReadingMark?
+    /// Plain id of `mark`: the sheet is normally presented from `.sheet(item:)`
+    /// and can outlive a context reset, which destroys the model itself.
+    var markID: UUID?
 }
 
 /// Screen brightness of the reader's window. Kept in one place so the reader can
