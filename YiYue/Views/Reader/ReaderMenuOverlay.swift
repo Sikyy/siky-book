@@ -704,6 +704,7 @@ struct ReaderMenuOverlay: View {
                     chapterList
                 }
             case .bookmarks:
+                addBookmarkRow
                 markList(
                     marks: bookmarks,
                     emptyIcon: "bookmark",
@@ -727,20 +728,29 @@ struct ReaderMenuOverlay: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// Header row: segments in the middle, a shortcut on the left, close on
-    /// the right; nothing overlaps and each side keeps a fixed width.
+    /// Two rows: close alone on top, the three segments centred underneath, so
+    /// no shortcut shares a line with them.
     private var panelHeader: some View {
-        HStack(spacing: 8) {
-            Group {
-                if panelSegment == .chapters {
-                    chapterListCacheControl
-                } else if panelSegment == .bookmarks {
-                    addBookmarkButton
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Group {
+                    if panelSegment == .chapters {
+                        chapterListCacheControl
+                    }
                 }
-            }
-            .frame(width: 64, alignment: .leading)
+                .frame(height: 34, alignment: .leading)
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+
+                Button("关闭") { closePanel() }
+                    .font(.system(size: 15))
+                    .foregroundStyle(theme.menuPrimary)
+                    .buttonStyle(.plain)
+                    .frame(height: 34)
+                    .accessibilityLabel("关闭")
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
 
             HStack(spacing: 18) {
                 ForEach(ReaderPanelSegment.allCases) { segment in
@@ -761,19 +771,10 @@ struct ReaderMenuOverlay: View {
                     .accessibilityLabel(segment.title)
                 }
             }
-
-            Spacer(minLength: 0)
-
-            Button("关闭") { closePanel() }
-                .font(.system(size: 15))
-                .foregroundStyle(theme.menuPrimary)
-                .buttonStyle(.plain)
-                .frame(width: 64, height: 34, alignment: .trailing)
-                .accessibilityLabel("关闭")
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 6)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-        .frame(height: 66)
+        .frame(height: 90)
     }
 
     private func openPanel(_ segment: ReaderPanelSegment) {
@@ -781,18 +782,30 @@ struct ReaderMenuOverlay: View {
         withAnimation(.easeInOut(duration: 0.2)) { showChapterList = true }
     }
 
-    private var addBookmarkButton: some View {
+    /// Full-width row above the bookmark list; it used to crowd the header.
+    private var addBookmarkRow: some View {
         Button {
             onAddBookmarkHere?()
         } label: {
-            Text("加书签")
-                .font(.system(size: 13))
-                .foregroundStyle(theme.menuPrimary)
-                .frame(height: 34)
-                .contentShape(Rectangle())
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .medium))
+                Text("加书签")
+                    .font(.system(size: 14))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(theme.menuPrimary)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("在当前这一段加书签")
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.menuPrimary.opacity(0.06))
+                .frame(height: 1)
+        }
     }
 
     private var bookMarks: [ReadingMark] {
@@ -958,7 +971,12 @@ struct ReaderMenuOverlay: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 44)
-        .background(theme.menuBackground)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(theme.menuPrimary.opacity(0.06))
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
         .transition(.opacity)
     }
 

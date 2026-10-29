@@ -209,6 +209,7 @@ actor ChapterDownloadManager {
     private let stateURL: URL
     private let fileManager: FileManager
     private let maxConcurrent: Int
+    private let runPriority: TaskPriority
     private let fetchOperation: FetchOperation
     private let now: @Sendable () -> Date
 
@@ -237,6 +238,9 @@ actor ChapterDownloadManager {
         stateURL: URL? = nil,
         fileManager: FileManager = .default,
         maxConcurrent: Int = 5,
+        /// Downloads are background work in the app. Tests lift this so a busy
+        /// machine cannot starve the work pieces for tens of seconds.
+        runPriority: TaskPriority = .utility,
         now: @escaping @Sendable () -> Date = { Date() },
         fetchOperation: @escaping FetchOperation = { job, configuration in
             try await ChapterContentLoader.shared.fetch(
@@ -252,6 +256,7 @@ actor ChapterDownloadManager {
         self.contentStore = contentStore
         self.fileManager = fileManager
         self.maxConcurrent = max(1, maxConcurrent)
+        self.runPriority = runPriority
         self.now = now
         self.fetchOperation = fetchOperation
         if let stateURL {
@@ -783,7 +788,7 @@ actor ChapterDownloadManager {
             try? persistState()
             publishAllSnapshots()
 
-            runTask = Task(priority: .utility) { [weak self] in
+            runTask = Task(priority: runPriority) { [weak self] in
                 await self?.run(bookID: nextBookID)
             }
             return
@@ -1037,7 +1042,7 @@ actor ChapterDownloadManager {
                 // the final bounded disk reconciliation in a fresh task so
                 // ContentStore's cancellation checks do not skip disk truth.
                 let contentStore = contentStore
-                stored = try await Task.detached(priority: .utility) {
+                stored = try await Task.detached(priority: runPriority) {
                     try await contentStore.storedChapterIDs(
                         bookID: bookID,
                         retention: .userManaged

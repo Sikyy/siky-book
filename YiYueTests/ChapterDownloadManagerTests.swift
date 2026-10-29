@@ -16,7 +16,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: store,
             stateURL: workspace.stateURL,
-            maxConcurrent: 5,
+            maxConcurrent: 5, runPriority: .userInitiated,
             fetchOperation: { _, _ in
                 try await probe.fetch()
             }
@@ -54,7 +54,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: store,
             stateURL: workspace.stateURL,
-            maxConcurrent: 5,
+            maxConcurrent: 5, runPriority: .userInitiated,
             fetchOperation: { job, _ in
                 await gate.fetch(chapterID: job.chapterID)
             }
@@ -113,7 +113,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: store,
             stateURL: workspace.stateURL,
-            maxConcurrent: 5,
+            maxConcurrent: 5, runPriority: .userInitiated,
             fetchOperation: { job, _ in
                 await gate.fetch(chapterID: job.chapterID)
             }
@@ -177,7 +177,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: store,
             stateURL: workspace.stateURL,
-            maxConcurrent: 2,
+            maxConcurrent: 2, runPriority: .userInitiated,
             fetchOperation: { job, _ in
                 await probe.fetch(chapterID: job.chapterID)
             }
@@ -258,7 +258,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: store,
             stateURL: workspace.stateURL,
-            maxConcurrent: 2,
+            maxConcurrent: 2, runPriority: .userInitiated,
             fetchOperation: { job, _ in
                 await probe.fetch(chapterID: job.chapterID)
             }
@@ -318,7 +318,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: store,
             stateURL: workspace.stateURL,
-            maxConcurrent: 5,
+            maxConcurrent: 5, runPriority: .userInitiated,
             fetchOperation: { job, _ in
                 await probe.record(job.chapterID)
                 return validChapterContent
@@ -399,7 +399,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: store,
             stateURL: workspace.stateURL,
-            maxConcurrent: 5,
+            maxConcurrent: 5, runPriority: .userInitiated,
             fetchOperation: { job, _ in
                 await probe.record(job.chapterID)
                 return validChapterContent
@@ -436,7 +436,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: store,
             stateURL: workspace.stateURL,
-            maxConcurrent: 5,
+            maxConcurrent: 5, runPriority: .userInitiated,
             fetchOperation: { _, _ in
                 try await probe.fetch()
             }
@@ -652,7 +652,7 @@ struct ChapterDownloadManagerTests {
         let manager = ChapterDownloadManager(
             contentStore: ChapterContentStore(rootDirectory: workspace.contentRoot),
             stateURL: workspace.stateURL,
-            maxConcurrent: 5,
+            maxConcurrent: 5, runPriority: .userInitiated,
             fetchOperation: { job, _ in
                 await gate.fetch(chapterID: job.chapterID)
             }
@@ -719,22 +719,73 @@ private func makeRequest(chapterCount: Int) -> ChapterDownloadRequest {
 
 /// Deadline-based, so a slow or busy machine does not fail the test: the work is
 /// local and always finishes, the only question is how quickly.
-private let chapterDownloadTestTimeout: TimeInterval = 30
+/// A deadlock guard, not a timing assertion: the content store does its file
+/// work on the cooperative pool, so a busy builder can delay a step for tens of
+/// seconds. Nothing here measures speed, and the assertions are all about
+/// states and counts, so the guard is generous on purpose.
+private let chapterDownloadTestTimeout: TimeInterval = 150
 
+/// Waits on the manager's own change stream instead of polling: the suite has
+/// 78 tests sharing one machine, and a 10 ms poll loop could be starved past
+/// the deadline it was never meant to measure.
 private func waitForSnapshot(
     manager: ChapterDownloadManager,
     bookID: UUID,
     phase: ChapterDownloadPhase,
     timeout: TimeInterval = chapterDownloadTestTimeout
 ) async throws -> ChapterDownloadSnapshot {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if let snapshot = await manager.snapshot(bookID: bookID), snapshot.phase == phase {
-            return snapshot
-        }
-        try await Task.sleep(nanoseconds: 10_000_000)
+    if let snapshot = await manager.snapshot(bookID: bookID), snapshot.phase == phase {
+        return snapshot
     }
-    throw ChapterDownloadTestError.timedOut("等待缓存状态 \(phase.rawValue)")
+    let updates = await manager.updates()
+    let diagnostics = SnapshotDiagnostics()
+
+    return try await withThrowingTaskGroup(of: ChapterDownloadSnapshot.self) { group in
+        group.addTask {
+            for await _ in updates {
+                guard let snapshot = await manager.snapshot(bookID: bookID) else { continue }
+                await diagnostics.record(snapshot)
+                if snapshot.phase == phase {
+                    return snapshot
+                }
+            }
+            let last = await diagnostics.current()
+            throw ChapterDownloadTestError.timedOut(
+                "缓存更新流提前结束(" + describe(last, waitingFor: phase) + ")"
+            )
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            let last = await diagnostics.current()
+            throw ChapterDownloadTestError.timedOut(describe(last, waitingFor: phase))
+        }
+        defer { group.cancelAll() }
+        return try await group.next()!
+    }
+}
+
+private func describe(_ snapshot: ChapterDownloadSnapshot?, waitingFor phase: ChapterDownloadPhase) -> String {
+    let wanted = "等待缓存状态 \(phase.rawValue)"
+    guard let snapshot else { return wanted + ",一直没有快照" }
+    return wanted
+        + ",最后看到 \(snapshot.phase.rawValue)"
+        + ",处理 \(snapshot.processedCount)/\(snapshot.targetCount)"
+        + ",成功 \(snapshot.succeededCount)"
+        + ",失败 \(snapshot.failedCount)"
+        + ",在飞 \(snapshot.inFlightCount)"
+        + ",错误 \(snapshot.lastError ?? "无")"
+}
+
+private actor SnapshotDiagnostics {
+    private var lastSnapshot: ChapterDownloadSnapshot?
+
+    func record(_ snapshot: ChapterDownloadSnapshot) {
+        lastSnapshot = snapshot
+    }
+
+    func current() -> ChapterDownloadSnapshot? {
+        lastSnapshot
+    }
 }
 
 private func waitUntil(

@@ -195,7 +195,7 @@ struct ReaderView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(settings.theme.menuBackground)
                         )
-                        .padding(.top, 60)
+                        .padding(.top, showMenu ? 132 : 60)
                     Spacer()
                 }
                 .allowsHitTesting(false)
@@ -416,13 +416,22 @@ struct ReaderView: View {
 
     // MARK: - Scroll Mode
 
+    private var bodyRepeatsChapterTitle: Bool {
+        guard let first = cachedParagraphs.first else { return false }
+        let body = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return false }
+        return body == (currentChapter?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var scrollContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: settings.fontSize * (settings.lineSpacing - 1)) {
-                Text(currentChapter?.title ?? "")
-                    .font(.system(size: 12))
-                    .foregroundStyle(settings.theme.chapterTitleColor)
-                    .padding(.bottom, 8)
+                if !bodyRepeatsChapterTitle {
+                    Text(currentChapter?.title ?? "")
+                        .font(.system(size: 12))
+                        .foregroundStyle(settings.theme.chapterTitleColor)
+                        .padding(.bottom, 8)
+                }
 
                 ForEach(Array(cachedParagraphs.enumerated()), id: \.offset) { index, para in
                     Text("\u{3000}\u{3000}" + para)
@@ -3304,7 +3313,7 @@ struct ReaderView: View {
     private func selectionToolbar(for selection: ReaderSelection) -> some View {
         GeometryReader { geometry in
             let size = geometry.size
-            let toolbarHeight: CGFloat = 40
+            let toolbarHeight: CGFloat = 44
             let gap: CGFloat = 8
             let width: CGFloat = 186
             let frame = selection.frame
@@ -3456,13 +3465,30 @@ struct ReaderView: View {
             return
         }
         guard cachedParagraphs.indices.contains(paragraphIndex) else { return }
-        let text = cachedParagraphs[paragraphIndex]
+        var chosen = paragraphIndex
+        var text = cachedParagraphs[chosen]
+        // The first paragraph of a chapter is often the chapter title itself;
+        // a bookmark on it would read as the heading, not as text.
+        if isChapterTitleParagraph(text, at: chosen),
+           cachedParagraphs.indices.contains(chosen + 1) {
+            chosen += 1
+            text = cachedParagraphs[chosen]
+        }
         addBookmark(from: ReaderSelection(
-            paragraphIndex: paragraphIndex,
+            paragraphIndex: chosen,
             text: text,
             frame: .zero,
             chapterIndex: currentChapterIndex
         ))
+    }
+
+    /// True when the paragraph is the chapter heading repeated in the body.
+    private func isChapterTitleParagraph(_ text: String, at index: Int) -> Bool {
+        guard index == 0 else { return false }
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return false }
+        let title = (currentChapter?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !title.isEmpty && body == title
     }
 
     private func jump(to mark: ReadingMark) {
@@ -3787,14 +3813,25 @@ private struct StaticPageView: View {
 
     @State private var paragraphFrames: [Int: CGRect] = [:]
 
+    /// The chapter heading is drawn as body text in many books; printing it in
+    /// the page header as well would show it twice on the same page.
+    private var bodyRepeatsChapterTitle: Bool {
+        guard let first = fragments.first else { return false }
+        let body = first.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return false }
+        return body == chapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: fontSize * (lineSpacing - 1)) {
-            Text(chapterTitle)
-                .font(.system(size: ReaderPageHeaderMetrics.fontSize))
-                .foregroundStyle(titleColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.bottom, ReaderPageHeaderMetrics.bottomPadding)
+            if !bodyRepeatsChapterTitle {
+                Text(chapterTitle)
+                    .font(.system(size: ReaderPageHeaderMetrics.fontSize))
+                    .foregroundStyle(titleColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.bottom, ReaderPageHeaderMetrics.bottomPadding)
+            }
 
             ForEach(fragments) { frag in
                 Text(frag.indent ? "\u{3000}\u{3000}" + frag.text : frag.text)
