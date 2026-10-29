@@ -1207,8 +1207,9 @@ private actor ChapterLoadCounter {
         }
     }
 
-    func waitUntilCancelled() async -> Bool {
-        for _ in 0..<200 {
+    func waitUntilCancelled(timeout: TimeInterval = 30) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
             if wasCancelled { return true }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }

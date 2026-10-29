@@ -2,7 +2,10 @@ import Foundation
 import Testing
 @testable import YiYue
 
-@Suite("ChapterDownloadManager Tests")
+/// Serialized: each test drives several concurrent downloads against its own
+/// temporary directory, and running them at the same time starved the machine
+/// until the polling waits timed out.
+@Suite("ChapterDownloadManager Tests", .serialized)
 struct ChapterDownloadManagerTests {
     @Test func limitsConcurrentChapterDownloadsToFive() async throws {
         let workspace = try ChapterDownloadTestWorkspace()
@@ -21,11 +24,17 @@ struct ChapterDownloadManagerTests {
         let request = makeRequest(chapterCount: 12)
 
         _ = try await manager.enqueue(request)
+        let watchdog = Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await probe.releaseAll()
+        }
+        defer { watchdog.cancel() }
         let completed = try await waitForSnapshot(
             manager: manager,
             bookID: request.bookID,
             phase: .completed
         )
+        await probe.releaseAll()
         let statistics = await probe.statistics()
 
         #expect(statistics.peak == 5)
@@ -708,13 +717,18 @@ private func makeRequest(chapterCount: Int) -> ChapterDownloadRequest {
     )
 }
 
+/// Deadline-based, so a slow or busy machine does not fail the test: the work is
+/// local and always finishes, the only question is how quickly.
+private let chapterDownloadTestTimeout: TimeInterval = 30
+
 private func waitForSnapshot(
     manager: ChapterDownloadManager,
     bookID: UUID,
     phase: ChapterDownloadPhase,
-    attempts: Int = 500
+    timeout: TimeInterval = chapterDownloadTestTimeout
 ) async throws -> ChapterDownloadSnapshot {
-    for _ in 0..<attempts {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
         if let snapshot = await manager.snapshot(bookID: bookID), snapshot.phase == phase {
             return snapshot
         }
@@ -724,10 +738,11 @@ private func waitForSnapshot(
 }
 
 private func waitUntil(
-    attempts: Int = 500,
+    timeout: TimeInterval = chapterDownloadTestTimeout,
     condition: () async -> Bool
 ) async throws {
-    for _ in 0..<attempts {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
         if await condition() { return }
         try await Task.sleep(nanoseconds: 10_000_000)
     }
@@ -760,18 +775,41 @@ private struct ChapterDownloadTestWorkspace {
     }
 }
 
+/// Holds every fetch until the manager has `barrier` of them in flight, so the
+/// measured peak does not depend on how fast the machine schedules the first few.
+/// `releaseAll()` is the escape hatch: a manager that never reaches the barrier
+/// makes the test fail on `peak` instead of hanging.
 private actor DownloadConcurrencyProbe {
+    static let barrier = 5
+
     private var active = 0
     private var peak = 0
     private var started = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var released = false
 
     func fetch() async throws -> String? {
         active += 1
         started += 1
         peak = max(peak, active)
-        defer { active -= 1 }
-        try await Task.sleep(nanoseconds: 40_000_000)
+        if active < Self.barrier && !released {
+            await withCheckedContinuation { waiters.append($0) }
+        } else {
+            releaseWaiters()
+        }
+        active -= 1
         return validChapterContent
+    }
+
+    func releaseAll() {
+        released = true
+        releaseWaiters()
+    }
+
+    private func releaseWaiters() {
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
     }
 
     func statistics() -> (active: Int, peak: Int, started: Int) {

@@ -45,9 +45,11 @@ final class BookManager {
         book.lastReadPosition = position
         book.lastReadDate = Date()
 
-        if chapterIndex >= book.totalChapters && book.totalChapters > 0 {
+        // Chapter indices are 0-based, so the last chapter is totalChapters - 1.
+        let onLastChapter = book.totalChapters > 0 && chapterIndex >= book.totalChapters - 1
+        if onLastChapter && position >= 0.999 {
             book.readingStatus = .finished
-        } else if chapterIndex > 0 {
+        } else if chapterIndex > 0 || position > 0 {
             book.readingStatus = .reading
         }
     }
