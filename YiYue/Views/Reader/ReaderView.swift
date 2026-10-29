@@ -145,7 +145,8 @@ struct ReaderView: View {
                     onCache: book.sourceId != nil ? { count in cacheChapters(count: count) } : nil,
                     onCancelCache: { cancelCaching() },
                     onResumeCache: { resumeCaching() },
-                    cacheState: cachePresentationState
+                    cacheState: cachePresentationState,
+                    onRefreshToc: book.sourceId == nil ? nil : { await refreshTableOfContents() }
                 )
             }
         }
@@ -2490,6 +2491,48 @@ struct ReaderView: View {
         let deduplicated = chapters.filter { seen.insert("\($0.title)|\($0.url)").inserted }
         guard !deduplicated.isEmpty else { throw ChapterSourceSwitchError.noChapters }
         return deduplicated
+    }
+
+    /// Fetches the book's current table of contents from its source and appends
+    /// chapters the shelf does not have yet. Existing chapters keep their index so
+    /// reading positions and caches stay valid.
+    private func refreshTableOfContents() async -> TocRefreshOutcome {
+        guard let sourceId = book.sourceId,
+              let bookURL = book.sourceBookURL, !bookURL.isEmpty else { return .unavailable }
+
+        let descriptor = FetchDescriptor<BookSource>(predicate: #Predicate<BookSource> { $0.id == sourceId })
+        guard let source = try? modelContext.fetch(descriptor).first,
+              let legado = try? LegadoSourceParser.parse(json: source.ruleJSON, matchingURL: source.sourceURL) else {
+            return .failed
+        }
+
+        do {
+            let infos = try await fetchChapters(source: legado, bookURL: bookURL)
+            guard !Task.isCancelled else { return .upToDate }
+
+            let fresh = TocMerger.newChapters(
+                existingTitles: chapters.map(\.title),
+                existingURLs: Set(chapters.compactMap { $0.sourceURL }),
+                incoming: infos
+            )
+            guard !fresh.isEmpty else { return .upToDate }
+
+            var nextIndex = (chapters.map(\.index).max() ?? -1) + 1
+            for info in fresh {
+                let chapter = Chapter(index: nextIndex, title: info.title)
+                chapter.sourceURL = info.url
+                chapter.book = book
+                modelContext.insert(chapter)
+                nextIndex += 1
+            }
+            let added = fresh.count
+            book.totalChapters = max(book.totalChapters, nextIndex)
+            try? modelContext.save()
+            loadChapters()
+            return .added(added)
+        } catch {
+            return .failed
+        }
     }
 
     private func matchChapter(_ chapter: Chapter, in chapters: [ChapterInfo]) -> (info: ChapterInfo, index: Int)? {

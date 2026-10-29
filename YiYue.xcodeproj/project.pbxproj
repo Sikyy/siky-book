@@ -51,6 +51,7 @@
 		93091CF660D3202E137AB172 /* CoverSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BE63E6D4231737B49EEEFF /* CoverSearchService.swift */; };
 		9D2FBEDC42A364199E6121CA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 758FFC946A1C2170619D7FE1 /* Assets.xcassets */; };
 		A1D5EAC7BF1168CE45C298CB /* ReaderSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1172B8EA5341C366CB05581 /* ReaderSettingsTests.swift */; };
+		B2E6FBD8C02759DF56D3A9CC /* TocMergerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F228B4C9D1386AE0B7C4E1DD /* TocMergerTests.swift */; };
 		A406B298323372D82AFFBE58 /* NetworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF27560E358341B97ECE744 /* NetworkClient.swift */; };
 		A5011DAFF23DCADB51D8FDD9 /* SeriesBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947E7F1FB1030C6A3D3ABCD1 /* SeriesBookView.swift */; };
 		AC9A76280A99A89A254D81E9 /* BookManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A429EE5AB15C3491B6E9E3AA /* BookManagerTests.swift */; };
@@ -67,7 +68,6 @@
 		E91BA1716F14396D215A070D /* CoverPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6EB993ADDEFE7CE6BC2A56 /* CoverPickerView.swift */; };
 		F25779FC798600D6911B97A5 /* ChapterSplitterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7DEBEB31A2EEC414767DE9F /* ChapterSplitterTests.swift */; };
 		F8AD59939183CA4F013422BC /* CacheManageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15016028B24154BCC6F39D47 /* CacheManageView.swift */; };
-		F9ECA2D183B177DC9F19D1D2 /* ChapterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B9728B658231E861FAC363 /* ChapterListView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -98,7 +98,6 @@
 		2ED0F163CF8B2E91EFCA639C /* YiYueTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = YiYueTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		304F0AE1F193CD62D6AC5B10 /* SourceImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportService.swift; sourceTree = "<group>"; };
 		3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderMenuOverlay.swift; sourceTree = "<group>"; };
-		46B9728B658231E861FAC363 /* ChapterListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterListView.swift; sourceTree = "<group>"; };
 		52D15EC2268B99A237102047 /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enums.swift; sourceTree = "<group>"; };
 		542309D43B39B62127057473 /* SourceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEngine.swift; sourceTree = "<group>"; };
 		C0DEC0A10000000000000002 /* ChapterContentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterContentStore.swift; sourceTree = "<group>"; };
@@ -134,6 +133,7 @@
 		D68860057A126AE3AAB1F3EB /* AddBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBookView.swift; sourceTree = "<group>"; };
 		DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportTests.swift; sourceTree = "<group>"; };
 		E1172B8EA5341C366CB05581 /* ReaderSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsTests.swift; sourceTree = "<group>"; };
+		F228B4C9D1386AE0B7C4E1DD /* TocMergerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TocMergerTests.swift; sourceTree = "<group>"; };
 		E94F958A5B308A771B767097 /* ChangeSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSourceView.swift; sourceTree = "<group>"; };
 		F0BE63E6D4231737B49EEEFF /* CoverSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverSearchService.swift; sourceTree = "<group>"; };
 		F7DEBEB31A2EEC414767DE9F /* ChapterSplitterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterSplitterTests.swift; sourceTree = "<group>"; };
@@ -247,6 +247,7 @@
 				0B84FF998721056D60FD02CA /* LegadoRuleTests.swift */,
 				5B740020C3895911020C015E /* ModelTests.swift */,
 				E1172B8EA5341C366CB05581 /* ReaderSettingsTests.swift */,
+				F228B4C9D1386AE0B7C4E1DD /* TocMergerTests.swift */,
 				70D2269AB12F76D6F2B769A7 /* RuleExecutorTests.swift */,
 				25008981A8C5D1AEFFD85978 /* SourceEngineTests.swift */,
 				DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */,
@@ -257,7 +258,6 @@
 		74883E56E3B7B9FA40174070 /* Reader */ = {
 			isa = PBXGroup;
 			children = (
-				46B9728B658231E861FAC363 /* ChapterListView.swift */,
 				C0DEC0A50000000000000002 /* ReaderCachePresentationState.swift */,
 				3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */,
 				D075DEF90BF070FBED77D143 /* ReaderView.swift */,
@@ -424,6 +424,7 @@
 				380A78E493B71C6A084BDA72 /* LegadoRuleTests.swift in Sources */,
 				179296A13A0BAEDA2BE564CA /* ModelTests.swift in Sources */,
 				A1D5EAC7BF1168CE45C298CB /* ReaderSettingsTests.swift in Sources */,
+				B2E6FBD8C02759DF56D3A9CC /* TocMergerTests.swift in Sources */,
 				73E744EDBF4EBF362509B84B /* RuleExecutorTests.swift in Sources */,
 				E8B5F5B848AEDBEF380400CC /* SourceEngineTests.swift in Sources */,
 				515677C4B81CF6AC42F4ED89 /* SourceImportTests.swift in Sources */,
@@ -445,7 +446,6 @@
 				F8AD59939183CA4F013422BC /* CacheManageView.swift in Sources */,
 				76A6A6F74F31DC69A0FD5532 /* ChangeSourceView.swift in Sources */,
 				E4DF23E5F137AB313727A029 /* Chapter.swift in Sources */,
-				F9ECA2D183B177DC9F19D1D2 /* ChapterListView.swift in Sources */,
 				416441BA11CB261A2921393E /* ChapterSplitter.swift in Sources */,
 				5F8AAEE3D2D2F3DA955B7EFC /* ContentView.swift in Sources */,
 				E91BA1716F14396D215A070D /* CoverPickerView.swift in Sources */,

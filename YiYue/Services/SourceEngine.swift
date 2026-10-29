@@ -754,3 +754,34 @@ class SourceEngine {
         }
     }
 }
+
+/// Decides which chapters a table-of-contents refresh should append, so existing
+/// chapter indices (and the reading positions and caches tied to them) stay put.
+enum TocMerger {
+    static func newChapters(
+        existingTitles: [String],
+        existingURLs: Set<String>,
+        incoming: [ChapterInfo]
+    ) -> [ChapterInfo] {
+        var knownURLs = existingURLs
+        var knownTitles = Set(existingTitles.map(normalizedTitle))
+        var result: [ChapterInfo] = []
+        for info in incoming {
+            let title = info.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let normalized = normalizedTitle(title)
+            if knownURLs.contains(info.url) || knownTitles.contains(normalized) { continue }
+            knownURLs.insert(info.url)
+            knownTitles.insert(normalized)
+            result.append(info)
+        }
+        return result
+    }
+
+    static func normalizedTitle(_ title: String) -> String {
+        title
+            .lowercased()
+            .replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\u{3000}", with: "")
+    }
+}

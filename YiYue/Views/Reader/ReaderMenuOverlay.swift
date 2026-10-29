@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// Result of asking the book's source for its latest table of contents.
+enum TocRefreshOutcome: Sendable {
+    case added(Int)
+    case upToDate
+    case failed
+    case unavailable
+}
+
 struct ReaderMenuOverlay: View {
     let book: Book
     @Binding var currentChapterIndex: Int
@@ -13,6 +21,7 @@ struct ReaderMenuOverlay: View {
     var onCancelCache: (() -> Void)? = nil
     var onResumeCache: (() -> Void)? = nil
     var cacheState: ReaderCachePresentationState = .unavailable
+    var onRefreshToc: (() async -> TocRefreshOutcome)? = nil
 
     private var theme: ReaderTheme { settings.theme }
 
@@ -21,6 +30,11 @@ struct ReaderMenuOverlay: View {
     @State private var showSettings = false
     @State private var draggingFontSize: Double?
     @State private var draggingLineSpacing: Double?
+    @State private var chapterSearch = ""
+    @State private var isUpdatingToc = false
+    @State private var tocToast: String?
+    @State private var tocToastRetryable = false
+    @State private var tocToastTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -515,35 +529,27 @@ struct ReaderMenuOverlay: View {
     // MARK: - Chapter List
 
     private var chapterListContent: some View {
-        ScrollViewReader { proxy in
-            List(chapters) { chapter in
-                Button {
-                    currentChapterIndex = chapter.index
-                    showChapterList = false
-                } label: {
-                    HStack {
-                        Text(chapter.title)
-                            .font(.body)
-                            .foregroundStyle(chapter.index == currentChapterIndex ? .blue : .primary)
-                        Spacer()
-                        if chapter.index == currentChapterIndex {
-                            Image(systemName: "book.fill")
-                                .foregroundStyle(.blue)
-                                .font(.caption)
-                        } else if chapter.isCached {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green.opacity(0.6))
-                                .font(.caption2)
-                        }
-                    }
-                }
-                .id(chapter.index)
+        VStack(spacing: 0) {
+            chapterSearchRow
+            if !chapterSearchKeyword.isEmpty {
+                Text("\(filteredChapters.count) 章")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.menuSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
             }
-            .onAppear {
-                scrollToCurrentChapter(with: proxy, animated: false)
+            if filteredChapters.isEmpty && !chapterSearchKeyword.isEmpty {
+                emptyChapterSearchResult
+            } else {
+                chapterList
             }
-            .onChange(of: currentChapterIndex) { _, _ in
-                scrollToCurrentChapter(with: proxy, animated: true)
+        }
+        .overlay(alignment: .top) {
+            if let tocToast {
+                tocToastBar(tocToast)
+                    .padding(.top, 4)
+                    .transition(.opacity)
             }
         }
         .navigationTitle("目录")
@@ -554,6 +560,184 @@ struct ReaderMenuOverlay: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("关闭") { showChapterList = false }
+            }
+        }
+    }
+
+    private var chapterSearchKeyword: String {
+        chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var filteredChapters: [Chapter] {
+        let keyword = chapterSearchKeyword
+        guard !keyword.isEmpty else { return chapters }
+        return chapters.filter { $0.title.localizedCaseInsensitiveContains(keyword) }
+    }
+
+    private var chapterSearchRow: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14))
+                    .foregroundStyle(theme.menuSecondary)
+                TextField("搜索章节", text: $chapterSearch)
+                    .font(.system(size: 14))
+                    .foregroundStyle(theme.menuPrimary)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel("搜索章节")
+                if !chapterSearch.isEmpty {
+                    Button {
+                        chapterSearch = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(theme.menuSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("清除")
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(theme.menuPrimary.opacity(0.06))
+            )
+
+            if onRefreshToc != nil {
+                Button {
+                    updateToc()
+                } label: {
+                    if isUpdatingToc {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 20, height: 20)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 16))
+                            .foregroundStyle(theme.menuPrimary)
+                            .frame(width: 20, height: 20)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isUpdatingToc)
+                .accessibilityLabel("更新目录")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private var emptyChapterSearchResult: some View {
+        VStack(spacing: 8) {
+            Spacer(minLength: 0)
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 26))
+                .foregroundStyle(theme.menuSecondary)
+            Text("没有匹配的章节")
+                .font(.system(size: 13))
+                .foregroundStyle(theme.menuSecondary)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func tocToastBar(_ text: String) -> some View {
+        Button {
+            if tocToastRetryable { updateToc() }
+        } label: {
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(theme.menuPrimary)
+                .padding(.horizontal, 14)
+                .frame(height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(theme.menuBackground)
+                        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!tocToastRetryable)
+        .accessibilityLabel(text)
+    }
+
+    private func updateToc() {
+        guard let onRefreshToc, !isUpdatingToc else { return }
+        isUpdatingToc = true
+        Task {
+            let outcome = await onRefreshToc()
+            await MainActor.run {
+                isUpdatingToc = false
+                switch outcome {
+                case let .added(count):
+                    showTocToast("新增 \(count) 章", retryable: false, seconds: 3)
+                case .upToDate:
+                    showTocToast("已是最新", retryable: false, seconds: 3)
+                case .failed:
+                    showTocToast("更新失败，点此重试", retryable: true, seconds: 6)
+                case .unavailable:
+                    showTocToast("这本书没有书源，无法更新目录", retryable: false, seconds: 3)
+                }
+            }
+        }
+    }
+
+    private func showTocToast(_ text: String, retryable: Bool, seconds: Double) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            tocToast = text
+            tocToastRetryable = retryable
+        }
+        tocToastTask?.cancel()
+        tocToastTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    tocToast = nil
+                    tocToastRetryable = false
+                }
+            }
+        }
+    }
+
+    private var chapterList: some View {
+        ScrollViewReader { proxy in
+            List(filteredChapters) { chapter in
+                Button {
+                    currentChapterIndex = chapter.index
+                    showChapterList = false
+                } label: {
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(theme.menuPrimary)
+                            .frame(width: 3)
+                            .opacity(chapter.index == currentChapterIndex ? 1 : 0)
+                        Text(chapter.title)
+                            .font(.body)
+                            .foregroundStyle(theme.menuPrimary)
+                            .fontWeight(chapter.index == currentChapterIndex ? .semibold : .regular)
+                        Spacer()
+                        if chapter.index == currentChapterIndex {
+                            Image(systemName: "book.fill")
+                                .foregroundStyle(theme.menuPrimary)
+                                .font(.caption)
+                        } else if chapter.isCached {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green.opacity(0.6))
+                                .font(.caption2)
+                        }
+                    }
+                }
+                .id(chapter.index)
+            }
+            .listStyle(.plain)
+            .onAppear {
+                scrollToCurrentChapter(with: proxy, animated: false)
+            }
+            .onChange(of: currentChapterIndex) { _, _ in
+                scrollToCurrentChapter(with: proxy, animated: true)
             }
         }
     }
