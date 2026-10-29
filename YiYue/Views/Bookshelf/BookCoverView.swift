@@ -145,9 +145,9 @@ struct BookCoverView: View {
 
     private var accessibilityText: String {
         switch book.readingStatus {
-        case .reading: return "《\(book.title)》,读到 \(Int(book.progress * 100))%"
-        case .finished: return "《\(book.title)》,已读完"
-        case .unread: return "《\(book.title)》,未读"
+        case .reading: return "《\(book.title)》，读到 \(Int(book.progress * 100))%"
+        case .finished: return "《\(book.title)》，已读完"
+        case .unread: return "《\(book.title)》，未读"
         }
     }
 

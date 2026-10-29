@@ -16,7 +16,7 @@ struct AboutView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         Text("已阅")
                             .font(.title2.weight(.semibold))
-                        Text("本地与书源双模式的小说阅读器")
+                        Text("本地文件和书源，一个书架读完")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }

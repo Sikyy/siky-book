@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Combine
 import CoreText
 
 @MainActor
@@ -44,6 +45,9 @@ struct ReaderView: View {
     @State private var contentLoadGeneration: UUID?
     @State private var paginationGeneration: UUID?
     @State private var pendingPagePosition: PaginationPosition?
+    /// Fraction (0…1) of the way into the chapter to jump to once pagination finishes; cleared after use.
+    @State private var restorePositionFraction: Double?
+    @State private var footerClock = ""
     @State private var skipPageReset = false
     @State private var viewSize: CGSize = .zero
     @State private var cachedPages: [[PageFragment]] = [[]]
@@ -93,9 +97,10 @@ struct ReaderView: View {
         let content: Content
     }
 
-    init(book: Book, startChapterIndex: Int = 0) {
+    init(book: Book, startChapterIndex: Int = 0, startPosition: Double = 0) {
         self.book = book
         self._currentChapterIndex = State(initialValue: startChapterIndex)
+        self._restorePositionFraction = State(initialValue: startPosition > 0 ? startPosition : nil)
     }
 
     /// O(1) access — chapters sorted by index, indices are 0-based contiguous
@@ -217,6 +222,8 @@ struct ReaderView: View {
             scheduleReaderMetadataSave()
         }
         .onAppear {
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            footerClock = Self.footerTimeFormatter.string(from: Date())
             loadChapters()
             recomputePages(position: .first)
             fetchChapterContentIfNeeded()
@@ -241,9 +248,11 @@ struct ReaderView: View {
             // Only queue preparation belongs to this Reader presentation. An
             // enqueued explicit cache operation is app-owned and keeps running.
             cacheTask?.cancel()
-            let manager = BookManager(modelContext: modelContext)
-            manager.updateProgress(book: book, chapterIndex: currentChapterIndex, position: 0)
+            persistReadingPosition()
             try? modelContext.save()
+        }
+        .onChange(of: currentPageIndex) { _, _ in
+            persistReadingPosition()
         }
         .onChange(of: settings.fontSize) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
         .onChange(of: settings.lineSpacing) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
@@ -275,7 +284,7 @@ struct ReaderView: View {
             if isLoadingContent || isPaginating {
                 VStack(spacing: 12) {
                     ProgressView()
-                    Text(isLoadingContent ? "加载中..." : "排版中...")
+                    Text(isLoadingContent ? "加载中…" : "排版中…")
                         .font(.subheadline)
                         .foregroundStyle(settings.theme.textColor.opacity(0.6))
                 }
@@ -361,7 +370,9 @@ struct ReaderView: View {
             handleTap(location: location)
         }
         .overlay(alignment: .bottom) {
-            if !showMenu { statusBar }
+            if !showMenu {
+                readerFooter(currentPage: currentPageIndex + 1, totalPages: max(cachedPages.count, 1))
+            }
         }
     }
 
@@ -401,7 +412,7 @@ struct ReaderView: View {
             }
             .overlay(alignment: .bottom) {
                 if !showMenu {
-                    pagedStatusBar(currentPage: safeIndex + 1, totalPages: totalPages)
+                    readerFooter(currentPage: safeIndex + 1, totalPages: totalPages)
                 }
             }
             .onAppear {
@@ -1713,6 +1724,13 @@ struct ReaderView: View {
             case .preserve:
                 currentPageIndex = min(currentPageIndex, max(output.pages.count - 1, 0))
             }
+            // A placeholder pass (empty content, single page) must not consume the
+            // saved fraction, or reopening a book lands on page 1 again.
+            if let fraction = restorePositionFraction, output.pages.count > 1 {
+                restorePositionFraction = nil
+                let lastPage = output.pages.count - 1
+                currentPageIndex = min(max(Int((fraction * Double(lastPage)).rounded()), 0), lastPage)
+            }
             scrolledPage = chapterID.map {
                 horizontalPageID(chapterID: $0, pageIndex: currentPageIndex)
             }
@@ -2865,10 +2883,10 @@ struct ReaderView: View {
             return isCaching ? "检查已有缓存…" : nil
         }
         if snapshot.phase == .paused || snapshot.phase == .failed {
-            return "已持久缓存 \(snapshot.durableStoredCount)/\(snapshot.targetCount)"
+            return "已缓存 \(snapshot.durableStoredCount) 章"
         }
         guard snapshot.phase.isActive else { return nil }
-        return "\(completedCacheCount)/\(totalToCache)，已持久缓存 \(cachedCount)"
+        return "\(completedCacheCount)/\(totalToCache)，已缓存 \(cachedCount) 章"
     }
 
     private func reconcileUserManagedCache(fallbackContents: [UUID: String]) async -> Bool {
@@ -3093,46 +3111,84 @@ struct ReaderView: View {
 
     // MARK: - Status Bar
 
-    private var statusBar: some View {
-        HStack {
-            Text(book.title)
-                .font(.system(size: 11))
-                .foregroundStyle(settings.theme.statusBarColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer()
-            if isCaching {
-                Text(
-                    totalToCache == 0
-                        ? "检查已有缓存…"
-                        : "缓存 \(completedCacheCount)/\(totalToCache)，已持久 \(cachedCount)"
-                )
-                    .font(.system(size: 11))
-                    .foregroundStyle(settings.theme.statusBarColor)
-            } else {
-                Text("\(currentChapterIndex + 1) / \(book.totalChapters)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(settings.theme.statusBarColor)
-            }
-        }
-        .padding(.horizontal, settings.horizontalPadding)
-        .padding(.bottom, 8)
+    /// Page index inside the chapter as a 0…1 fraction, so reopening lands on the same line.
+    private var chapterPositionFraction: Double {
+        let pageCount = cachedPages.count
+        guard pageCount > 1 else { return 0 }
+        return Double(min(max(currentPageIndex, 0), pageCount - 1)) / Double(pageCount - 1)
     }
 
-    private func pagedStatusBar(currentPage: Int, totalPages: Int) -> some View {
-        HStack {
-            Text(book.title)
-                .font(.system(size: 11))
-                .foregroundStyle(settings.theme.statusBarColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer()
-            Text("\(currentPage)/\(totalPages)")
-                .font(.system(size: 11))
-                .foregroundStyle(settings.theme.statusBarColor)
+    private func persistReadingPosition() {
+        let manager = BookManager(modelContext: modelContext)
+        manager.updateProgress(book: book, chapterIndex: currentChapterIndex, position: chapterPositionFraction)
+    }
+
+    private static let footerTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private var footerTimer: Publishers.Autoconnect<Timer.TimerPublisher> {
+        Self.footerTimerPublisher
+    }
+
+    private static let footerTimerPublisher = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+    /// Left: book title, centre: overall progress, right: time — or the battery when it runs low.
+    private func readerFooter(currentPage: Int, totalPages: Int) -> some View {
+        let pageCount = max(totalPages, 1)
+        let chapterFraction = pageCount > 1
+            ? Double(min(max(currentPage - 1, 0), pageCount - 1)) / Double(pageCount - 1)
+            : 0
+        let overall = (Double(currentChapterIndex) + chapterFraction) / Double(max(book.totalChapters, 1))
+        let percentText = "\(Int((overall * 100).rounded()))%"
+        let color = settings.theme.statusBarColor
+        return GeometryReader { geo in
+            ZStack {
+                Text(percentText)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(color)
+                HStack(spacing: 8) {
+                    Text(book.title)
+                        .font(.system(size: 11))
+                        .foregroundStyle(color)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: geo.size.width * 0.4, alignment: .leading)
+                    Spacer(minLength: 0)
+                    if showsBatteryInFooter {
+                        HStack(spacing: 3) {
+                            Image(systemName: "battery.25")
+                                .font(.system(size: 10))
+                            Text("\(Int((UIDevice.current.batteryLevel * 100).rounded()))%")
+                                .font(.system(size: 11, design: .monospaced))
+                        }
+                        .foregroundStyle(footerWarningColor)
+                    } else {
+                        Text(footerClock.isEmpty ? Self.footerTimeFormatter.string(from: Date()) : footerClock)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(color)
+                    }
+                }
+            }
         }
-        .padding(.horizontal, settings.horizontalPadding)
-        .padding(.bottom, 8)
+        .frame(height: 28)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 4)
+        .onReceive(footerTimer) { date in
+            footerClock = Self.footerTimeFormatter.string(from: date)
+        }
+    }
+
+    private var showsBatteryInFooter: Bool {
+        let level = UIDevice.current.batteryLevel
+        return level >= 0 && level < 0.2
+    }
+
+    private var footerWarningColor: Color {
+        settings.theme.isDark ? Color(hex: "#ff6b6b") : Color(hex: "#c0392b")
     }
 }
 

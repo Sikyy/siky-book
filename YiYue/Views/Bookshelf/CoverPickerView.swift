@@ -89,7 +89,7 @@ struct CoverPickerView: View {
         if isLoading {
             VStack(spacing: 12) {
                 ProgressView()
-                Text("正在搜索封面...")
+                Text("正在搜索封面…")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

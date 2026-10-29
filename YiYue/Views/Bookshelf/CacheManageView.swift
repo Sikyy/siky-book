@@ -239,7 +239,7 @@ struct CacheManageView: View {
                             || isPreparingCacheSummaries || isReconcilingDownload
                     )
 
-                    Text("已持久缓存 \(downloadSnapshot?.durableStoredCount ?? 0) / \(downloadSnapshot?.targetCount ?? 0)")
+                    Text("已缓存 \(downloadSnapshot?.durableStoredCount ?? 0) 章（共 \(downloadSnapshot?.targetCount ?? 0) 章）")
                         .font(.caption)
                         .foregroundStyle(downloadSnapshot?.phase == .failed ? .red : .secondary)
                 }
@@ -530,9 +530,9 @@ struct CacheManageView: View {
                 snapshot.targetCount,
                 snapshot.durableStoredCount + snapshot.succeededCount
             )
-            return "进度 \(downloadProgressCount(snapshot))/\(snapshot.targetCount)，已持久缓存 \(durableCount)"
+            return "进度 \(downloadProgressCount(snapshot))/\(snapshot.targetCount)，已缓存 \(durableCount) 章"
         case .paused, .completed, .failed, .cancelled:
-            return "已持久缓存 \(snapshot.durableStoredCount)/\(snapshot.targetCount)"
+            return "已缓存 \(snapshot.durableStoredCount) 章"
         }
     }
 

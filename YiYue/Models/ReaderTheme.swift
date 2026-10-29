@@ -24,29 +24,43 @@ enum ReaderTheme: String, CaseIterable, Codable {
     var backgroundColor: Color { Self.colorCache[backgroundHex]! }
     var textColor: Color { Self.colorCache[textHex]! }
 
+    /// Chapter title and footer share one secondary colour, at least 4.5:1 on this theme's background.
     var chapterTitleColor: Color {
         switch self {
-        case .paper: return Self.colorCache["#9a8e7e"]!
-        case .white: return Self.colorCache["#999999"]!
-        case .dark: return Self.colorCache["#555555"]!
+        case .paper: return Self.colorCache["#6b6153"]!
+        case .white: return Self.colorCache["#767676"]!
+        case .dark: return Self.colorCache["#808080"]!
         }
     }
 
-    var statusBarColor: Color {
+    var statusBarColor: Color { chapterTitleColor }
+
+    // MARK: - Menu (reader overlay)
+
+    /// The menu is a solid theme-coloured panel, not a material, so it never turns grey over light themes.
+    var menuBackgroundHex: String {
         switch self {
-        case .paper: return Self.colorCache["#b0a494"]!
-        case .white: return Self.colorCache["#aaaaaa"]!
-        case .dark: return Self.colorCache["#3a3a3a"]!
+        case .paper: return "#f5efe4"
+        case .white: return "#ffffff"
+        case .dark: return "#1c1c1c"
         }
     }
+
+    var menuBackground: Color { Self.colorCache[menuBackgroundHex]!.opacity(0.96) }
+    var menuPrimary: Color { textColor }
+    var menuSecondary: Color { textColor.opacity(0.55) }
+    var menuDisabled: Color { textColor.opacity(0.3) }
+    var menuSelectedFill: Color { textColor.opacity(0.08) }
+    var menuUnselectedFill: Color { Color.clear }
+    var menuSeparator: Color { isDark ? Color.white.opacity(0.1) : textColor.opacity(0.12) }
 
     // Pre-computed color cache — avoids hex parsing on every access
     private static let colorCache: [String: Color] = {
         let hexes = [
             "#f5efe4", "#ffffff", "#121212",
             "#2b2017", "#1a1a1a", "#d4d4d4",
-            "#9a8e7e", "#999999", "#555555",
-            "#b0a494", "#aaaaaa", "#3a3a3a"
+            "#6b6153", "#767676", "#808080",
+            "#1c1c1c"
         ]
         var cache: [String: Color] = [:]
         for hex in hexes {

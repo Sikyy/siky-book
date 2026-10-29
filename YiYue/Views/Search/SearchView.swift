@@ -48,7 +48,7 @@ struct SearchView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("输入书名搜索", text: $keyword)
+                TextField("输入书名", text: $keyword)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .onSubmit { performSearch() }
@@ -169,10 +169,10 @@ struct SearchView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary.opacity(0.4))
-            Text("当前批次暂未发现结果")
+            Text("这一批书源里还没有结果")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("已搜索 \(service.searchedCount)/\(service.totalCount) 个书源，仍有 \(service.remainingCount) 个")
+            Text("已搜索 \(service.searchedCount)/\(service.totalCount) 个书源，还有 \(service.remainingCount) 个没搜")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
             HStack(spacing: 12) {

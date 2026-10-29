@@ -58,7 +58,6 @@
 		CC4B845643A4C4D677077460 /* ReaderTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 756CA588556A0BEA3B03DB0B /* ReaderTheme.swift */; };
 		CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */; };
 		CE0CE03ED62DA066D58AABDF /* AddBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68860057A126AE3AAB1F3EB /* AddBookView.swift */; };
-		D0AEC5482AB72944ECB49053 /* ReaderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 246D61D2A8723A2CFFFB5C83 /* ReaderSettingsView.swift */; };
 		D3C66BB9A85E7D92498CF288 /* SourceImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304F0AE1F193CD62D6AC5B10 /* SourceImportService.swift */; };
 		D8E53825335B20AEC604DBD2 /* ImportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC433380EEF0DE2AD6847EB8 /* ImportServiceTests.swift */; };
 		DB9381DD8AA9DC2D66F88502 /* Enums.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D15EC2268B99A237102047 /* Enums.swift */; };
@@ -93,7 +92,6 @@
 		15016028B24154BCC6F39D47 /* CacheManageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManageView.swift; sourceTree = "<group>"; };
 		2006BBAE10A9017DAE2695D8 /* LegadoRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoRule.swift; sourceTree = "<group>"; };
 		233579991FCEFE7B48D2BA85 /* ReaderSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettings.swift; sourceTree = "<group>"; };
-		246D61D2A8723A2CFFFB5C83 /* ReaderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsView.swift; sourceTree = "<group>"; };
 		25008981A8C5D1AEFFD85978 /* SourceEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEngineTests.swift; sourceTree = "<group>"; };
 		2903DAF1D0B8E53C0F210DA8 /* Book.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book.swift; sourceTree = "<group>"; };
 		2C14CDDA1179B1F60381F893 /* YiYueApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YiYueApp.swift; sourceTree = "<group>"; };
@@ -262,7 +260,6 @@
 				46B9728B658231E861FAC363 /* ChapterListView.swift */,
 				C0DEC0A50000000000000002 /* ReaderCachePresentationState.swift */,
 				3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */,
-				246D61D2A8723A2CFFFB5C83 /* ReaderSettingsView.swift */,
 				D075DEF90BF070FBED77D143 /* ReaderView.swift */,
 			);
 			path = Reader;
@@ -465,7 +462,6 @@
 				CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */,
 				C0DEC0A50000000000000001 /* ReaderCachePresentationState.swift in Sources */,
 				36F42549D8E8A6330F6E3BD5 /* ReaderSettings.swift in Sources */,
-				D0AEC5482AB72944ECB49053 /* ReaderSettingsView.swift in Sources */,
 				CC4B845643A4C4D677077460 /* ReaderTheme.swift in Sources */,
 				708A3C92B14089197DE564DF /* ReaderView.swift in Sources */,
 				76621145991BCA6FC5A082EA /* RuleExecutor.swift in Sources */,
@@ -580,7 +576,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mistyislet.yiyue;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -663,7 +659,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mistyislet.yiyue;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;

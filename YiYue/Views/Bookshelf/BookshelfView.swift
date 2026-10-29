@@ -191,7 +191,7 @@ struct BookshelfView: View {
                 ChangeSourceView(book: book)
             }
             .fullScreenCover(item: $selectedBook) { book in
-                ReaderView(book: book, startChapterIndex: book.lastReadChapterIndex)
+                ReaderView(book: book, startChapterIndex: book.lastReadChapterIndex, startPosition: book.lastReadPosition)
             }
         }
         .preferredColorScheme(.dark)
@@ -230,7 +230,9 @@ struct BookshelfView: View {
                 .padding(.bottom, 8)
             Text("书架还是空的")
                 .font(.title3.weight(.semibold))
-            Text("导入书源后可搜书,也可以直接导入本地 txt")
+            Text(bookSources.isEmpty
+                 ? "导入书源后可以搜书，也可以直接导入本地 txt 或 epub"
+                 : "已经有书源了，搜一本书放进书架")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
