@@ -22,7 +22,7 @@ struct YiYueApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(for: [Book.self, Chapter.self, BookSource.self])
+        .modelContainer(for: [Book.self, Chapter.self, BookSource.self, ReadingMark.self])
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:

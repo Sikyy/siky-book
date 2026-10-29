@@ -36,6 +36,9 @@ final class Book {
     @Relationship(deleteRule: .cascade, inverse: \Chapter.book)
     var chapters: [Chapter] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \ReadingMark.book)
+    var marks: [ReadingMark] = []
+
     var progress: Double {
         guard totalChapters > 0 else { return 0 }
         return Double(lastReadChapterIndex) / Double(totalChapters)

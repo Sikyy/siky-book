@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Result of asking the book's source for its latest table of contents.
 enum TocRefreshOutcome: Sendable {
@@ -26,8 +27,13 @@ struct ReaderMenuOverlay: View {
     var isFollowingSystemBrightness: Bool = true
     var onBrightnessChange: ((Double) -> Void)? = nil
     var onFollowSystemBrightness: (() -> Void)? = nil
+    var onJumpToMark: ((ReadingMark) -> Void)? = nil
+    var onOpenNote: ((ReadingMark) -> Void)? = nil
+    var onAddBookmarkHere: (() -> Void)? = nil
 
     private var theme: ReaderTheme { settings.theme }
+
+    @Environment(\.modelContext) private var modelContext
 
     @State private var showChapterList = false
     @State private var sliderValue: Double = 0
@@ -41,6 +47,10 @@ struct ReaderMenuOverlay: View {
     @State private var tocToastTask: Task<Void, Never>?
     @State private var brightnessValue: Double = 1
     @State private var followSystemFlash = false
+    @State private var panelSegment: ReaderPanelSegment = .chapters
+    @State private var pendingDeletionID: UUID?
+    @State private var undoToast: String?
+    @State private var undoToastTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -51,11 +61,15 @@ struct ReaderMenuOverlay: View {
 
             VStack(spacing: 0) {
                 topBar
-                if onBrightnessChange != nil {
+                if onBrightnessChange != nil && !showSettings {
                     brightnessBar
                 }
                 Spacer()
                 bottomPanel
+            }
+
+            if showChapterList {
+                panelOverlay
             }
         }
         .onAppear {
@@ -72,11 +86,6 @@ struct ReaderMenuOverlay: View {
         }
         .onChange(of: currentChapterIndex) { _, newValue in
             sliderValue = Double(newValue)
-        }
-        .sheet(isPresented: $showChapterList) {
-            chapterListContent
-                .presentationDetents([.medium, .large])
-                .presentationBackground(theme.menuBackground)
         }
     }
 
@@ -378,7 +387,7 @@ struct ReaderMenuOverlay: View {
     // MARK: - Settings Controls
 
     private var settingsControls: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             // Font size
             HStack(spacing: 12) {
                 Button {
@@ -470,7 +479,14 @@ struct ReaderMenuOverlay: View {
                             .padding(.vertical, 7)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .fill(settings.fontFamily == font ? theme.menuSelectedFill : theme.menuUnselectedFill)
+                                    .fill(settings.fontFamily == font ? theme.menuPrimary.opacity(0.12) : theme.menuUnselectedFill)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(
+                                        settings.fontFamily == font ? theme.menuPrimary.opacity(0.2) : Color.clear,
+                                        lineWidth: 1
+                                    )
                             )
                     }
                     .buttonStyle(.plain)
@@ -599,7 +615,10 @@ struct ReaderMenuOverlay: View {
     private var iconRow: some View {
         HStack(spacing: 0) {
             toolButton(icon: "list.bullet", label: "目录") {
-                showChapterList = true
+                openPanel(.chapters)
+            }
+            toolButton(icon: "bookmark", label: "书签") {
+                openPanel(.bookmarks)
             }
             toolButton(
                 icon: settings.theme.isDark ? "sun.max" : "moon.fill",
@@ -633,54 +652,314 @@ struct ReaderMenuOverlay: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Chapter List
+    // MARK: - Chapter, Bookmark and Note Panel
+
+    /// The panel is drawn in place rather than presented as a sheet, so it can
+    /// never desync from the segment the reader tapped.
+    private var panelOverlay: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.2)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { closePanel() }
+                .transition(.opacity)
+
+            chapterListContent
+                .frame(height: 470, alignment: .top)
+                .background(theme.menuBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom))
+        }
+    }
+
+    private func closePanel() {
+        withAnimation(.easeInOut(duration: 0.2)) { showChapterList = false }
+    }
 
     private var chapterListContent: some View {
         VStack(spacing: 0) {
-            chapterListHeader
-            chapterSearchRow
-            if let tocToast {
-                tocToastBar(tocToast)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                    .transition(.opacity)
-            }
-            if !chapterSearchKeyword.isEmpty && !filteredChapters.isEmpty {
-                Text("找到 \(filteredChapters.count) 章")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.menuSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
-            }
-            if filteredChapters.isEmpty && !chapterSearchKeyword.isEmpty {
-                emptyChapterSearchResult
-            } else {
-                chapterList
+            panelHeader
+            switch panelSegment {
+            case .chapters:
+                chapterSearchRow
+                if let tocToast {
+                    tocToastBar(tocToast)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                        .transition(.opacity)
+                }
+                if !chapterSearchKeyword.isEmpty && !filteredChapters.isEmpty {
+                    Text("找到 \(filteredChapters.count) 章")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.menuSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 6)
+                }
+                if filteredChapters.isEmpty && !chapterSearchKeyword.isEmpty {
+                    emptyChapterSearchResult
+                } else {
+                    chapterList
+                }
+            case .bookmarks:
+                markList(
+                    marks: bookmarks,
+                    emptyIcon: "bookmark",
+                    emptyTitle: "还没有书签",
+                    emptyBody: "长按正文可以加书签或写笔记"
+                )
+            case .notes:
+                markList(
+                    marks: notes,
+                    emptyIcon: "note.text",
+                    emptyTitle: "还没有笔记",
+                    emptyBody: "长按正文选中文字，就能写笔记"
+                )
             }
         }
-        .background(theme.menuBackground.ignoresSafeArea())
+        .overlay(alignment: .bottom) {
+            if let undoToast {
+                undoBar(undoToast)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// Plain header row: cache control on the left, title centred, close on the right.
-    private var chapterListHeader: some View {
-        ZStack {
-            Text("目录")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(theme.menuPrimary)
-
-            HStack {
-                chapterListCacheControl
-                Spacer()
-                Button("关闭") { showChapterList = false }
-                    .font(.system(size: 15))
-                    .foregroundStyle(theme.menuPrimary)
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭")
+    /// Header row: segments in the middle, a shortcut on the left, close on
+    /// the right; nothing overlaps and each side keeps a fixed width.
+    private var panelHeader: some View {
+        HStack(spacing: 8) {
+            Group {
+                if panelSegment == .chapters {
+                    chapterListCacheControl
+                } else if panelSegment == .bookmarks {
+                    addBookmarkButton
+                }
             }
+            .frame(width: 64, alignment: .leading)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 18) {
+                ForEach(ReaderPanelSegment.allCases) { segment in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { panelSegment = segment }
+                    } label: {
+                        VStack(spacing: 5) {
+                            Text(segment.title)
+                                .font(.system(size: 14, weight: panelSegment == segment ? .semibold : .regular))
+                                .foregroundStyle(panelSegment == segment ? theme.menuPrimary : theme.menuSecondary)
+                            Rectangle()
+                                .fill(panelSegment == segment ? theme.menuPrimary : Color.clear)
+                                .frame(height: 2)
+                        }
+                        .frame(width: 56, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(segment.title)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Button("关闭") { closePanel() }
+                .font(.system(size: 15))
+                .foregroundStyle(theme.menuPrimary)
+                .buttonStyle(.plain)
+                .frame(width: 64, height: 34, alignment: .trailing)
+                .accessibilityLabel("关闭")
         }
         .padding(.horizontal, 16)
-        .frame(height: 48)
+        .padding(.top, 16)
+        .frame(height: 66)
+    }
+
+    private func openPanel(_ segment: ReaderPanelSegment) {
+        panelSegment = segment
+        withAnimation(.easeInOut(duration: 0.2)) { showChapterList = true }
+    }
+
+    private var addBookmarkButton: some View {
+        Button {
+            onAddBookmarkHere?()
+        } label: {
+            Text("加书签")
+                .font(.system(size: 13))
+                .foregroundStyle(theme.menuPrimary)
+                .frame(height: 34)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("在当前这一段加书签")
+    }
+
+    private var bookMarks: [ReadingMark] {
+        book.marks
+            .filter { $0.id != pendingDeletionID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var bookmarks: [ReadingMark] { bookMarks.filter { !$0.isNote } }
+    private var notes: [ReadingMark] { bookMarks.filter { $0.isNote } }
+
+    private func markList(
+        marks: [ReadingMark],
+        emptyIcon: String,
+        emptyTitle: String,
+        emptyBody: String
+    ) -> some View {
+        Group {
+            if marks.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: emptyIcon)
+                        .font(.system(size: 30))
+                        .foregroundStyle(theme.menuSecondary.opacity(0.6))
+                    Text(emptyTitle)
+                        .font(.system(size: 15))
+                        .foregroundStyle(theme.menuPrimary)
+                    Text(emptyBody)
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.menuSecondary)
+                    Spacer()
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                List {
+                    ForEach(marks) { mark in
+                        Button {
+                            closePanel()
+                            if mark.isNote {
+                                onOpenNote?(mark)
+                            } else {
+                                onJumpToMark?(mark)
+                            }
+                        } label: {
+                            markRow(mark)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                deleteMark(mark)
+                            } label: {
+                                Text("删除")
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+            }
+        }
+    }
+
+    private func markRow(_ mark: ReadingMark) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if mark.isNote, let note = mark.note {
+                Text(note)
+                    .font(.system(size: 15))
+                    .foregroundStyle(theme.menuPrimary)
+                    .lineLimit(1)
+                Text(Self.excerptText(mark.excerpt))
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.menuSecondary)
+                    .lineLimit(1)
+            } else {
+                Text(Self.excerptText(mark.excerpt))
+                    .font(.system(size: 14))
+                    .foregroundStyle(theme.menuPrimary)
+                    .lineLimit(2)
+            }
+            HStack(spacing: 6) {
+                Text("第 \(mark.chapterIndex + 1) 章")
+                Text("·")
+                Text(Self.shortDate(mark.createdAt))
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(theme.menuSecondary)
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: mark.isNote ? 74 : 58)
+        .contentShape(Rectangle())
+    }
+
+    static func excerptText(_ text: String) -> String {
+        text.count > 200 ? String(text.prefix(200)) + "…" : text
+    }
+
+    static func shortDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日"
+        return formatter.string(from: date)
+    }
+
+    /// Deleting waits for the undo window to close, so undo only has to cancel
+    /// the pending delete instead of putting a mark back.
+    private func deleteMark(_ mark: ReadingMark) {
+        pendingDeletionID = mark.id
+        showUndoToast("已删除")
+    }
+
+    private func commitPendingDeletion() {
+        guard let id = pendingDeletionID else { return }
+        pendingDeletionID = nil
+        if let mark = book.marks.first(where: { $0.id == id }) {
+            modelContext.delete(mark)
+            try? modelContext.save()
+        }
+    }
+
+    private func undoDelete() {
+        pendingDeletionID = nil
+        hideUndoToast()
+    }
+
+    private func showUndoToast(_ text: String) {
+        undoToastTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.15)) { undoToast = text }
+        undoToastTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                commitPendingDeletion()
+                hideUndoToast()
+            }
+        }
+    }
+
+    private func hideUndoToast() {
+        undoToastTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.15)) { undoToast = nil }
+    }
+
+    private func undoBar(_ text: String) -> some View {
+        HStack(spacing: 12) {
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(theme.menuPrimary)
+            Spacer()
+            Button(action: undoDelete) {
+                Text("撤销")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.menuPrimary)
+                    .frame(height: 44)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 44)
+        .background(theme.menuBackground)
+        .transition(.opacity)
     }
 
     private var chapterSearchKeyword: String {
@@ -710,7 +989,7 @@ struct ReaderMenuOverlay: View {
                         if chapterSearch.isEmpty {
                             Text("搜索章节")
                                 .font(.system(size: 14))
-                                .foregroundStyle(theme.menuSecondary)
+                                .foregroundStyle(theme.menuPrimary.opacity(0.75))
                                 .allowsHitTesting(false)
                         }
                     }
@@ -834,7 +1113,7 @@ struct ReaderMenuOverlay: View {
             List(filteredChapters) { chapter in
                 Button {
                     currentChapterIndex = chapter.index
-                    showChapterList = false
+                    closePanel()
                 } label: {
                     HStack(spacing: 8) {
                         RoundedRectangle(cornerRadius: 1.5)
@@ -854,6 +1133,8 @@ struct ReaderMenuOverlay: View {
                     }
                 }
                 .id(chapter.index)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(theme.menuPrimary.opacity(0.08))
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -916,7 +1197,7 @@ struct ReaderMenuOverlay: View {
                     onCancelCache?()
                 } label: {
                     Label(
-                        "\(processed)/\(target) · 已存 \(cacheCountText(cached: cached, total: total))",
+                        "\(processed)/\(target) · 已缓存 \(cacheCountText(cached: cached, total: total))",
                         systemImage: "pause.fill"
                     )
                     .font(.caption)
@@ -983,5 +1264,117 @@ struct ReaderMenuOverlay: View {
                 proxy.scrollTo(currentChapterIndex, anchor: .center)
             }
         }
+    }
+}
+
+private enum ReaderPanelSegment: String, CaseIterable, Identifiable {
+    case chapters
+    case bookmarks
+    case notes
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chapters: return "目录"
+        case .bookmarks: return "书签"
+        case .notes: return "笔记"
+        }
+    }
+}
+
+/// Full-screen note editor: the passage on top, the reader's own words below.
+struct NoteEditorView: View {
+    let excerpt: String
+    let initialNote: String
+    let onCancel: () -> Void
+    let onSave: (String) -> Void
+    var onDelete: (() -> Void)? = nil
+
+    @State private var text: String
+    @State private var isConfirmingDelete = false
+    @FocusState private var isFocused: Bool
+
+    init(
+        excerpt: String,
+        initialNote: String,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping (String) -> Void,
+        onDelete: (() -> Void)? = nil
+    ) {
+        self.excerpt = excerpt
+        self.initialNote = initialNote
+        self.onCancel = onCancel
+        self.onSave = onSave
+        self.onDelete = onDelete
+        _text = State(initialValue: initialNote)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                ScrollView {
+                    Text(excerpt)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.06))
+                        )
+                }
+                .frame(maxHeight: 132)
+
+                ZStack(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text("写下你的想法…")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 8)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: $text)
+                        .font(.system(size: 15))
+                        .focused($isFocused)
+                        .scrollContentBackground(.hidden)
+                }
+
+                if let onDelete {
+                    Button(role: .destructive) {
+                        // The dialog must not come up under the keyboard, or its
+                        // cancel button is unreachable.
+                        isFocused = false
+                        Task {
+                            try? await Task.sleep(nanoseconds: 250_000_000)
+                            isConfirmingDelete = true
+                        }
+                    } label: {
+                        Text("删除这条笔记")
+                            .font(.system(size: 15))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(16)
+            .navigationTitle("写笔记")
+            .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog("删除这条笔记？", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
+                Button("删除", role: .destructive) { onDelete?() }
+                Button("取消", role: .cancel) {}
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") { onSave(text) }
+                }
+            }
+        }
+        .onAppear { isFocused = true }
     }
 }

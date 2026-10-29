@@ -46,7 +46,8 @@ enum ReaderTheme: String, CaseIterable, Codable {
         }
     }
 
-    var menuBackground: Color { Self.colorCache[menuBackgroundHex]!.opacity(0.96) }
+    /// Fully opaque: the page underneath must not show through the menu panels.
+    var menuBackground: Color { Self.colorCache[menuBackgroundHex]! }
     var menuPrimary: Color { textColor }
     var menuSecondary: Color { textColor.opacity(0.55) }
     var menuDisabled: Color { textColor.opacity(0.3) }

@@ -63,6 +63,7 @@
 		D8E53825335B20AEC604DBD2 /* ImportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC433380EEF0DE2AD6847EB8 /* ImportServiceTests.swift */; };
 		DB9381DD8AA9DC2D66F88502 /* Enums.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D15EC2268B99A237102047 /* Enums.swift */; };
 		E4DF23E5F137AB313727A029 /* Chapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78BA568A47552BBFB110F6BA /* Chapter.swift */; };
+		D4A8BDF0E2487B1F9C6E3D52 /* ReadingMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3F7ACE9D1376A0E8B5D2C41 /* ReadingMark.swift */; };
 		E85F6AB57CAB210AD003C06E /* BookshelfItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04ACD9E4F474AEA25C4AF468 /* BookshelfItem.swift */; };
 		E8B5F5B848AEDBEF380400CC /* SourceEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25008981A8C5D1AEFFD85978 /* SourceEngineTests.swift */; };
 		E91BA1716F14396D215A070D /* CoverPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6EB993ADDEFE7CE6BC2A56 /* CoverPickerView.swift */; };
@@ -119,6 +120,7 @@
 		758FFC946A1C2170619D7FE1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		77867B555471B2523A7F35BD /* BookManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookManager.swift; sourceTree = "<group>"; };
 		78BA568A47552BBFB110F6BA /* Chapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chapter.swift; sourceTree = "<group>"; };
+		C3F7ACE9D1376A0E8B5D2C41 /* ReadingMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingMark.swift; sourceTree = "<group>"; };
 		7E0D8AB86667513D60EB1DD0 /* BookCoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCoverView.swift; sourceTree = "<group>"; };
 		904158334FC24C057F83A580 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		92470E190557EB9194D5E727 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
@@ -303,6 +305,7 @@
 				2903DAF1D0B8E53C0F210DA8 /* Book.swift */,
 				624A6FA3BD95860787AADAE3 /* BookSource.swift */,
 				78BA568A47552BBFB110F6BA /* Chapter.swift */,
+				C3F7ACE9D1376A0E8B5D2C41 /* ReadingMark.swift */,
 				52D15EC2268B99A237102047 /* Enums.swift */,
 				2006BBAE10A9017DAE2695D8 /* LegadoRule.swift */,
 				233579991FCEFE7B48D2BA85 /* ReaderSettings.swift */,
@@ -446,6 +449,7 @@
 				F8AD59939183CA4F013422BC /* CacheManageView.swift in Sources */,
 				76A6A6F74F31DC69A0FD5532 /* ChangeSourceView.swift in Sources */,
 				E4DF23E5F137AB313727A029 /* Chapter.swift in Sources */,
+				D4A8BDF0E2487B1F9C6E3D52 /* ReadingMark.swift in Sources */,
 				416441BA11CB261A2921393E /* ChapterSplitter.swift in Sources */,
 				5F8AAEE3D2D2F3DA955B7EFC /* ContentView.swift in Sources */,
 				E91BA1716F14396D215A070D /* CoverPickerView.swift in Sources */,

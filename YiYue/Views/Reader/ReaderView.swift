@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import Combine
 import CoreText
+import UIKit
 
 @MainActor
 struct ReaderView: View {
@@ -11,6 +12,12 @@ struct ReaderView: View {
     @State private var showMenu = false
     @State private var currentPageIndex: Int = 0
     /// nil means the reader follows the system brightness.
+    @State private var selection: ReaderSelection?
+    @State private var readerToast: String?
+    @State private var noteDraft: NoteDraft?
+    @State private var pendingParagraphJump: Int?
+    @State private var scrollParagraphFrames: [Int: ScrollParagraphFrame] = [:]
+    @State private var visibleParagraphIndex = 0
     @State private var manualBrightness: Double?
     @State private var entryBrightness: Double = ReaderScreenBrightness.current
     @Environment(\.modelContext) private var modelContext
@@ -135,6 +142,10 @@ struct ReaderView: View {
 
             readingContent
 
+            if let selection {
+                selectionToolbar(for: selection)
+            }
+
             if showMenu {
                 ReaderMenuOverlay(
                     book: book,
@@ -159,9 +170,53 @@ struct ReaderView: View {
                     onFollowSystemBrightness: {
                         manualBrightness = nil
                         ReaderScreenBrightness.set(entryBrightness)
-                    }
+                    },
+                    onJumpToMark: { mark in jump(to: mark) },
+                    onOpenNote: { mark in
+                        noteDraft = NoteDraft(
+                            chapterIndex: mark.chapterIndex,
+                            paragraphIndex: mark.paragraphIndex,
+                            excerpt: mark.excerpt,
+                            mark: mark
+                        )
+                    },
+                    onAddBookmarkHere: { addBookmarkAtCurrentPage() }
                 )
             }
+
+            if let readerToast {
+                VStack {
+                    Text(readerToast)
+                        .font(.system(size: 13))
+                        .foregroundStyle(settings.theme.menuPrimary)
+                        .padding(.horizontal, 14)
+                        .frame(height: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(settings.theme.menuBackground)
+                        )
+                        .padding(.top, 60)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
+        }
+        .sheet(item: $noteDraft) { draft in
+            NoteEditorView(
+                excerpt: draft.excerpt,
+                initialNote: draft.mark?.note ?? "",
+                onCancel: { noteDraft = nil },
+                onSave: { note in
+                    saveNote(note, for: draft)
+                    noteDraft = nil
+                },
+                onDelete: draft.mark == nil ? nil : {
+                    if let mark = draft.mark { deleteMark(mark) }
+                    noteDraft = nil
+                }
+            )
         }
         .statusBarHidden(!showMenu)
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
@@ -369,7 +424,7 @@ struct ReaderView: View {
                     .foregroundStyle(settings.theme.chapterTitleColor)
                     .padding(.bottom, 8)
 
-                ForEach(Array(cachedParagraphs.enumerated()), id: \.offset) { _, para in
+                ForEach(Array(cachedParagraphs.enumerated()), id: \.offset) { index, para in
                     Text("\u{3000}\u{3000}" + para)
                         .font(settings.fontFamily.isSystem
                             ? .system(size: settings.fontSize)
@@ -377,11 +432,53 @@ struct ReaderView: View {
                         .foregroundStyle(settings.theme.textColor)
                         .lineSpacing(settings.fontSize * (settings.lineSpacing - 1))
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(alignment: .topLeading) {
+                            if selection?.paragraphIndex == index,
+                               selection?.chapterIndex == currentChapterIndex {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(settings.theme.textColor.opacity(0.12))
+                                    .padding(.horizontal, -4)
+                                    .padding(.vertical, -2)
+                            }
+                        }
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: ScrollParagraphFramesKey.self,
+                                    value: [
+                                        index: ScrollParagraphFrame(
+                                            global: proxy.frame(in: .global),
+                                            inScroll: proxy.frame(in: .named("readerScroll")).minY
+                                        )
+                                    ]
+                                )
+                            }
+                        )
+                        .contentShape(Rectangle())
+                        .onLongPressGesture(minimumDuration: 0.35) {
+                            selection = ReaderSelection(
+                                paragraphIndex: index,
+                                text: para,
+                                frame: scrollParagraphFrames[index]?.global ?? .zero,
+                                chapterIndex: currentChapterIndex
+                            )
+                            announceSelection(para)
+                        }
                 }
             }
             .padding(.horizontal, settings.horizontalPadding)
             .padding(.top, 20)
             .padding(.bottom, 60)
+        }
+        .coordinateSpace(name: "readerScroll")
+        .onPreferenceChange(ScrollParagraphFramesKey.self) { frames in
+            scrollParagraphFrames = frames
+            if let first = frames.values
+                .filter({ $0.inScroll >= -24 })
+                .min(by: { $0.inScroll < $1.inScroll }),
+               let index = frames.first(where: { $0.value.inScroll == first.inScroll })?.key {
+                visibleParagraphIndex = index
+            }
         }
         .id(currentChapter?.id)
         .contentShape(Rectangle())
@@ -1025,13 +1122,26 @@ struct ReaderView: View {
             textColor: settings.theme.textColor,
             titleColor: settings.theme.chapterTitleColor,
             horizontalPadding: settings.horizontalPadding,
-            bottomReserve: pageBottomReserve
+            bottomReserve: pageBottomReserve,
+            selectedParagraphIndex: selection?.paragraphIndex,
+            onSelectParagraph: { index, text, frame in
+                selection = ReaderSelection(
+                    paragraphIndex: index,
+                    text: text,
+                    frame: frame,
+                    chapterIndex: currentChapterIndex
+                )
+            }
         )
     }
 
     // MARK: - Tap Handling
 
     private func handleTap(location: CGPoint) {
+        if selection != nil {
+            selection = nil
+            return
+        }
         let screenWidth = UIScreen.main.bounds.width
         let screenHeight = UIScreen.main.bounds.height
         let centerXRange = (screenWidth / 3)...(screenWidth * 2 / 3)
@@ -1044,6 +1154,10 @@ struct ReaderView: View {
     }
 
     private func handlePageTap(location: CGPoint, screenSize: CGSize, totalPages: Int) {
+        if selection != nil {
+            selection = nil
+            return
+        }
         let centerXRange = (screenSize.width / 3)...(screenSize.width * 2 / 3)
         let centerYRange = (screenSize.height / 3)...(screenSize.height * 2 / 3)
 
@@ -1200,6 +1314,8 @@ struct ReaderView: View {
         let id: Int
         let text: String
         let indent: Bool
+        /// Paragraph inside the chapter; a paragraph split across pages keeps the same index.
+        var paragraphIndex: Int = 0
     }
 
     private var hasRenderableCurrentChapter: Bool {
@@ -1750,6 +1866,7 @@ struct ReaderView: View {
                 let lastPage = output.pages.count - 1
                 currentPageIndex = min(max(Int((fraction * Double(lastPage)).rounded()), 0), lastPage)
             }
+            applyPendingParagraphJump()
             scrolledPage = chapterID.map {
                 horizontalPageID(chapterID: $0, pageIndex: currentPageIndex)
             }
@@ -1838,9 +1955,12 @@ struct ReaderView: View {
         struct QueueItem {
             let text: String
             let indent: Bool
+            let paragraphIndex: Int
         }
 
-        var queue = paragraphs.reversed().map { QueueItem(text: $0, indent: true) }
+        var queue = paragraphs.enumerated().reversed().map {
+            QueueItem(text: $1, indent: true, paragraphIndex: $0)
+        }
         var pages: [[PageFragment]] = []
         var currentPage: [PageFragment] = []
         var currentHeight: CGFloat = pageHeaderHeight
@@ -1853,19 +1973,19 @@ struct ReaderView: View {
 
             if currentHeight + gap + h <= pageHeight {
                 fragmentId += 1
-                currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent))
+                currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent, paragraphIndex: item.paragraphIndex))
                 currentHeight += gap + h
             } else if currentPage.isEmpty {
                 if let (first, second) = splitText(item.text, indent: item.indent, fitting: pageHeight - currentHeight) {
                     fragmentId += 1
-                    currentPage.append(PageFragment(id: fragmentId, text: first, indent: item.indent))
+                    currentPage.append(PageFragment(id: fragmentId, text: first, indent: item.indent, paragraphIndex: item.paragraphIndex))
                     pages.append(currentPage)
                     currentPage = []
                     currentHeight = pageHeaderHeight
-                    queue.append(QueueItem(text: second, indent: false))
+                    queue.append(QueueItem(text: second, indent: false, paragraphIndex: item.paragraphIndex))
                 } else {
                     fragmentId += 1
-                    currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent))
+                    currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent, paragraphIndex: item.paragraphIndex))
                     pages.append(currentPage)
                     currentPage = []
                     currentHeight = pageHeaderHeight
@@ -1875,11 +1995,11 @@ struct ReaderView: View {
                 if remaining > font.lineHeight * 1.5,
                    let (first, second) = splitText(item.text, indent: item.indent, fitting: remaining) {
                     fragmentId += 1
-                    currentPage.append(PageFragment(id: fragmentId, text: first, indent: item.indent))
+                    currentPage.append(PageFragment(id: fragmentId, text: first, indent: item.indent, paragraphIndex: item.paragraphIndex))
                     pages.append(currentPage)
                     currentPage = []
                     currentHeight = pageHeaderHeight
-                    queue.append(QueueItem(text: second, indent: false))
+                    queue.append(QueueItem(text: second, indent: false, paragraphIndex: item.paragraphIndex))
                 } else {
                     pages.append(currentPage)
                     currentPage = []
@@ -3179,6 +3299,191 @@ struct ReaderView: View {
         return Double(min(max(currentPageIndex, 0), pageCount - 1)) / Double(pageCount - 1)
     }
 
+    // MARK: - Bookmarks and Notes
+
+    private func selectionToolbar(for selection: ReaderSelection) -> some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let toolbarHeight: CGFloat = 40
+            let gap: CGFloat = 8
+            let width: CGFloat = 186
+            let frame = selection.frame
+            let fitsAbove = frame.minY - gap - toolbarHeight > 40
+            let y = fitsAbove
+                ? frame.minY - gap - toolbarHeight
+                : min(frame.maxY + gap, size.height - toolbarHeight - 20)
+            let origin = geometry.frame(in: .global).origin
+            let x = min(max(frame.midX - width / 2, 8), max(size.width - width - 8, 8)) - origin.x
+
+            let summary = selectionSummary(selection.text)
+
+            HStack(spacing: 0) {
+                selectionAction(icon: "bookmark", title: "书签", accessibility: "添加书签", hint: summary) {
+                    addBookmark(from: selection)
+                }
+                selectionAction(icon: "note.text", title: "笔记", accessibility: "写笔记", hint: summary) {
+                    openNote(from: selection)
+                }
+                selectionAction(icon: "doc.on.doc", title: "复制", accessibility: "复制", hint: summary) {
+                    copySelection(selection)
+                }
+            }
+            .frame(width: width, height: toolbarHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(settings.theme.textColor)
+            )
+            .offset(x: x, y: y - origin.y)
+        }
+    }
+
+    /// VoiceOver hears what was selected and how long it is as soon as the
+    /// toolbar appears; the toolbar's three buttons stay ordinary elements.
+    private func selectionSummary(_ text: String) -> String {
+        let count = text.trimmingCharacters(in: .whitespacesAndNewlines).count
+        return "已选中一段，共 \(count) 字"
+    }
+
+    private func announceSelection(_ text: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: selectionSummary(text))
+    }
+
+    private func selectionAction(
+        icon: String,
+        title: String,
+        accessibility: String,
+        hint: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                Text(title)
+                    .font(.system(size: 10))
+            }
+            .foregroundStyle(settings.theme.backgroundColor)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibility)
+        .accessibilityHint(hint)
+    }
+
+    private func showReaderToast(_ text: String, seconds: Double = 2) {
+        withAnimation(.easeInOut(duration: 0.15)) { readerToast = text }
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.15)) { readerToast = nil }
+            }
+        }
+    }
+
+    private func copySelection(_ selection: ReaderSelection) {
+        UIPasteboard.general.string = selection.text
+        self.selection = nil
+        showReaderToast("已复制")
+    }
+
+    private func addBookmark(from selection: ReaderSelection) {
+        let alreadySaved = book.marks.contains {
+            $0.chapterIndex == selection.chapterIndex
+                && $0.paragraphIndex == selection.paragraphIndex
+        }
+        if alreadySaved {
+            self.selection = nil
+            showReaderToast("已添加书签")
+            return
+        }
+        let mark = ReadingMark(
+            chapterIndex: selection.chapterIndex,
+            paragraphIndex: selection.paragraphIndex,
+            excerpt: selection.text
+        )
+        mark.book = book
+        modelContext.insert(mark)
+        try? modelContext.save()
+        self.selection = nil
+        showReaderToast("已添加书签")
+    }
+
+    private func openNote(from selection: ReaderSelection) {
+        noteDraft = NoteDraft(
+            chapterIndex: selection.chapterIndex,
+            paragraphIndex: selection.paragraphIndex,
+            excerpt: selection.text
+        )
+        self.selection = nil
+    }
+
+    private func saveNote(_ note: String, for draft: NoteDraft) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let mark = draft.mark {
+            mark.note = trimmed.isEmpty ? nil : trimmed
+            try? modelContext.save()
+        } else {
+            let mark = ReadingMark(
+                chapterIndex: draft.chapterIndex,
+                paragraphIndex: draft.paragraphIndex,
+                excerpt: draft.excerpt,
+                note: trimmed.isEmpty ? nil : trimmed
+            )
+            mark.book = book
+            modelContext.insert(mark)
+            try? modelContext.save()
+        }
+        showReaderToast("笔记已保存")
+    }
+
+    private func deleteMark(_ mark: ReadingMark) {
+        modelContext.delete(mark)
+        try? modelContext.save()
+        showReaderToast("已删除")
+    }
+
+    /// Bookmarks the first paragraph visible on the current page.
+    private func addBookmarkAtCurrentPage() {
+        let paragraphIndex: Int
+        if settings.pageMode == .scroll {
+            paragraphIndex = visibleParagraphIndex
+        } else if let page = cachedPages.indices.contains(currentPageIndex) ? cachedPages[currentPageIndex] : nil,
+                  let first = page.first?.paragraphIndex {
+            paragraphIndex = first
+        } else {
+            return
+        }
+        guard cachedParagraphs.indices.contains(paragraphIndex) else { return }
+        let text = cachedParagraphs[paragraphIndex]
+        addBookmark(from: ReaderSelection(
+            paragraphIndex: paragraphIndex,
+            text: text,
+            frame: .zero,
+            chapterIndex: currentChapterIndex
+        ))
+    }
+
+    private func jump(to mark: ReadingMark) {
+        selection = nil
+        pendingParagraphJump = mark.paragraphIndex
+        if mark.chapterIndex != currentChapterIndex {
+            currentChapterIndex = mark.chapterIndex
+        } else {
+            applyPendingParagraphJump()
+        }
+    }
+
+    private func applyPendingParagraphJump() {
+        guard let paragraphIndex = pendingParagraphJump else { return }
+        pendingParagraphJump = nil
+        guard let pageIndex = cachedPages.firstIndex(where: { page in
+            page.contains { $0.paragraphIndex == paragraphIndex }
+        }) else { return }
+        currentPageIndex = pageIndex
+    }
+
     private func persistReadingPosition() {
         let manager = BookManager(modelContext: modelContext)
         manager.updateProgress(book: book, chapterIndex: currentChapterIndex, position: chapterPositionFraction)
@@ -3475,6 +3780,12 @@ private struct StaticPageView: View {
     let titleColor: Color
     let horizontalPadding: CGFloat
     let bottomReserve: CGFloat
+    /// Paragraph currently selected for a bookmark or note.
+    var selectedParagraphIndex: Int?
+    /// Long press on a paragraph: index, full text and its screen frame.
+    var onSelectParagraph: ((Int, String, CGRect) -> Void)?
+
+    @State private var paragraphFrames: [Int: CGRect] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: fontSize * (lineSpacing - 1)) {
@@ -3493,6 +3804,29 @@ private struct StaticPageView: View {
                     .foregroundStyle(textColor)
                     .lineSpacing(fontSize * (lineSpacing - 1))
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(alignment: .topLeading) {
+                        if let selectedParagraphIndex, selectedParagraphIndex == frag.paragraphIndex {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(textColor.opacity(0.12))
+                                .padding(.horizontal, -4)
+                                .padding(.vertical, -2)
+                        }
+                    }
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear { paragraphFrames[frag.paragraphIndex] = proxy.frame(in: .global) }
+                                .onChange(of: proxy.frame(in: .global)) { _, frame in
+                                    paragraphFrames[frag.paragraphIndex] = frame
+                                }
+                        }
+                    )
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 0.35) {
+                        guard let onSelectParagraph else { return }
+                        let frame = paragraphFrames[frag.paragraphIndex] ?? .zero
+                        onSelectParagraph(frag.paragraphIndex, frag.text, frame)
+                    }
             }
 
             Spacer()
@@ -3501,6 +3835,37 @@ private struct StaticPageView: View {
         .padding(.top, 20)
         .padding(.bottom, bottomReserve)
     }
+}
+
+/// Where a paragraph sits on screen, in global space and inside the scroll view.
+struct ScrollParagraphFrame: Equatable {
+    let global: CGRect
+    let inScroll: CGFloat
+}
+
+struct ScrollParagraphFramesKey: PreferenceKey {
+    static var defaultValue: [Int: ScrollParagraphFrame] = [:]
+    static func reduce(value: inout [Int: ScrollParagraphFrame], nextValue: () -> [Int: ScrollParagraphFrame]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// A paragraph the reader picked for a bookmark or a note.
+struct ReaderSelection: Equatable {
+    let paragraphIndex: Int
+    let text: String
+    /// Screen frame of the paragraph, used to place the action toolbar.
+    let frame: CGRect
+    let chapterIndex: Int
+}
+
+/// What the note editor is editing.
+struct NoteDraft: Identifiable {
+    let id = UUID()
+    let chapterIndex: Int
+    let paragraphIndex: Int
+    let excerpt: String
+    var mark: ReadingMark?
 }
 
 /// Screen brightness of the reader's window. Kept in one place so the reader can

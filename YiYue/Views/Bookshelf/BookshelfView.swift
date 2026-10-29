@@ -236,7 +236,8 @@ struct BookshelfView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.bottom, 16)
+                .frame(maxWidth: 300)
+                .padding(.bottom, 2)
             VStack(spacing: 10) {
                 if bookSources.isEmpty {
                     Button { showingSources = true } label: {
