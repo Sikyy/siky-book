@@ -17,6 +17,15 @@ struct ReaderMenuTopEdgePreference: PreferenceKey {
     }
 }
 
+/// 菜单底部面板的顶边在屏幕上的位置(按行网格取整用)。
+struct ReaderMenuBottomTopPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
+    }
+}
+
 struct ReaderMenuOverlay: View {
     let book: Book
     @Binding var currentChapterIndex: Int
@@ -40,6 +49,8 @@ struct ReaderMenuOverlay: View {
     var onAddBookmarkHere: (() -> Void)? = nil
     /// 书签面板顶部「写笔记」:摘录取当前页第一段。
     var onWriteNoteHere: (() -> Void)? = nil
+    /// 底部面板往上多长多少,让它的顶边落在正文的行边界上。
+    var bottomTopInset: CGFloat = 0
 
     private var theme: ReaderTheme { settings.theme }
 
@@ -353,7 +364,7 @@ struct ReaderMenuOverlay: View {
             }
             iconRow
         }
-        .padding(.top, 12)
+        .padding(.top, 12 + bottomTopInset)
         // 底部标签离屏幕底只留安全区:负的底距把这二十来点空白收掉。
         .padding(.bottom, -1)
         .padding(.horizontal, 20)
@@ -362,6 +373,14 @@ struct ReaderMenuOverlay: View {
         .overlay(alignment: .top) {
             Rectangle().fill(theme.menuSeparator).frame(height: 1)
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ReaderMenuBottomTopPreference.self,
+                    value: proxy.frame(in: .global).minY
+                )
+            }
+        )
         .animation(.easeInOut(duration: 0.2), value: showSettings)
     }
 

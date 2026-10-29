@@ -18,6 +18,7 @@ struct ReaderView: View {
     /// 正文第一行顶边、菜单顶部面板底边的屏幕位置(菜单开着时用来对齐行边界)。
     @State private var bodyTopY: CGFloat = 0
     @State private var menuTopEdgeY: CGFloat = 0
+    @State private var menuBottomTopY: CGFloat = 0
     @State private var currentPageIndex: Int = 0
     /// nil means the reader follows the system brightness.
     @State private var selection: ReaderSelection?
@@ -339,7 +340,8 @@ struct ReaderView: View {
                         )
                     },
                     onAddBookmarkHere: { addBookmarkAtCurrentPage() },
-                    onWriteNoteHere: { writeNoteAtCurrentPage() }
+                    onWriteNoteHere: { writeNoteAtCurrentPage() },
+                    bottomTopInset: bottomMenuInset
                 )
             }
 
@@ -387,6 +389,9 @@ struct ReaderView: View {
             if menuTopInset == 0 { bodyTopY = y }
         }
         .onPreferenceChange(ReaderMenuTopEdgePreference.self) { y in menuTopEdgeY = y }
+        .onPreferenceChange(ReaderMenuBottomTopPreference.self) { y in
+            if bottomMenuInset == 0 { menuBottomTopY = y }
+        }
         .statusBarHidden(!showMenu)
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
         .preferredColorScheme(settings.theme.isDark ? .dark : .light)
@@ -616,6 +621,17 @@ struct ReaderView: View {
         let distance = menuTopEdgeY - bodyTopY
         guard distance > 0 else { return 0 }
         // 下移「距离除以行高剩下的零头」,下一行的顶边就正好贴在面板底边上。
+        let remainder = distance.truncatingRemainder(dividingBy: line)
+        return remainder < 0.5 ? 0 : remainder
+    }
+
+    /// 底部面板顶边同样按行网格取整:被它压住的那一行整行藏在面板后面,不露字头。
+    private var bottomMenuInset: CGFloat {
+        guard showMenu, bodyTopY > 0, menuBottomTopY > 0 else { return 0 }
+        let line = bodyLineHeight
+        guard line > 1 else { return 0 }
+        let distance = menuBottomTopY - bodyTopY
+        guard distance > 0 else { return 0 }
         let remainder = distance.truncatingRemainder(dividingBy: line)
         return remainder < 0.5 ? 0 : remainder
     }
