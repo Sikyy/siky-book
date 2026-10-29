@@ -13,6 +13,15 @@ enum BookshelfItem: Identifiable {
         }
     }
 
+    static func sortedByRecentRead(_ items: [BookshelfItem]) -> [BookshelfItem] {
+        func books(_ i: BookshelfItem) -> [Book] {
+            switch i { case .single(let b): return [b]; case .series(_, let bs): return bs }
+        }
+        func recent(_ i: BookshelfItem) -> Date { books(i).compactMap(\.lastReadDate).max() ?? .distantPast }
+        func added(_ i: BookshelfItem) -> Date { books(i).map(\.addedDate).max() ?? .distantPast }
+        return items.sorted { (recent($0), added($0)) > (recent($1), added($1)) }
+    }
+
     static func group(_ books: [Book]) -> [BookshelfItem] {
         var singles: [BookshelfItem] = []
         var seriesMap: [String: [Book]] = [:]

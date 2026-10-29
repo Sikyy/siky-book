@@ -113,11 +113,6 @@ struct BookCoverView: View {
             }
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(alignment: .bottom) {
-                if book.readingStatus == .reading {
-                    progressBar
-                }
-            }
 
             badge
         }
@@ -172,22 +167,6 @@ struct BookCoverView: View {
                 .foregroundStyle(.white.opacity(0.9))
                 .multilineTextAlignment(.center)
                 .padding(4)
-        }
-    }
-
-    private var progressBar: some View {
-        GeometryReader { geo in
-            VStack(spacing: 0) {
-                Spacer()
-                ZStack(alignment: .leading) {
-                    Rectangle()
-                        .fill(.white.opacity(0.15))
-                        .frame(height: 3)
-                    Rectangle()
-                        .fill(.blue)
-                        .frame(width: geo.size.width * book.progress, height: 3)
-                }
-            }
         }
     }
 

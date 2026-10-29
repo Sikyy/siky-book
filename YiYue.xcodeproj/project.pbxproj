@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B7C8D9E0F1A2030405A6B7C9 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C8D9E0F1A2030405A6B7C8 /* AboutView.swift */; };
 		A1B2C3D4E5F60718293A4B5D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* PrivacyInfo.xcprivacy */; };
 		A1B2C3D4E5F60718293A4B06 /* EPUBParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B05 /* EPUBParserTests.swift */; };
 		A1B2C3D4E5F60718293A4B04 /* EPUBParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B03 /* EPUBParser.swift */; };
@@ -81,6 +82,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B7C8D9E0F1A2030405A6B7C8 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B05 /* EPUBParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBParserTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B03 /* EPUBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPUBParser.swift; sourceTree = "<group>"; };
@@ -194,6 +196,7 @@
 			isa = PBXGroup;
 			children = (
 				7E0D8AB86667513D60EB1DD0 /* BookCoverView.swift */,
+				B7C8D9E0F1A2030405A6B7C8 /* AboutView.swift */,
 				04ACD9E4F474AEA25C4AF468 /* BookshelfItem.swift */,
 				B7274D44AD6EF74DC056EA35 /* BookshelfView.swift */,
 				15016028B24154BCC6F39D47 /* CacheManageView.swift */,
@@ -437,6 +440,7 @@
 				CE0CE03ED62DA066D58AABDF /* AddBookView.swift in Sources */,
 				ADA45F1B1836C3003E070A91 /* Book.swift in Sources */,
 				72658CD87D62BBEFC849DDC2 /* BookCoverView.swift in Sources */,
+				B7C8D9E0F1A2030405A6B7C9 /* AboutView.swift in Sources */,
 				275ABE745246236367B2179A /* BookManager.swift in Sources */,
 				732AA020A24378E5B26B9E7C /* BookSource.swift in Sources */,
 				E85F6AB57CAB210AD003C06E /* BookshelfItem.swift in Sources */,
