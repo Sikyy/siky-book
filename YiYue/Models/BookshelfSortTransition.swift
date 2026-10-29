@@ -28,10 +28,6 @@ enum BookshelfSortTransition {
     /// The same book is highlighted at most once per interval, however often the
     /// reader is reopened and closed.
     static let minimumRepeatInterval: TimeInterval = 3
-    /// The shelf settles from this scale up to 1 as the reader closes; sorting
-    /// starts only after it has finished, so the two movements never overlap.
-    static let shelfSettleScale: CGFloat = 0.98
-    static let shelfSettleDuration: TimeInterval = 0.22
 
     /// - Parameter previousIndex: the item's position before returning from the
     ///   reader, or `nil` when it could not be found (treat as far down).

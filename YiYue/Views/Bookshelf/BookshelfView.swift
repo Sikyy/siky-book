@@ -47,14 +47,13 @@ struct BookshelfView: View {
     /// Order captured when a book is opened; the shelf keeps it until the reader
     /// is dismissed so the rearrangement happens once, where the user can see it.
     @State private var frozenItemIDs: [String]?
-    /// 从阅读页回来时书架从 98% 定到 100%,之后才开始排序动画。
-    @State private var shelfSettleScale: CGFloat = 1
-    @State private var returnSortTask: Task<Void, Never>?
+    /// 阅读页刚退出的一小会儿不接收书架上的点击:关闭那一下的抬手不该落到书架上。
+    @State private var blocksShelfInput = false
     /// The book being read, remembered across the full-screen cover.
     @State private var openedBookID: UUID?
     /// Bumped to ask the scroll view to go back to the top after a long read.
     @State private var scrollToTopToken = 0
-    @State private var popInItemID: String?
+    @State private var popInBookID: UUID?
     @State private var popInProgress: Double = 1
     @State private var lastSortAnimation: (itemID: String, date: Date)?
 
@@ -149,7 +148,7 @@ struct BookshelfView: View {
                         shelfProxy.scrollTo(shelfTopAnchor, anchor: .top)
                     }
                 }
-                .scaleEffect(shelfSettleScale)
+                .allowsHitTesting(!blocksShelfInput)
             }
             .background(Color.black)
             .navigationTitle("书架")
@@ -257,8 +256,17 @@ struct BookshelfView: View {
             .sheet(item: $changeSourceBook) { book in
                 ChangeSourceView(book: book)
             }
-            .fullScreenCover(item: $selectedBook, onDismiss: { handleReturnFromReader() }) { book in
-                ReaderView(book: book, startChapterIndex: book.lastReadChapterIndex, startPosition: book.lastReadPosition)
+            // 阅读页作为一层盖在书架上:退出时不做位移动画,淡出结束的下一帧书架就在那里。
+            .overlay {
+                if let book = selectedBook {
+                    ReaderView(
+                        book: book,
+                        startChapterIndex: book.lastReadChapterIndex,
+                        startPosition: book.lastReadPosition,
+                        onClose: { finishReaderClose() }
+                    )
+                    .zIndex(1)
+                }
             }
         }
         .preferredColorScheme(.dark)
@@ -276,71 +284,65 @@ struct BookshelfView: View {
     /// Called once the reader has been dismissed: the book that was just read
     /// has already moved to the front in `liveItems`, so the frozen order is
     /// released inside one animation, or the shelf scrolls up and pops it in.
+    /// 阅读页淡出结束:一次性换回最终顺序,然后只让排到第一的那本轻微放大一下。
+    private func finishReaderClose() {
+        selectedBook = nil
+        blocksShelfInput = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            blocksShelfInput = false
+        }
+        handleReturnFromReader()
+    }
+
     private func handleReturnFromReader() {
         defer { openedBookID = nil }
         guard let frozen = frozenItemIDs else { return }
 
-        // 书架先从 98% 定到 100%,排序动画等它落定再开始,两段不叠在一起。
-        if !reduceMotion {
-            shelfSettleScale = BookshelfSortTransition.shelfSettleScale
-            withAnimation(.easeOut(duration: BookshelfSortTransition.shelfSettleDuration)) {
-                shelfSettleScale = 1
-            }
-        }
-
         let itemID = openedBookID.flatMap { BookshelfItem.itemID(containing: $0, in: liveItems) }
         let previousIndex = itemID.flatMap { frozen.firstIndex(of: $0) }
+        let readBookID = openedBookID
         let now = Date()
         let mayAnimate = itemID.map {
             BookshelfSortTransition.shouldAnimate(itemID: $0, lastAnimated: lastSortAnimation, now: now)
         } ?? true
+        let mode = BookshelfSortTransition.mode(previousIndex: previousIndex)
 
-        // Reduce Motion, or the same book twice inside the guard interval: no motion.
-        guard !reduceMotion, mayAnimate else {
-            returnSortTask?.cancel()
-            frozenItemIDs = nil
-            return
-        }
+        // 顺序一次换到位,网格不播「挪动」动画:分两步换会让同一本书同时出现在两处。
+        frozenItemIDs = nil
+
+        guard !reduceMotion, mayAnimate else { return }
         if let itemID { lastSortAnimation = (itemID, now) }
 
-        returnSortTask?.cancel()
-        returnSortTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(Int(BookshelfSortTransition.shelfSettleDuration * 1000) + 20))
-            guard !Task.isCancelled else { return }
-            switch BookshelfSortTransition.mode(previousIndex: previousIndex) {
-            case .reorderInPlace:
-                withAnimation(.easeInOut(duration: BookshelfSortTransition.reorderDuration)) {
-                    frozenItemIDs = nil
-                }
-            case .scrollAndPopIn:
-                withAnimation(.easeInOut(duration: BookshelfSortTransition.reorderDuration)) {
-                    frozenItemIDs = nil
-                }
-                scrollToTopToken += 1
-                if let itemID { startPopIn(itemID: itemID) }
-            }
+        switch mode {
+        case .reorderInPlace:
+            // 本来就在第一屏,换完顺序它就在最前面,不需要滚动。
+            break
+        case .scrollAndPopIn:
+            scrollToTopToken += 1
+            if let readBookID { startPopIn(bookID: readBookID) }
         }
     }
 
     private func popInScale(for book: Book) -> CGFloat {
-        guard popInItemID == book.id.uuidString else { return 1 }
+        guard popInBookID == book.id else { return 1 }
         return 1 + (BookshelfSortTransition.popInScale - 1) * (1 - popInProgress)
     }
 
     private func popInTint(for book: Book) -> Double {
-        guard popInItemID == book.id.uuidString else { return 0 }
+        guard popInBookID == book.id else { return 0 }
         return BookshelfSortTransition.popInTint * (1 - popInProgress)
     }
 
-    private func startPopIn(itemID: String) {
-        popInItemID = itemID
+    private func startPopIn(bookID: UUID) {
+        popInBookID = bookID
         popInProgress = 0
         withAnimation(.easeOut(duration: BookshelfSortTransition.popInDuration)) {
             popInProgress = 1
         }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(BookshelfSortTransition.popInDuration))
-            if popInItemID == itemID { popInItemID = nil }
+            if popInBookID == bookID { popInBookID = nil }
         }
     }
 

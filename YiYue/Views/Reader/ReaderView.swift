@@ -59,6 +59,8 @@ struct ReaderView: View {
     /// drawn, interactions wait, and a few retries run before the reader offers
     /// a way out instead of trapping.
     @State private var storeUnavailable = false
+    /// 滚动模式下正文在动的时候,工具条先收起,滚停再贴回选区上方。
+    @State private var isScrollMoving = false
     /// 关闭阅读页:先让正文淡出 0.28 秒,再真正退出,不要一帧硬切到书架。
     @State private var isClosing = false
     @State private var storeRecoveryTask: Task<Void, Never>?
@@ -127,7 +129,11 @@ struct ReaderView: View {
         let content: Content
     }
 
-    init(book: Book, startChapterIndex: Int = 0, startPosition: Double = 0) {
+    /// 退出用:由书架传入,让它自己决定怎么把阅读页换下去(这里不做位移)。
+    private let onClose: (() -> Void)?
+
+    init(book: Book, startChapterIndex: Int = 0, startPosition: Double = 0, onClose: (() -> Void)? = nil) {
+        self.onClose = onClose
         self.bookID = book.id
         self._book = State(initialValue: book)
         self._bookTitle = State(initialValue: book.title)
@@ -152,7 +158,11 @@ struct ReaderView: View {
         withAnimation(.easeOut(duration: 0.28)) { isClosing = true }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(280))
-            dismiss()
+            if let onClose {
+                onClose()
+            } else {
+                dismiss()
+            }
         }
     }
 
@@ -273,7 +283,7 @@ struct ReaderView: View {
                 storeUnavailableNotice
             }
 
-            if sceneIsActive, let selection {
+            if sceneIsActive, let selection, !isScrollMoving {
                 selectionToolbar(for: selection)
             }
 
@@ -639,8 +649,18 @@ struct ReaderView: View {
             .padding(.bottom, 60)
         }
         .coordinateSpace(name: "readerScroll")
+        .modifier(ScrollPhaseObserver { moving in
+            if isScrollMoving != moving {
+                isScrollMoving = moving
+            }
+        })
         .onPreferenceChange(ScrollParagraphFramesKey.self) { frames in
             scrollParagraphFrames = frames
+            // 选区跟着文字走:滚完把工具条要用的框换成新的位置。
+            if let selection, selection.chapterIndex == currentChapterIndex,
+               let frame = frames[selection.paragraphIndex]?.global {
+                self.selection?.frame = frame
+            }
             if let first = frames.values
                 .filter({ $0.inScroll >= -24 })
                 .min(by: { $0.inScroll < $1.inScroll }),
@@ -4071,12 +4091,27 @@ struct ScrollParagraphFramesKey: PreferenceKey {
     }
 }
 
+/// 报告滚动是否还在进行(iOS 18 才有 true 的滚动阶段;旧系统当作一直静止)。
+private struct ScrollPhaseObserver: ViewModifier {
+    let onChange: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollPhaseChange { _, phase in
+                onChange(phase != .idle)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// A paragraph the reader picked for a bookmark or a note.
 struct ReaderSelection: Equatable {
     let paragraphIndex: Int
     let text: String
     /// Screen frame of the paragraph, used to place the action toolbar.
-    let frame: CGRect
+    var frame: CGRect
     let chapterIndex: Int
 }
 
