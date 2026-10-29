@@ -131,9 +131,18 @@ struct ReaderView: View {
 
     /// 退出用:由书架传入,让它自己决定怎么把阅读页换下去(这里不做位移)。
     private let onClose: (() -> Void)?
+    /// 菜单开合会影响系统状态栏是否显示,书架(现在是最外层)需要知道。
+    private let onMenuVisibilityChange: ((Bool) -> Void)?
 
-    init(book: Book, startChapterIndex: Int = 0, startPosition: Double = 0, onClose: (() -> Void)? = nil) {
+    init(
+        book: Book,
+        startChapterIndex: Int = 0,
+        startPosition: Double = 0,
+        onClose: (() -> Void)? = nil,
+        onMenuVisibilityChange: ((Bool) -> Void)? = nil
+    ) {
         self.onClose = onClose
+        self.onMenuVisibilityChange = onMenuVisibilityChange
         self.bookID = book.id
         self._book = State(initialValue: book)
         self._bookTitle = State(initialValue: book.title)
@@ -372,6 +381,7 @@ struct ReaderView: View {
         .onChange(of: showMenu) { _, open in
             // 菜单开着就不该同时有选中段,toolbar 和菜单会叠在一起。
             if open { selection = nil }
+            onMenuVisibilityChange?(open)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

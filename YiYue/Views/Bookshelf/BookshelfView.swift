@@ -49,6 +49,7 @@ struct BookshelfView: View {
     @State private var frozenItemIDs: [String]?
     /// 阅读页刚退出的一小会儿不接收书架上的点击:关闭那一下的抬手不该落到书架上。
     @State private var blocksShelfInput = false
+    @State private var readerMenuOpen = false
     /// The book being read, remembered across the full-screen cover.
     @State private var openedBookID: UUID?
     /// Bumped to ask the scroll view to go back to the top after a long read.
@@ -153,6 +154,10 @@ struct BookshelfView: View {
             .background(Color.black)
             .navigationTitle("书架")
             .toolbarColorScheme(.dark, for: .navigationBar)
+            // 阅读页是盖在书架上的一层:它开着的时候,书架自己的工具栏必须让位,
+            // 否则搜索 / + / … 会从阅读页顶上露出来。
+            .toolbar(selectedBook == nil ? .visible : .hidden, for: .navigationBar)
+            .statusBarHidden(selectedBook != nil && !readerMenuOpen)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: { showingSearch = true }) {
@@ -263,7 +268,8 @@ struct BookshelfView: View {
                         book: book,
                         startChapterIndex: book.lastReadChapterIndex,
                         startPosition: book.lastReadPosition,
-                        onClose: { finishReaderClose() }
+                        onClose: { finishReaderClose() },
+                        onMenuVisibilityChange: { readerMenuOpen = $0 }
                     )
                     .zIndex(1)
                 }
@@ -287,6 +293,7 @@ struct BookshelfView: View {
     /// 阅读页淡出结束:一次性换回最终顺序,然后只让排到第一的那本轻微放大一下。
     private func finishReaderClose() {
         selectedBook = nil
+        readerMenuOpen = false
         blocksShelfInput = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(350))

@@ -21,7 +21,7 @@ targets:
       path: YiYue/App/Info.plist
       properties:
         UILaunchScreen: {}
-        CFBundleDisplayName: 已阅
+        CFBundleDisplayName: 今日已阅
         BGTaskSchedulerPermittedIdentifiers:
           - "$(PRODUCT_BUNDLE_IDENTIFIER).chapter-cache.user"
           - "$(PRODUCT_BUNDLE_IDENTIFIER).chapter-cache.resume"
