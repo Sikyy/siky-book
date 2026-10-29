@@ -9,6 +9,14 @@ enum TocRefreshOutcome: Sendable {
     case unavailable
 }
 
+/// 菜单顶部面板(标题行 + 亮度条)的底边在屏幕上的位置。
+struct ReaderMenuTopEdgePreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct ReaderMenuOverlay: View {
     let book: Book
     @Binding var currentChapterIndex: Int
@@ -63,10 +71,20 @@ struct ReaderMenuOverlay: View {
                 .allowsHitTesting(false)
 
             VStack(spacing: 0) {
-                topBar
-                if onBrightnessChange != nil && !showSettings {
-                    brightnessBar
+                VStack(spacing: 0) {
+                    topBar
+                    if onBrightnessChange != nil && !showSettings {
+                        brightnessBar
+                    }
                 }
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ReaderMenuTopEdgePreference.self,
+                            value: proxy.frame(in: .global).maxY
+                        )
+                    }
+                )
                 Spacer()
                 bottomPanel
             }
@@ -336,7 +354,8 @@ struct ReaderMenuOverlay: View {
             iconRow
         }
         .padding(.top, 12)
-        .padding(.bottom, 8)
+        // 底部标签离屏幕底只留安全区:负的底距把这二十来点空白收掉。
+        .padding(.bottom, -1)
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity)
         .background(theme.menuBackground, ignoresSafeAreaEdges: .bottom)
@@ -650,7 +669,8 @@ struct ReaderMenuOverlay: View {
                     .foregroundStyle(theme.menuSecondary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 0)
         }
         .buttonStyle(.plain)
     }

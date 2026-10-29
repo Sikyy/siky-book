@@ -50,6 +50,7 @@ struct BookshelfView: View {
     /// 阅读页刚退出的一小会儿不接收书架上的点击:关闭那一下的抬手不该落到书架上。
     @State private var blocksShelfInput = false
     @State private var readerMenuOpen = false
+    @State private var readerIsDark = true
     /// The book being read, remembered across the full-screen cover.
     @State private var openedBookID: UUID?
     /// Bumped to ask the scroll view to go back to the top after a long read.
@@ -269,13 +270,15 @@ struct BookshelfView: View {
                         startChapterIndex: book.lastReadChapterIndex,
                         startPosition: book.lastReadPosition,
                         onClose: { finishReaderClose() },
-                        onMenuVisibilityChange: { readerMenuOpen = $0 }
+                        onMenuVisibilityChange: { readerMenuOpen = $0 },
+                        onAppearanceChange: { readerIsDark = $0 }
                     )
                     .zIndex(1)
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        // 书架本身是深色;阅读页开着时整窗跟随阅读主题,状态栏的时间和电量才看得见。
+        .preferredColorScheme(selectedBook == nil ? .dark : (readerIsDark ? .dark : .light))
     }
 
 
@@ -294,6 +297,7 @@ struct BookshelfView: View {
     private func finishReaderClose() {
         selectedBook = nil
         readerMenuOpen = false
+        readerIsDark = true
         blocksShelfInput = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(350))

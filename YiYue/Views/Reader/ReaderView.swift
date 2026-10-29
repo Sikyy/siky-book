@@ -15,6 +15,9 @@ struct ReaderView: View {
     @State private var chapters: [Chapter] = []
     @State private var currentChapterIndex: Int
     @State private var showMenu = false
+    /// 正文第一行顶边、菜单顶部面板底边的屏幕位置(菜单开着时用来对齐行边界)。
+    @State private var bodyTopY: CGFloat = 0
+    @State private var menuTopEdgeY: CGFloat = 0
     @State private var currentPageIndex: Int = 0
     /// nil means the reader follows the system brightness.
     @State private var selection: ReaderSelection?
@@ -133,16 +136,20 @@ struct ReaderView: View {
     private let onClose: (() -> Void)?
     /// 菜单开合会影响系统状态栏是否显示,书架(现在是最外层)需要知道。
     private let onMenuVisibilityChange: ((Bool) -> Void)?
+    /// 阅读主题的深浅要交给最外层(状态栏文字的深浅跟着主题走)。
+    private let onAppearanceChange: ((Bool) -> Void)?
 
     init(
         book: Book,
         startChapterIndex: Int = 0,
         startPosition: Double = 0,
         onClose: (() -> Void)? = nil,
-        onMenuVisibilityChange: ((Bool) -> Void)? = nil
+        onMenuVisibilityChange: ((Bool) -> Void)? = nil,
+        onAppearanceChange: ((Bool) -> Void)? = nil
     ) {
         self.onClose = onClose
         self.onMenuVisibilityChange = onMenuVisibilityChange
+        self.onAppearanceChange = onAppearanceChange
         self.bookID = book.id
         self._book = State(initialValue: book)
         self._bookTitle = State(initialValue: book.title)
@@ -375,9 +382,16 @@ struct ReaderView: View {
                 }
             )
         }
+        .onPreferenceChange(ReaderBodyTopPreference.self) { y in
+            // 只有正文没被挪动时记录,挪动之后的值会把对齐量越算越大。
+            if menuTopInset == 0 { bodyTopY = y }
+        }
+        .onPreferenceChange(ReaderMenuTopEdgePreference.self) { y in menuTopEdgeY = y }
         .statusBarHidden(!showMenu)
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
         .preferredColorScheme(settings.theme.isDark ? .dark : .light)
+        .onAppear { onAppearanceChange?(settings.theme.isDark) }
+        .onChange(of: settings.theme) { _, theme in onAppearanceChange?(theme.isDark) }
         .onChange(of: showMenu) { _, open in
             // 菜单开着就不该同时有选中段,toolbar 和菜单会叠在一起。
             if open { selection = nil }
@@ -583,10 +597,37 @@ struct ReaderView: View {
                 case .scroll:
                     scrollContent
                 case .horizontal, .tap:
+                    // 菜单打开时顶部亮度面板会压住第一行的字头;把正文挪到整行边界,
+                    // 被压住的那一行完整藏在面板后面。
                     pagedContent
+                        .offset(y: menuTopInset)
+                        .animation(.easeInOut(duration: 0.2), value: menuTopInset)
                 }
             }
         }
+    }
+
+    /// 菜单打开时正文下移多少:让正文的行边界正好落在顶部面板的底边上,
+    /// 被面板压住的那一行就不会被切掉字头。
+    private var menuTopInset: CGFloat {
+        guard showMenu, bodyTopY > 0, menuTopEdgeY > 0 else { return 0 }
+        let line = bodyLineHeight
+        guard line > 1 else { return 0 }
+        let distance = menuTopEdgeY - bodyTopY
+        guard distance > 0 else { return 0 }
+        // 下移「距离除以行高剩下的零头」,下一行的顶边就正好贴在面板底边上。
+        let remainder = distance.truncatingRemainder(dividingBy: line)
+        return remainder < 0.5 ? 0 : remainder
+    }
+
+    /// 正文一行的高度(字号 + 行距),和排版用的是同一个算法。
+    private var bodyLineHeight: CGFloat {
+        let size = CGFloat(settings.fontSize)
+        let font: UIFont = settings.fontFamily.isSystem
+            ? UIFont.systemFont(ofSize: size)
+            : UIFont(name: settings.fontFamily.rawValue, size: size)
+                ?? UIFont.systemFont(ofSize: size)
+        return font.lineHeight + size * CGFloat(settings.lineSpacing - 1)
     }
 
     // MARK: - Scroll Mode
@@ -4065,10 +4106,15 @@ private struct StaticPageView: View {
                     }
                     .background(
                         GeometryReader { proxy in
+                            let frame = proxy.frame(in: .global)
                             Color.clear
-                                .onAppear { paragraphFrames[frag.paragraphIndex] = proxy.frame(in: .global) }
-                                .onChange(of: proxy.frame(in: .global)) { _, frame in
-                                    paragraphFrames[frag.paragraphIndex] = frame
+                                .preference(
+                                    key: ReaderBodyTopPreference.self,
+                                    value: frag.id == fragments.first?.id ? frame.minY : 0
+                                )
+                                .onAppear { paragraphFrames[frag.paragraphIndex] = frame }
+                                .onChange(of: frame) { _, newFrame in
+                                    paragraphFrames[frag.paragraphIndex] = newFrame
                                 }
                         }
                     )
@@ -4085,6 +4131,16 @@ private struct StaticPageView: View {
         .padding(.horizontal, horizontalPadding)
         .padding(.top, 20)
         .padding(.bottom, bottomReserve)
+    }
+}
+
+/// 正文第一行的顶边在屏幕上的位置;菜单打开时用它把正文让到整行边界上。
+struct ReaderBodyTopPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        guard next > 0 else { return }
+        value = value == 0 ? next : min(value, next)
     }
 }
 
