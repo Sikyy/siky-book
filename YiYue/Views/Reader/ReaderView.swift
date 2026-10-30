@@ -883,6 +883,22 @@ struct ReaderView: View {
         76 - 2
     }
 
+    /// 滚动模式页脚上沿(屏幕坐标),和点击分流的页脚判定用同一条线。
+    private var scrollFooterTop: CGFloat {
+        max(0, currentWindowSize.height - ReaderTypography.footerBottomInset - 16)
+    }
+
+    /// 滚动模式正文可视区底边:落在整行行框的边界上,最后一行不会被页脚
+    /// 切掉半行。只按屏幕和字号算,菜单开合不参与,正文区高度始终不变。
+    private var scrollTextBottomY: CGFloat {
+        let line = bodyLineHeight
+        let bodyTop = scrollBodyTopInset
+        let footerTop = max(bodyTop + line, scrollFooterTop)
+        guard line > 1 else { return footerTop }
+        let wholeLines = max(1, floor((footerTop - bodyTop) / line))
+        return min(footerTop, bodyTop + wholeLines * line)
+    }
+
     /// 滚动模式也按默认 19 号的 18 字行宽补字距,和翻页模式同一套排版。
     private var scrollCharacterSpacing: CGFloat {
         let size = settings.fontSize
@@ -921,6 +937,10 @@ struct ReaderView: View {
                             : .custom(settings.fontFamily.postScriptName, size: settings.fontSize))
                         .foregroundStyle(settings.theme.textColor)
                         .lineSpacing(bodyLineGap)
+                        // SwiftUI 的单行 Text 只按字体自然行高(约 22.7)收尾,
+                        // 最后一行缺了行距那一段;补回 bodyLineGap,让每段都是
+                        // 整数个 34.2 行框,段间距才能真的是 28。
+                        .padding(.bottom, bodyLineGap)
                         .kerning(scrollCharacterSpacing)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(alignment: .topLeading) {
@@ -964,7 +984,9 @@ struct ReaderView: View {
                 .padding(.top, bodyRepeatsChapterTitle ? scrollBodyTopInset : 0)
             }
             .padding(.horizontal, settings.horizontalPadding)
-            .padding(.bottom, 80)
+            // 至少让最后一行滚到可视区底边之上;大字号下可视区更矮,
+            // 底部留白跟着变多,最后一行才能完全露出来。
+            .padding(.bottom, max(80, max(0, currentWindowSize.height - scrollTextBottomY + 12)))
         }
         .coordinateSpace(name: "readerScroll")
         .modifier(ScrollPhaseObserver { moving in
@@ -990,6 +1012,23 @@ struct ReaderView: View {
         .contentShape(Rectangle())
         .onTapGesture(coordinateSpace: .global) { location in
             handleTap(location: location)
+        }
+        // 正文只画到页脚上沿:滚动时也不会有字钻到页脚下面,
+        // 末尾 12 点渐隐软收边,不硬切半行。
+        .mask(alignment: .top) {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(.black)
+                    .frame(height: max(0, scrollTextBottomY - 12))
+                LinearGradient(
+                    colors: [.black, .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 12)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .overlay(alignment: .bottom) {
             readerFooter(currentPage: currentPageIndex + 1, totalPages: max(cachedPages.count, 1))

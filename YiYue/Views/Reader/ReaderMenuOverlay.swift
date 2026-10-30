@@ -371,9 +371,13 @@ struct ReaderMenuOverlay: View {
     }
 
     private func progressStatsRow(width: CGFloat) -> some View {
-        HStack(alignment: .top, spacing: 40) {
+        let totalChapterCount = max(totalChapters, chapters.count)
+        let finishedText = totalChapterCount > 0
+            ? "\(max(0, readChapterCount))/\(totalChapterCount)"
+            : "\(max(0, readChapterCount))"
+        return HStack(alignment: .top, spacing: 40) {
             progressStatColumn(value: progressPercent, label: "阅读进度")
-            progressStatColumn(value: "\(max(0, readChapterCount))", label: "已读章节")
+            progressStatColumn(value: finishedText, label: "已读章节")
         }
         .frame(width: width, alignment: .center)
     }
