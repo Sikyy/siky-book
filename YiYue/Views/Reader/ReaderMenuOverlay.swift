@@ -565,17 +565,16 @@ struct ReaderMenuOverlay: View {
 
     // MARK: - 文字面板(九行)
 
-    /// 面板顶边必须落在正文行边界上(行高 34 的整数倍)。
+    /// 面板顶边必须落在正文行边界上(行框顶 + N × 当前行高)。
     private func gridAlignedTop(naturalHeight: CGFloat, barTop: CGFloat) -> CGFloat {
         let raw = barTop - naturalHeight
-        // 优先贴当前页真实行顶:段间距不是行高的整数倍,全局网格会压住半行。
-        if bodyTopY > 0, let lineTop = bodyLineInkTops.last(where: { $0 <= raw }) {
+        let line = currentBodyLineHeight
+        // 优先贴当前页真实行框顶:段间距不是行高的整数倍,全局网格会压住半行。
+        if let lineTop = measuredBodyLineTops.last(where: { $0 <= raw }) {
             return lineTop
         }
-        let bodyTop = bodyTopY > 0 ? bodyTopY : ReaderTypography.bodyTopInkY
-        let line = bodyLineHeight > 1
-            ? bodyLineHeight
-            : ReaderTypography.bodyLineHeight(fontSize: settings.fontSize, level: settings.lineSpacing)
+        // 滚动模式量不到真实行框时,从规格的 116 字顶按当前行高铺网格。
+        let bodyTop = measuredBodyLineTops.first ?? ReaderTypography.bodyTopInkY
         let steps = floor((raw - bodyTop) / line)
         return bodyTop + max(0, steps) * line
     }
@@ -1070,44 +1069,49 @@ struct ReaderMenuOverlay: View {
     /// 面板顶边:状态栏底(59pt)下面 8pt,再按正文行网格往下取到行边界。
     static let panelTop: CGFloat = 67
 
+    /// 当前排版真正使用的行高:翻页/滚动、字号、行距、边距变化后都重新取。
+    private var currentBodyLineHeight: CGFloat {
+        bodyLineHeight > 1
+            ? bodyLineHeight
+            : ReaderTypography.bodyLineHeight(fontSize: settings.fontSize, level: settings.lineSpacing)
+    }
+
+    /// 翻页模式量到的当前页行框顶。滚动模式的行框由 SwiftUI Text 自己排,
+    /// 和分页缓存的 bodyLineTops 不是同一套坐标,不能拿来贴面板。
+    private var measuredBodyLineTops: [CGFloat] {
+        guard settings.pageMode != .scroll, bodyTopY > 0 else { return [] }
+        return bodyLineTops
+    }
+
     /// 顶栏下面补多少,让面板内容区(目录首行、设置首行)正好从正文行边界开始。
     private var topBarRowInset: CGFloat {
-        guard bodyTopY > 0, bodyLineHeight > 1, topBarHeight > 1 else { return 0 }
-        let distance = max(topBarBottomY, Self.panelTop + topBarHeight) - bodyTopY
+        guard topBarHeight > 1 else { return 0 }
+        let line = currentBodyLineHeight
+        guard line > 1 else { return 0 }
+        let origin = measuredBodyLineTops.first ?? ReaderTypography.bodyTopInkY
+        let distance = max(topBarBottomY, Self.panelTop + topBarHeight) - origin
         guard distance > 0 else { return 0 }
-        let remainder = distance.truncatingRemainder(dividingBy: bodyLineHeight)
-        return remainder < 0.5 ? 0 : bodyLineHeight - remainder
+        let remainder = distance.truncatingRemainder(dividingBy: line)
+        return remainder < 0.5 ? 0 : line - remainder
     }
 
-    /// bodyLineTops 是行框顶;正文实际字顶还要再往下 14 点多。
-    /// 面板顶边贴可见的字行边界,而不是行框顶,免得面板与第一行字之间空一截。
-    private var bodyLineInkTops: [CGFloat] {
-        guard let first = bodyLineTops.first else { return [] }
-        let inkOffset = bodyTopY > 0 ? bodyTopY - first : 0
-        return bodyLineTops.map { $0 + inkOffset }
-    }
-
-    /// 面板顶边必须落在正文行边界上:顶栏底边以下的第一条真实行顶。
+    /// 面板顶边必须落在正文行边界上:顶栏底边以下的第一条真实行框顶。
     /// 段间距会让行位偏离全局网格,所以用当前页量到的 bodyLineTops。
     private var alignedPanelTop: CGFloat {
         let minimum = max(topBarBottomY, Self.panelTop)
-        // bodyTopY 为 0 时量到的是行框顶(或空数组),不能当字行边界用;
-        // 这时退回规格的 116 字顶按行高铺网格。
-        let lineTops = bodyTopY > 0 ? bodyLineInkTops : []
+        let line = currentBodyLineHeight
+        let lineTops = measuredBodyLineTops
         if let lineTop = lineTops.first(where: { $0 >= minimum - 0.5 }) {
             return lineTop
         }
-        if let last = lineTops.last, bodyLineHeight > 1 {
-            let steps = ceil((minimum - last) / bodyLineHeight)
-            return last + max(0, steps) * bodyLineHeight
+        if let last = lineTops.last {
+            let steps = ceil((minimum - last) / line)
+            return last + max(0, steps) * line
         }
-        if bodyLineHeight > 1 {
-            // 滚动模式可能量不到 bodyTopY,退回规格的 116 字顶,仍然落在行网格上。
-            let origin = bodyTopY > 0 ? bodyTopY : ReaderTypography.bodyTopInkY
-            let steps = ceil((minimum - origin) / bodyLineHeight)
-            return origin + max(0, steps) * bodyLineHeight
-        }
-        return minimum
+        // 滚动模式可能量不到 bodyTopY,退回规格的 116 字顶,按当前行高铺网格。
+        let origin = ReaderTypography.bodyTopInkY
+        let steps = ceil((minimum - origin) / line)
+        return origin + max(0, steps) * line
     }
 
     /// 目录 / 书签面板:从底部升到状态栏下 8pt,左右贴边、只有上边两个 16pt 圆角,
