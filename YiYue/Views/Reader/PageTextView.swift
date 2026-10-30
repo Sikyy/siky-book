@@ -23,6 +23,8 @@ struct PageTextView: UIViewRepresentable {
     var onSelectionChanged: ((NSRange) -> Void)?
     /// 手指在上下边缘 24 点内停住 0.45 秒:true 是上边缘。
     var onEdgeHold: ((Bool) -> Void)?
+    /// 文本视图会吃掉单击,这里把屏幕坐标回传给外面的点击分流。
+    var onScreenTap: ((CGPoint) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -47,6 +49,7 @@ struct PageTextView: UIViewRepresentable {
     func updateUIView(_ view: PageUITextView, context: Context) {
         view.tintColor = UIColor(accentColor)
         view.onSelectionChanged = onSelectionChanged
+        view.onScreenTap = onScreenTap
         view.onEdgeHold = onEdgeHold
         view.highlightAll = highlightAll
         view.desiredSelection = desiredSelection
@@ -148,6 +151,17 @@ final class PageUITextView: UITextView, UIGestureRecognizerDelegate {
     var desiredSelection: NSRange?
     var extraHighlight: NSRange?
 
+    /// 单击:文本视图会把单击吃掉,外面 SwiftUI 的 onTapGesture 收不到,所以自己装一个识别器把位置传出去。
+    var onScreenTap: ((CGPoint) -> Void)?
+
+    private lazy var screenTapRecognizer: UITapGestureRecognizer = {
+        let r = UITapGestureRecognizer(target: self, action: #selector(handleScreenTap(_:)))
+        r.numberOfTapsRequired = 1
+        r.cancelsTouchesInView = false
+        r.delegate = self
+        return r
+    }()
+
     private let edgeZone: CGFloat = 24
     private let holdDuration: TimeInterval = 0.45
     private var edgeTimer: Timer?
@@ -159,6 +173,22 @@ final class PageUITextView: UITextView, UIGestureRecognizerDelegate {
     }
 
     deinit { edgeTimer?.invalidate() }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil, screenTapRecognizer.view == nil {
+            addGestureRecognizer(screenTapRecognizer)
+        }
+    }
+
+    @objc private func handleScreenTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        guard selectedRange.length == 0 else { return }
+        let inView = recognizer.location(in: self)
+        guard let window else { return }
+        let inWindow = convert(inView, to: window)
+        onScreenTap?(window.convert(inWindow, to: window.screen.coordinateSpace))
+    }
 
     /// 不去抢文本视图自己的手势:盯选中变化。手柄拖到上下 24 点内停住 0.45 秒就翻页。
     func watchSelectionEdge() {

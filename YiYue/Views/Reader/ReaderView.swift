@@ -1546,7 +1546,8 @@ struct ReaderView: View {
                     pendingPageSelection = nil
                 }
             },
-            onEdgeHold: { isTop in handleSelectionEdgeHold(isTop: isTop) }
+            onEdgeHold: { isTop in handleSelectionEdgeHold(isTop: isTop) },
+            onScreenTap: { point in handleTap(location: point) }
         )
     }
 
@@ -4325,6 +4326,8 @@ private struct StaticPageView: View {
     var desiredSelection: NSRange?
     var onSelectionChange: ((NSRange) -> Void)?
     var onEdgeHold: ((Bool) -> Void)?
+    /// 文本视图吃掉单击,把它截下来交回 SwiftUI 的点击分流。
+    var onScreenTap: ((CGPoint) -> Void)?
 
     @State private var paragraphFrames: [Int: CGRect] = [:]
 
@@ -4361,7 +4364,8 @@ private struct StaticPageView: View {
                     extraHighlight: extraHighlight,
                     desiredSelection: desiredSelection,
                     onSelectionChanged: onSelectionChange,
-                    onEdgeHold: onEdgeHold
+                    onEdgeHold: onEdgeHold,
+                    onScreenTap: onScreenTap
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                 .background(
