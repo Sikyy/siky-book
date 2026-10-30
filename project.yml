@@ -17,6 +17,10 @@ targets:
     platform: iOS
     sources:
       - path: YiYue
+        excludes:
+          - Resources
+      - path: YiYue/Resources
+        buildPhase: resources
     info:
       path: YiYue/App/Info.plist
       properties:
@@ -63,6 +67,10 @@ targets:
     platform: iOS
     sources:
       - path: YiYueTests
+        excludes:
+          - Resources
+      - path: YiYueTests/Resources
+        buildPhase: resources
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

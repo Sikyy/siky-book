@@ -476,7 +476,8 @@ struct ReaderMenuOverlay: View {
             )
 
             pillButton(
-                title: autoPageEnabled ? "关闭自动翻页" : "开启自动翻页",
+                title: "自动翻页",
+                accessibilityState: autoPageEnabled ? "已开启" : nil,
                 highlighted: autoPageEnabled,
                 action: {
                     if autoPageEnabled {
@@ -497,7 +498,7 @@ struct ReaderMenuOverlay: View {
         .frame(width: width, height: height)
     }
 
-    private func pillButton(title: String, highlighted: Bool, action: @escaping () -> Void) -> some View {
+    private func pillButton(title: String, accessibilityState: String? = nil, highlighted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13))
@@ -512,6 +513,7 @@ struct ReaderMenuOverlay: View {
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityState.map { "\(title),\($0)" } ?? title)
         .accessibilityLabel(title)
         .accessibilityAddTraits(highlighted ? [.isSelected] : [])
     }

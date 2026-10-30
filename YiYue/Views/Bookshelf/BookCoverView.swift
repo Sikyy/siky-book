@@ -166,10 +166,11 @@ struct BookCoverView: View {
     }
 
     private var accessibilityText: String {
+        let prefix = SampleBookService.isSample(book) ? "示例书，" : ""
         switch book.readingStatus {
-        case .reading: return "《\(book.title)》，读到 \(Int(book.progress * 100))%"
-        case .finished: return "《\(book.title)》，已读完"
-        case .unread: return "《\(book.title)》，未读"
+        case .reading: return "\(prefix)《\(book.title)》，读到 \(Int(book.progress * 100))%"
+        case .finished: return "\(prefix)《\(book.title)》，已读完"
+        case .unread: return "\(prefix)《\(book.title)》，未读"
         }
     }
 
@@ -194,19 +195,24 @@ struct BookCoverView: View {
 
     @ViewBuilder
     private var badge: some View {
-        switch book.readingStatus {
-        case .reading:
-            ShelfCornerBadge(
-                text: "\(Int(book.progress * 100))%",
-                background: .shelfReadingAccent
-            )
-        case .finished:
-            ShelfCornerBadge(
-                text: "读完",
-                background: Color.black.opacity(0.45)
-            )
-        case .unread:
-            EmptyView()
+        if SampleBookService.isSample(book) {
+            // 内置示例书固定用右上角这颗角标:25×15、墨 18% 底、白字。
+            ShelfCornerBadge(text: "示例", background: Color.black.opacity(0.18))
+        } else {
+            switch book.readingStatus {
+            case .reading:
+                ShelfCornerBadge(
+                    text: "\(Int(book.progress * 100))%",
+                    background: .shelfReadingAccent
+                )
+            case .finished:
+                ShelfCornerBadge(
+                    text: "读完",
+                    background: Color.black.opacity(0.45)
+                )
+            case .unread:
+                EmptyView()
+            }
         }
     }
 

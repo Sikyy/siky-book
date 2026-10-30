@@ -236,6 +236,9 @@ struct BookshelfView: View {
         }
         // 书架本身是深色;阅读页开着时整窗跟随阅读主题,状态栏的时间和电量才看得见。
         .preferredColorScheme(selectedBook == nil ? .dark : (readerIsDark ? .dark : .light))
+        .task {
+            SampleBookService.seedIfNeeded(modelContext: modelContext)
+        }
     }
 
 
@@ -382,6 +385,7 @@ struct BookshelfView: View {
         guard deletingBookIDs.insert(bookId).inserted else { return }
         let bookTitle = book.title
         let coverURL = book.coverURL
+        let wasSample = SampleBookService.isSample(bookID: bookId)
         // Cache lifetime follows an explicit book deletion. Do not infer
         // orphans from the launch-time @Query snapshot: SwiftData can publish
         // a transient partial result while the persistent store is loading.
@@ -393,6 +397,9 @@ struct BookshelfView: View {
             } catch {
                 deletionError = "无法删除《\(bookTitle)》：\(error.localizedDescription)"
                 return
+            }
+            if wasSample {
+                SampleBookService.markUserDeleted()
             }
             if let coverURL {
                 CoverSearchService.discardDownloadedCover(coverURL)

@@ -75,6 +75,11 @@
 		E91BA1716F14396D215A070D /* CoverPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6EB993ADDEFE7CE6BC2A56 /* CoverPickerView.swift */; };
 		F25779FC798600D6911B97A5 /* ChapterSplitterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7DEBEB31A2EEC414767DE9F /* ChapterSplitterTests.swift */; };
 		F8AD59939183CA4F013422BC /* CacheManageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15016028B24154BCC6F39D47 /* CacheManageView.swift */; };
+		D14EAD0000000000000000A1 /* SampleBookService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14EAD0000000000000000A2 /* SampleBookService.swift */; };
+		D14EAD0000000000000000B1 /* SampleBook.txt in Resources */ = {isa = PBXBuildFile; fileRef = D14EAD0000000000000000B2 /* SampleBook.txt */; };
+		D14EAD0000000000000000C1 /* SampleBookCover.png in Resources */ = {isa = PBXBuildFile; fileRef = D14EAD0000000000000000C2 /* SampleBookCover.png */; };
+		D14EAD0000000000000000F1 /* TypographyRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14EAD0000000000000000F2 /* TypographyRegressionTests.swift */; };
+		D14EAD0000000000000000F3 /* TypographyTest.txt in Resources */ = {isa = PBXBuildFile; fileRef = D14EAD0000000000000000F4 /* TypographyTest.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -97,6 +102,11 @@
 		0975DBAB71C57D0A603A1C72 /* DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPicker.swift; sourceTree = "<group>"; };
 		0B84FF998721056D60FD02CA /* LegadoRuleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoRuleTests.swift; sourceTree = "<group>"; };
 		15016028B24154BCC6F39D47 /* CacheManageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManageView.swift; sourceTree = "<group>"; };
+		D14EAD0000000000000000A2 /* SampleBookService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleBookService.swift; sourceTree = "<group>"; };
+		D14EAD0000000000000000B2 /* SampleBook.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = SampleBook.txt; sourceTree = "<group>"; };
+		D14EAD0000000000000000C2 /* SampleBookCover.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = SampleBookCover.png; sourceTree = "<group>"; };
+		D14EAD0000000000000000F2 /* TypographyRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypographyRegressionTests.swift; sourceTree = "<group>"; };
+		D14EAD0000000000000000F4 /* TypographyTest.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = TypographyTest.txt; sourceTree = "<group>"; };
 		2006BBAE10A9017DAE2695D8 /* LegadoRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoRule.swift; sourceTree = "<group>"; };
 		233579991FCEFE7B48D2BA85 /* ReaderSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettings.swift; sourceTree = "<group>"; };
 		A7B15E3D9C4F2A6B8D0E11B2 /* SwiftDataRefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftDataRefetch.swift; sourceTree = "<group>"; };
@@ -178,6 +188,7 @@
 				2C7508CE1E6FAA3A80A0F46E /* App */,
 				B6D98BB721DB72502B3E2545 /* Helpers */,
 				C5926EC35BFB0582FDE687E0 /* Models */,
+				D14EAD0000000000000000D0 /* Resources */,
 				B011FE8DC546F05ABB723944 /* Services */,
 				4CBB11D419F61214FD3EB798 /* Views */,
 				758FFC946A1C2170619D7FE1 /* Assets.xcassets */,
@@ -267,6 +278,8 @@
 				70D2269AB12F76D6F2B769A7 /* RuleExecutorTests.swift */,
 				25008981A8C5D1AEFFD85978 /* SourceEngineTests.swift */,
 				DCC1F3D611CBCA8DE252DE30 /* SourceImportTests.swift */,
+				D14EAD0000000000000000F2 /* TypographyRegressionTests.swift */,
+				D14EAD0000000000000000F0 /* Resources */,
 			);
 			path = YiYueTests;
 			sourceTree = "<group>";
@@ -281,6 +294,23 @@
 				D075DEF90BF070FBED77D143 /* ReaderView.swift */,
 			);
 			path = Reader;
+			sourceTree = "<group>";
+		};
+		D14EAD0000000000000000F0 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D14EAD0000000000000000F4 /* TypographyTest.txt */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		D14EAD0000000000000000D0 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D14EAD0000000000000000B2 /* SampleBook.txt */,
+				D14EAD0000000000000000C2 /* SampleBookCover.png */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		B011FE8DC546F05ABB723944 /* Services */ = {
@@ -299,6 +329,7 @@
 				62DB8C5202FAEAD2CDFA673C /* SearchService.swift */,
 				542309D43B39B62127057473 /* SourceEngine.swift */,
 				304F0AE1F193CD62D6AC5B10 /* SourceImportService.swift */,
+				D14EAD0000000000000000A2 /* SampleBookService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -372,6 +403,7 @@
 			buildConfigurationList = CDE6C98B4F18A1B5A8B535FA /* Build configuration list for PBXNativeTarget "YiYueTests" */;
 			buildPhases = (
 				206E8778F6757E29DEAF54C0 /* Sources */,
+				D14EAD0000000000000000E0 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -425,6 +457,16 @@
 			files = (
 				9D2FBEDC42A364199E6121CA /* Assets.xcassets in Resources */,
 				A1B2C3D4E5F60718293A4B5D /* PrivacyInfo.xcprivacy in Resources */,
+				D14EAD0000000000000000B1 /* SampleBook.txt in Resources */,
+				D14EAD0000000000000000C1 /* SampleBookCover.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D14EAD0000000000000000E0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D14EAD0000000000000000F3 /* TypographyTest.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -436,6 +478,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AC9A76280A99A89A254D81E9 /* BookManagerTests.swift in Sources */,
+				D14EAD0000000000000000F1 /* TypographyRegressionTests.swift in Sources */,
 				A7B15E3D9C4F2A6B8D0E11C1 /* BookshelfSortTransitionTests.swift in Sources */,
 				C0DEC0B10000000000000001 /* ChapterDownloadManagerTests.swift in Sources */,
 				C0DEC0B20000000000000001 /* ReaderCachePresentationStateTests.swift in Sources */,
@@ -502,6 +545,7 @@
 				C0DEC0A40000000000000001 /* ChapterDownloadSystemTask.swift in Sources */,
 				C0DEC0A20000000000000001 /* PerformanceSignposts.swift in Sources */,
 				D3C66BB9A85E7D92498CF288 /* SourceImportService.swift in Sources */,
+				D14EAD0000000000000000A1 /* SampleBookService.swift in Sources */,
 				85A96A5FEF5A9B6C2A40AD43 /* SourceListView.swift in Sources */,
 				03835B9F1D21F42F7FE5D7F2 /* SourceSelectView.swift in Sources */,
 				15C3BA85A090859C615A26A1 /* YiYueApp.swift in Sources */,

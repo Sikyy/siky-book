@@ -7,7 +7,9 @@ struct ChapterSplitter {
     }
 
     static func split(_ text: String) -> [RawChapter] {
-        let pattern = #"^[　\s]*(第[零一二三四五六七八九十百千万0-9]+[章节回集卷部]\s*.+)$"#
+        // 回目/章名与编号之间必须有空白。只写 `\s*` 会把正文里
+        // 「第四回中既将薛家……」这类句子当成新章节(内置《红楼梦》就碰到过)。
+        let pattern = #"^[　\s]*(第[零一二三四五六七八九十百千万0-9]+[章节回集卷部][　\s]+.+)$"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern, options: .anchorsMatchLines) else {
             return [RawChapter(title: "全文", content: text.trimmingCharacters(in: .whitespacesAndNewlines))]
