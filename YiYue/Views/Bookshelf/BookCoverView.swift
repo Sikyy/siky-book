@@ -91,14 +91,44 @@ enum CoverURLResolver {
     }
 }
 
+/// 书架角标:25×15,只圆左上角,贴在封面右上角。
+struct ShelfCornerBadge: View {
+    let text: String
+    let background: Color
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(width: 25, height: 15)
+            .background(
+                background,
+                in: UnevenRoundedRectangle(
+                    topLeadingRadius: 5,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+            )
+    }
+}
+
 struct BookCoverView: View {
     let book: Book
 
+    /// 封面 108×156(9:13)、圆角 5,封面到书名 14,书名一行 13 点。
+    static let coverWidth: CGFloat = 108
+    static let coverHeight: CGFloat = 156
+
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 14) {
             coverImage
             titleLabel
         }
+        .frame(width: Self.coverWidth)
     }
 
     private var coverImage: some View {
@@ -106,28 +136,15 @@ struct BookCoverView: View {
             ZStack {
                 CachedCoverImage(
                     urlString: book.coverURL,
-                    targetSize: CGSize(width: 120, height: 160)
+                    targetSize: CGSize(width: Self.coverWidth, height: Self.coverHeight)
                 ) {
                     placeholderGradient
                 }
             }
-            .aspectRatio(3.0 / 4.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .frame(width: Self.coverWidth, height: Self.coverHeight)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
 
             badge
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if book.readingStatus == .reading {
-                Text("\(Int(book.progress * 100))%")
-                    .font(.caption2.monospacedDigit())
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.6))
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                    .padding(.trailing, 4)
-                    .padding(.bottom, 6)
-            }
         }
         .overlay(alignment: .topLeading) {
             if book.pinnedDate != nil {
@@ -172,31 +189,28 @@ struct BookCoverView: View {
 
     @ViewBuilder
     private var badge: some View {
-        if book.readingStatus == .finished {
-            Text("读完")
-                .font(.caption2.bold())
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(Color.accentColor)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .padding(4)
-        } else if book.readingStatus == .unread {
-            Text("新")
-                .font(.caption2.bold())
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(Color.blue.opacity(0.9))
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .padding(4)
+        switch book.readingStatus {
+        case .reading:
+            ShelfCornerBadge(
+                text: "\(Int(book.progress * 100))%",
+                background: Color.accentColor
+            )
+        case .finished:
+            ShelfCornerBadge(
+                text: "读完",
+                background: Color.black.opacity(0.45)
+            )
+        case .unread:
+            EmptyView()
         }
     }
 
     private var titleLabel: some View {
         Text(book.title)
-            .font(.footnote)
+            .font(.system(size: 13))
             .foregroundStyle(.white)
             .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(width: Self.coverWidth, height: 16, alignment: .topLeading)
     }
 }

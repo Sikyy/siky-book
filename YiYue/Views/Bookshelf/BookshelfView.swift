@@ -61,7 +61,8 @@ struct BookshelfView: View {
 
     private let shelfTopAnchor = "shelf-top"
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
+    /// 三列固定封面宽 108、列间距 19,左右各 20。
+    private let columns = Array(repeating: GridItem(.fixed(BookCoverView.coverWidth), spacing: 19), count: 3)
 
     /// The order the shelf would show right now.
     private var liveItems: [BookshelfItem] {
@@ -83,12 +84,15 @@ struct BookshelfView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { shelfProxy in
-                ScrollView {
+            VStack(spacing: 0) {
+                shelfHeader
+                ScrollViewReader { shelfProxy in
+                    ScrollView {
                     if books.isEmpty {
                         emptyState
                     } else {
-                        LazyVGrid(columns: columns, spacing: 16) {
+                        // 行距 33:上一行封面顶到下一行封面顶 = 156 + 14 + 16 + 33 = 219。
+                        LazyVGrid(columns: columns, spacing: 33) {
                             ForEach(groupedItems) { item in
                                 switch item {
                                 case .single(let book):
@@ -98,7 +102,7 @@ struct BookshelfView: View {
                                         BookCoverView(book: book)
                                             .scaleEffect(popInScale(for: book))
                                             .overlay {
-                                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                                RoundedRectangle(cornerRadius: 5, style: .continuous)
                                                     .fill(Color.white.opacity(popInTint(for: book)))
                                                     .allowsHitTesting(false)
                                             }
@@ -140,7 +144,7 @@ struct BookshelfView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 20)
                         .padding(.top, 8)
                         .id(shelfTopAnchor)
                     }
@@ -151,61 +155,13 @@ struct BookshelfView: View {
                     }
                 }
                 .allowsHitTesting(!blocksShelfInput)
+                }
             }
             .background(Color.black)
-            .navigationTitle("书架")
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            // 阅读页是盖在书架上的一层:它开着的时候,书架自己的工具栏必须让位,
-            // 否则搜索 / + / … 会从阅读页顶上露出来。
-            .toolbar(selectedBook == nil ? .visible : .hidden, for: .navigationBar)
+            // 自绘顶栏:原生工具栏在 iOS 26 会把 20 点标题收进玻璃胶囊,
+            // 这里固定为微信读书式的「左标题 + 右三图标」。
+            .toolbar(.hidden, for: .navigationBar)
             .statusBarHidden(selectedBook != nil && !readerMenuOpen)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { showingSearch = true }) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.white)
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 16) {
-                        Menu {
-                            Button { showingFilePicker = true } label: {
-                                Label("导入本地书", systemImage: "doc.badge.plus")
-                            }
-#if DEBUG
-                            Button { seedSampleBook() } label: {
-                                Label("导入示例书", systemImage: "wand.and.stars")
-                            }
-#endif
-                            Button { showingSources = true } label: {
-                                Label("导入书源", systemImage: "link.badge.plus")
-                            }
-                            Button { showingSearch = true } label: {
-                                Label("去搜索", systemImage: "magnifyingglass")
-                            }
-                        } label: {
-                            Image(systemName: "plus")
-                                .foregroundStyle(.white)
-                        }
-                        .accessibilityLabel("添加")
-                        Menu {
-                            Button { showingCacheManage = true } label: {
-                                Label("缓存管理", systemImage: "arrow.down.circle")
-                            }
-                            Button { showingSources = true } label: {
-                                Label("书源管理", systemImage: "list.bullet.rectangle")
-                            }
-                            Button { showingAbout = true } label: {
-                                Label("关于", systemImage: "info.circle")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .foregroundStyle(.white)
-                        }
-                        .accessibilityLabel("更多")
-                    }
-                }
-            }
             .sheet(isPresented: $showingCacheManage) {
                 CacheManageView()
             }
@@ -281,6 +237,69 @@ struct BookshelfView: View {
         .preferredColorScheme(selectedBook == nil ? .dark : (readerIsDark ? .dark : .light))
     }
 
+
+    private var shelfHeader: some View {
+        HStack(spacing: 20) {
+            Text("书架")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white)
+                .accessibilityAddTraits(.isHeader)
+
+            Spacer(minLength: 0)
+
+            Button { showingSearch = true } label: {
+                headerIcon("magnifyingglass")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("搜索")
+
+            Menu {
+                Button { showingFilePicker = true } label: {
+                    Label("导入本地书", systemImage: "doc.badge.plus")
+                }
+#if DEBUG
+                Button { seedSampleBook() } label: {
+                    Label("导入示例书", systemImage: "wand.and.stars")
+                }
+#endif
+                Button { showingSources = true } label: {
+                    Label("导入书源", systemImage: "link.badge.plus")
+                }
+                Button { showingSearch = true } label: {
+                    Label("去搜索", systemImage: "magnifyingglass")
+                }
+            } label: {
+                headerIcon("plus")
+            }
+            .accessibilityLabel("添加")
+
+            Menu {
+                Button { showingCacheManage = true } label: {
+                    Label("缓存管理", systemImage: "arrow.down.circle")
+                }
+                Button { showingSources = true } label: {
+                    Label("书源管理", systemImage: "list.bullet.rectangle")
+                }
+                Button { showingAbout = true } label: {
+                    Label("关于", systemImage: "info.circle")
+                }
+            } label: {
+                headerIcon("ellipsis")
+            }
+            .accessibilityLabel("更多")
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 44)
+        .background(Color.black)
+    }
+
+    private func headerIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 20, weight: .regular))
+            .foregroundStyle(.white)
+            .frame(width: 28, height: 44)
+            .contentShape(Rectangle())
+    }
 
     // MARK: - Returning from the reader
 
