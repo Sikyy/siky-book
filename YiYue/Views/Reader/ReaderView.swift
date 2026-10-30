@@ -20,6 +20,12 @@ struct ReaderView: View {
     @State private var menuTopEdgeY: CGFloat = 0
     @State private var menuBottomTopY: CGFloat = 0
     @State private var currentPageIndex: Int = 0
+    /// 跨页选中的锚页与延伸方向:>0 向下、<0 向上,0 表示没有在跨页选。
+    @State private var crossSelection: CrossSelection?
+    /// 翻页以后要在新页上接着选的那一段。
+    @State private var pendingPageSelection: NSRange?
+    /// 当前页的系统选区。
+    @State private var pageSelection: NSRange = NSRange(location: 0, length: 0)
     /// nil means the reader follows the system brightness.
     @State private var selection: ReaderSelection?
     @State private var readerToast: String?
@@ -913,7 +919,7 @@ struct ReaderView: View {
                     } else if tapSentinel == .prev, currentChapterIndex > 0 {
                         chapterBoundaryPage(label: "上一章", title: prevChapterTitle)
                     } else {
-                        pageView(fragments: pages[safeIndex])
+                        pageView(fragments: pages[safeIndex], pageIndex: safeIndex)
                     }
                 }
             }
@@ -1049,7 +1055,7 @@ struct ReaderView: View {
                     }
 
                     ForEach(0..<pages.count, id: \.self) { index in
-                        pageView(fragments: pages[index])
+                        pageView(fragments: pages[index], pageIndex: index)
                             .frame(width: width, height: height)
                             .id(horizontalPageID(chapterID: chapter.id, pageIndex: index))
                     }
@@ -1502,9 +1508,14 @@ struct ReaderView: View {
 
     private func pageView(
         fragments: [PageFragment],
-        chapterTitle: String? = nil
+        chapterTitle: String? = nil,
+        pageIndex: Int? = nil
     ) -> some View {
-        StaticPageView(
+        let extendingHighlight: Bool = {
+            guard let pageIndex, let cross = crossSelection, cross.anchorPage != pageIndex else { return false }
+            return cross.direction > 0 ? pageIndex > cross.anchorPage : pageIndex < cross.anchorPage
+        }()
+        return StaticPageView(
             fragments: fragments,
             chapterTitle: chapterTitle ?? currentChapterTitle,
             fontSize: settings.fontSize,
@@ -1525,7 +1536,17 @@ struct ReaderView: View {
                     frame: frame,
                     chapterIndex: currentChapterIndex
                 )
-            }
+            },
+            accentColor: settings.theme.accentColor,
+            highlightAll: extendingHighlight,
+            desiredSelection: pageIndex == currentPageIndex ? pendingPageSelection : nil,
+            onSelectionChange: { range in
+                pageSelection = range
+                if pendingPageSelection != nil, range.length > 0 {
+                    pendingPageSelection = nil
+                }
+            },
+            onEdgeHold: { isTop in handleSelectionEdgeHold(isTop: isTop) }
         )
     }
 
@@ -1711,6 +1732,41 @@ struct ReaderView: View {
     }
 
     // MARK: - Page Splitting
+
+    struct CrossSelection: Equatable {
+        var anchorPage: Int
+        var direction: Int
+    }
+
+    /// 手指拖到页面上下边缘停住 0.45 秒:翻到相邻页/相邻章,并把选中延伸过去。
+    private func handleSelectionEdgeHold(isTop: Bool) {
+        guard settings.pageMode != .scroll, !showMenu else { return }
+        let lastPage = max(cachedPages.count - 1, 0)
+        let fromPage = currentPageIndex
+        if isTop {
+            if currentPageIndex > 0 {
+                currentPageIndex -= 1
+            } else if currentChapterIndex > 0 {
+                currentChapterIndex -= 1
+                currentPageIndex = max(cachedPages.count - 1, 0)
+            } else {
+                return
+            }
+            // 新页整页算进选区:锚点留在刚才那页,方向向上。
+            crossSelection = CrossSelection(anchorPage: fromPage, direction: -1)
+        } else {
+            if currentPageIndex < lastPage {
+                currentPageIndex += 1
+            } else if currentChapterIndex < chapters.count - 1 {
+                currentChapterIndex += 1
+                currentPageIndex = 0
+            } else {
+                return
+            }
+            crossSelection = CrossSelection(anchorPage: fromPage, direction: 1)
+        }
+        pendingPageSelection = nil
+    }
 
     struct PageFragment: Identifiable, Sendable {
         let id: Int
@@ -4262,6 +4318,13 @@ private struct StaticPageView: View {
     var selectedParagraphIndex: Int?
     /// Long press on a paragraph: index, full text and its screen frame.
     var onSelectParagraph: ((Int, String, CGRect) -> Void)?
+    /// 系统选字:强调色、跨页高亮、选区回调、边缘停留回调。
+    var accentColor: Color = .accentColor
+    var highlightAll: Bool = false
+    var extraHighlight: NSRange?
+    var desiredSelection: NSRange?
+    var onSelectionChange: ((NSRange) -> Void)?
+    var onEdgeHold: ((Bool) -> Void)?
 
     @State private var paragraphFrames: [Int: CGRect] = [:]
 
@@ -4285,42 +4348,29 @@ private struct StaticPageView: View {
                     .padding(.bottom, ReaderPageHeaderMetrics.bottomPadding)
             }
 
-            ForEach(fragments) { frag in
-                Text(frag.indent ? "\u{3000}\u{3000}" + frag.text : frag.text)
-                    .font(fontFamily == FontFamily.system.rawValue
-                        ? .system(size: fontSize)
-                        : .custom(fontFamily, size: fontSize))
-                    .foregroundStyle(textColor)
-                    .lineSpacing(fontSize * (lineSpacing - 1))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(alignment: .topLeading) {
-                        if let selectedParagraphIndex, selectedParagraphIndex == frag.paragraphIndex {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(textColor.opacity(0.12))
-                                .padding(.horizontal, -4)
-                                .padding(.vertical, -2)
-                        }
-                    }
-                    .background(
-                        GeometryReader { proxy in
-                            let frame = proxy.frame(in: .global)
-                            Color.clear
-                                .preference(
-                                    key: ReaderBodyTopPreference.self,
-                                    value: frag.id == fragments.first?.id ? frame.minY : 0
-                                )
-                                .onAppear { paragraphFrames[frag.paragraphIndex] = frame }
-                                .onChange(of: frame) { _, newFrame in
-                                    paragraphFrames[frag.paragraphIndex] = newFrame
-                                }
-                        }
-                    )
-                    .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 0.35) {
-                        guard let onSelectParagraph else { return }
-                        let frame = paragraphFrames[frag.paragraphIndex] ?? .zero
-                        onSelectParagraph(frag.paragraphIndex, frag.text, frame)
-                    }
+            GeometryReader { proxy in
+                PageTextView(
+                    fragments: fragments,
+                    fontSize: fontSize,
+                    lineSpacing: lineSpacing,
+                    fontFamily: fontFamily,
+                    textColor: textColor,
+                    highlightedParagraph: selectedParagraphIndex,
+                    accentColor: accentColor,
+                    highlightAll: highlightAll,
+                    extraHighlight: extraHighlight,
+                    desiredSelection: desiredSelection,
+                    onSelectionChanged: onSelectionChange,
+                    onEdgeHold: onEdgeHold
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                .background(
+                    Color.clear
+                        .preference(
+                            key: ReaderBodyTopPreference.self,
+                            value: proxy.frame(in: .global).minY
+                        )
+                )
             }
 
             Spacer()

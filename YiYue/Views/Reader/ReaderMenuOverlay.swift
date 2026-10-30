@@ -447,7 +447,7 @@ struct ReaderMenuOverlay: View {
             }
             .tint(theme.menuSecondary)
             .accessibilityLabel("章节")
-            .accessibilityValue("第 \(currentChapterIndex + 1) 章,共 \(totalChapters) 章")
+            .accessibilityValue("第 \(currentChapterIndex + 1) 章，共 \(totalChapters) 章")
 
             Button {
                 if currentChapterIndex < totalChapters - 1 {
@@ -586,6 +586,8 @@ struct ReaderMenuOverlay: View {
                                         lineWidth: 1
                                     )
                             )
+                            .frame(height: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(font.displayName)
@@ -631,7 +633,8 @@ struct ReaderMenuOverlay: View {
                     .accessibilityAddTraits(settings.theme == item ? [.isSelected] : [])
                 }
             }
-            .frame(height: 56)
+            .padding(.top, 12)
+            .frame(height: 56, alignment: .top)
             .padding(.horizontal, 20)
 
             // 保持屏幕常亮
