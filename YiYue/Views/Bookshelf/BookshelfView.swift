@@ -12,13 +12,14 @@ struct BookshelfView: View {
     /// Debug-only: the Team's simulator is recreated between sessions, so the
     /// book used to check the reader has to be recreatable from the app.
     private func seedSampleBook() {
+        let probe = "　　一,二。三“四”五、六;七:八?九!十(甲)乙「丙」丁『戊』己《庚》辛〈壬〉癸【子】丑%寅,卯。一二三四五六七八九十甲乙丙丁戊己庚,辛壬癸子丑寅卯辰巳午未。他说:“你好。”然后走了,没有再回头。Hello, world. This is a long English sentence, with commas; and punctuation? Yes! (Note) \"quoted\" text.\n\n"
         let paragraphs = String(
             repeating: "　　山路上没有灯,只有月光从松枝间漏下来,落在石阶上像一层薄霜。他提着灯笼走了半个时辰,忽然听见前面有人咳嗽。\n\n",
             count: 8
         )
         var text = ""
         for index in 1...7 {
-            text += "第\(index)章 夜行\n\n\(paragraphs)"
+            text += "第\(index)章 夜行\n\n" + String(repeating: probe, count: 4) + paragraphs
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("示例书.txt")
         do {

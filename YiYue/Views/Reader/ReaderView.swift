@@ -115,8 +115,15 @@ struct ReaderView: View {
     @State private var horizontalPageDescriptorSnapshot: [HorizontalPageDescriptor]?
     /// One-line footer (11 pt + 8 pt inset) plus a small separation from text.
     private let pageBottomReserve: CGFloat = 32
+    /// 左侧上一页热区 42 点、右侧下一页 62 点;中间其余部分开/关菜单。
+    private let previousPageTapWidth: CGFloat = 42
+    private let nextPageTapWidth: CGFloat = 62
+    /// 文本视图和父级手势可能同时收到同一次点击,用它去重。
+    @State private var lastReaderTapAt: CFAbsoluteTime = -1
+    @State private var lastReaderTapLocation: CGPoint = .zero
 
     private enum TapSentinel { case prev, next }
+    private enum ReaderTapAction { case previousPage, nextPage, toggleMenu, none }
     private enum PaginationPosition { case preserve, first, last }
     private enum PreparedChapterActivation { case rendered, contentOnly, unavailable }
 
@@ -740,25 +747,14 @@ struct ReaderView: View {
         var tops: [CGFloat] = []
         var y = bodyContainerTopY
         for fragment in fragments {
-            let style = NSMutableParagraphStyle()
-            style.lineSpacing = 0
-            style.minimumLineHeight = lineHeight
-            style.maximumLineHeight = lineHeight
-            style.paragraphSpacing = 0
-            style.firstLineHeadIndent = fragment.indent && settings.firstLineIndentEnabled ? indent : 0
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .paragraphStyle: style,
-                .kern: spacing
-            ]
-            let height = NSAttributedString(string: fragment.text, attributes: attributes)
-                .boundingRect(
-                    with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    context: nil
-                )
-                .height
-            let lineCount = max(1, Int((height / lineHeight).rounded()))
+            // 分页时已经把禁则断行结果用硬换行存进 fragment,这里只数行数,
+            // 不再让 boundingRect 重新按自己的断点算高度。
+            let lineCount = max(1, ReaderLineBreaker.lines(
+                in: fragment.text,
+                width: textWidth,
+                firstLineIndent: fragment.indent && settings.firstLineIndentEnabled ? indent : 0,
+                attributes: [.font: font, .kern: spacing]
+            ).count)
             for line in 0..<lineCount {
                 tops.append(y + CGFloat(line) * lineHeight)
             }
@@ -1676,6 +1672,7 @@ struct ReaderView: View {
     // MARK: - Tap Handling
 
     private func handleTap(location: CGPoint) {
+        guard beginReaderTap(at: location) else { return }
         if showMenu {
             withAnimation(.easeInOut(duration: 0.2)) { showMenu = false }
             return
@@ -1684,18 +1681,30 @@ struct ReaderView: View {
             selection = nil
             return
         }
-        let screenWidth = UIScreen.main.bounds.width
-        let screenHeight = UIScreen.main.bounds.height
-        let centerXRange = (screenWidth / 3)...(screenWidth * 2 / 3)
-        let centerYRange = (screenHeight / 3)...(screenHeight * 2 / 3)
-        if centerXRange.contains(location.x) && centerYRange.contains(location.y) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showMenu.toggle()
+
+        // 滚动模式没有左右翻页,保持原来的中间三分之一开菜单。
+        if settings.pageMode == .scroll {
+            let screenWidth = UIScreen.main.bounds.width
+            let screenHeight = UIScreen.main.bounds.height
+            let centerXRange = (screenWidth / 3)...(screenWidth * 2 / 3)
+            let centerYRange = (screenHeight / 3)...(screenHeight * 2 / 3)
+            if centerXRange.contains(location.x) && centerYRange.contains(location.y) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showMenu.toggle()
+                }
             }
+            return
         }
+
+        performReaderTap(
+            location: location,
+            screenSize: UIScreen.main.bounds.size,
+            totalPages: max(cachedPages.count, 1)
+        )
     }
 
     private func handlePageTap(location: CGPoint, screenSize: CGSize, totalPages: Int) {
+        guard beginReaderTap(at: location) else { return }
         if showMenu {
             withAnimation(.easeInOut(duration: 0.2)) { showMenu = false }
             return
@@ -1704,22 +1713,65 @@ struct ReaderView: View {
             selection = nil
             return
         }
-        let centerXRange = (screenSize.width / 3)...(screenSize.width * 2 / 3)
-        let centerYRange = (screenSize.height / 3)...(screenSize.height * 2 / 3)
+        performReaderTap(location: location, screenSize: screenSize, totalPages: totalPages)
+    }
 
-        if centerXRange.contains(location.x) && centerYRange.contains(location.y) {
+    /// 同一次点击可能被 PageTextView 的手势和父级 onTapGesture 各收到一次,
+    /// 80 毫秒内同一点只处理一次,避免翻两页或菜单开了又关。
+    private func beginReaderTap(at location: CGPoint) -> Bool {
+        let now = CFAbsoluteTimeGetCurrent()
+        let dx = location.x - lastReaderTapLocation.x
+        let dy = location.y - lastReaderTapLocation.y
+        if now - lastReaderTapAt < 0.08, dx * dx + dy * dy < 16 {
+            return false
+        }
+        lastReaderTapAt = now
+        lastReaderTapLocation = location
+        return true
+    }
+
+    /// 竖直方向只认正文区;页脚那一行不响应,横向按 42 / 62 点分流。
+    private func readerTapAction(location: CGPoint, screenSize: CGSize) -> ReaderTapAction {
+        guard screenSize.width > 0, screenSize.height > 0 else { return .none }
+        let footerTop = screenSize.height - ReaderTypography.footerBottomInset - 16
+        let contentTop = min(bodyContainerTopY, footerTop)
+        let contentBottom = min(
+            bodyContainerTopY + bodyLineHeight * ReaderTypography.bodyLineCount,
+            footerTop
+        )
+        guard location.y >= contentTop - 0.5, location.y <= contentBottom + 0.5 else {
+            return .none
+        }
+        if location.x < previousPageTapWidth {
+            return .previousPage
+        }
+        if location.x > screenSize.width - nextPageTapWidth {
+            return .nextPage
+        }
+        return .toggleMenu
+    }
+
+    private func performReaderTap(location: CGPoint, screenSize: CGSize, totalPages: Int) {
+        switch readerTapAction(location: location, screenSize: screenSize) {
+        case .previousPage:
+            performPageTurn(direction: .previous, totalPages: totalPages)
+        case .nextPage:
+            performPageTurn(direction: .next, totalPages: totalPages)
+        case .toggleMenu:
             withAnimation(.easeInOut(duration: 0.2)) {
                 showMenu.toggle()
             }
-            return
+        case .none:
+            break
         }
+    }
 
+    private func performPageTurn(direction: HorizontalDirection, totalPages: Int) {
         let hasPrev = currentChapterIndex > 0
         let hasNext = currentChapterIndex < chapters.count - 1
 
-        if location.x < screenSize.width / 3 {
-            // Tap left — go back
-            if settings.pageMode == .tap {
+        if settings.pageMode == .tap {
+            if direction == .previous {
                 if tapSentinel == .prev {
                     tapSentinel = nil
                     skipPageReset = true
@@ -1732,16 +1784,6 @@ struct ReaderView: View {
                     tapSentinel = .prev
                 }
             } else {
-                handleHorizontalPageTap(
-                    direction: .previous,
-                    totalPages: totalPages,
-                    hasPrev: hasPrev,
-                    hasNext: hasNext
-                )
-            }
-        } else if location.x > screenSize.width * 2 / 3 {
-            // Tap right — go forward
-            if settings.pageMode == .tap {
                 if tapSentinel == .next {
                     tapSentinel = nil
                     currentChapterIndex += 1
@@ -1752,14 +1794,14 @@ struct ReaderView: View {
                 } else if hasNext {
                     tapSentinel = .next
                 }
-            } else {
-                handleHorizontalPageTap(
-                    direction: .next,
-                    totalPages: totalPages,
-                    hasPrev: hasPrev,
-                    hasNext: hasNext
-                )
             }
+        } else {
+            handleHorizontalPageTap(
+                direction: direction,
+                totalPages: totalPages,
+                hasPrev: hasPrev,
+                hasNext: hasNext
+            )
         }
     }
 
@@ -2541,15 +2583,21 @@ struct ReaderView: View {
             ]
         }
 
-        func measureHeight(_ text: String, indent: Bool) -> CGFloat {
-            // 不再 ceil:34.2 的行高被 ceil 成 35 会少排一行。
-            let attrStr = NSAttributedString(string: text, attributes: attributes(indent: indent))
-            let rect = attrStr.boundingRect(
-                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                context: nil
+        func lineStrings(_ text: String, indent: Bool) -> [String] {
+            // 标点禁则和分页共用同一套断行:这里算好的行会以硬换行拼回去,
+            // TextKit 渲染时不会再自行改断点。
+            let firstIndent = indent && input.firstLineIndent ? indentWidth : 0
+            return ReaderLineBreaker.lines(
+                in: text,
+                width: textWidth,
+                firstLineIndent: firstIndent,
+                attributes: attributes(indent: false)
             )
-            return rect.height
+        }
+
+        func measureHeight(_ text: String, indent: Bool) -> CGFloat {
+            // 行数 × 行高,不再用 boundingRect 的四舍五入结果。
+            CGFloat(lineStrings(text, indent: indent).count) * lineHeight
         }
 
         func splitText(_ text: String, indent: Bool, fitting height: CGFloat) -> (String, String)? {
@@ -2557,18 +2605,12 @@ struct ReaderView: View {
             let safeHeight = height
             guard safeHeight >= lineHeight - 0.5 else { return nil }
 
-            let attrStr = NSAttributedString(string: text, attributes: attributes(indent: indent))
-            let setter = CTFramesetterCreateWithAttributedString(attrStr)
-            let path = CGPath(rect: CGRect(x: 0, y: 0, width: textWidth, height: safeHeight), transform: nil)
-            let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil)
-            let visibleRange = CTFrameGetVisibleStringRange(frame)
-            let endIndex = visibleRange.location + visibleRange.length
+            let lines = lineStrings(text, indent: indent)
+            let maxLines = Int(floor((safeHeight + 0.5) / lineHeight))
+            guard maxLines > 0, lines.count > maxLines else { return nil }
 
-            let nsText = text as NSString
-            guard endIndex > 0, endIndex < nsText.length else { return nil }
-
-            let first = nsText.substring(to: endIndex)
-            let second = nsText.substring(from: endIndex)
+            let first = lines.prefix(maxLines).joined(separator: "\n")
+            let second = lines.dropFirst(maxLines).joined(separator: "\n")
             guard !second.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
             return (first, second)
         }
@@ -2589,12 +2631,13 @@ struct ReaderView: View {
 
         while let item = queue.popLast() {
             guard !Task.isCancelled else { return nil }
+            let brokenText = lineStrings(item.text, indent: item.indent).joined(separator: "\n")
             let h = measureHeight(item.text, indent: item.indent)
             let gap = currentPage.isEmpty ? 0 : paragraphGap
 
             if currentHeight + gap + h <= pageHeight {
                 fragmentId += 1
-                currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent, paragraphIndex: item.paragraphIndex))
+                currentPage.append(PageFragment(id: fragmentId, text: brokenText, indent: item.indent, paragraphIndex: item.paragraphIndex))
                 currentHeight += gap + h
             } else if currentPage.isEmpty {
                 if let (first, second) = splitText(item.text, indent: item.indent, fitting: pageHeight - currentHeight) {
@@ -2606,7 +2649,7 @@ struct ReaderView: View {
                     queue.append(QueueItem(text: second, indent: false, paragraphIndex: item.paragraphIndex))
                 } else {
                     fragmentId += 1
-                    currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent, paragraphIndex: item.paragraphIndex))
+                    currentPage.append(PageFragment(id: fragmentId, text: brokenText, indent: item.indent, paragraphIndex: item.paragraphIndex))
                     pages.append(currentPage)
                     currentPage = []
                     currentHeight = 0

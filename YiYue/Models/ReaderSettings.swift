@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import CoreText
 
 enum FontFamily: String, CaseIterable, Codable {
     case system = "system-default"
@@ -261,5 +262,187 @@ private extension Double {
 private extension CGFloat {
     func nonZeroOr(_ fallback: CGFloat) -> CGFloat {
         self == 0 ? fallback : self
+    }
+}
+
+/// 中文标点禁则断行。
+///
+/// 排版测量、分页和渲染必须共用同一套断行结果:这里按行做贪心装箱,
+/// 装箱边界落在禁则字符上时把前一个字一起挪到下一行,再把算好的行
+/// 用硬换行拼回去。这样 TextKit 渲染时不会再自行改断点,页数和实际
+/// 显示就不会错位。
+enum ReaderLineBreaker {
+    /// 不能出现在行首的标点(中英文、全角/半角)。
+    static let forbiddenLineStart: Set<Character> = [
+        "。", "，", "、", "；", "：", "？", "！", "）", "］", "｝",
+        "」", "』", "》", "〉", "】", "％", "%",
+        ",", ".", ";", ":", "?", "!", ")", "]",
+        "”", "’"
+    ]
+
+    /// 不能出现在行尾的标点(中英文、全角/半角)。
+    static let forbiddenLineEnd: Set<Character> = [
+        "（", "［", "｛", "「", "『", "《", "〈", "【",
+        "(", "[", "“", "‘"
+    ]
+
+    /// 把一段文字断成显示行。已有的硬换行会保留;`firstLineIndent`
+    /// 只作用于整段的第一行。`attributes` 只带字体/字距,不要带
+    /// `firstLineHeadIndent`,缩进由参数单独控制,避免重复扣减。
+    static func lines(
+        in text: String,
+        width: CGFloat,
+        firstLineIndent: CGFloat,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> [String] {
+        guard width > 1 else { return [text] }
+        var result: [String] = []
+        var isFirstLine = true
+
+        for segment in text.components(separatedBy: "\n") where !segment.isEmpty {
+            let indent = isFirstLine ? min(max(0, firstLineIndent), width - 1) : 0
+            result.append(contentsOf: breakSegment(
+                segment,
+                width: width,
+                firstLineIndent: indent,
+                attributes: attributes
+            ))
+            isFirstLine = false
+        }
+        return result.isEmpty ? [text] : result
+    }
+
+    private static func breakSegment(
+        _ text: String,
+        width: CGFloat,
+        firstLineIndent: CGFloat,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> [String] {
+        let characters = Array(text)
+        guard !characters.isEmpty else { return [] }
+
+        let attributed = NSAttributedString(string: text, attributes: attributes)
+        let typesetter = CTTypesetterCreateWithAttributedString(attributed)
+
+        // Character 下标到 UTF-16 下标的映射,CTTypesetter 用的是后者。
+        var utf16Starts: [Int] = []
+        utf16Starts.reserveCapacity(characters.count + 1)
+        var utf16Location = 0
+        for character in characters {
+            utf16Starts.append(utf16Location)
+            utf16Location += String(character).utf16.count
+        }
+        utf16Starts.append(utf16Location)
+
+        // 半角双引号本身分不出左右,按出现顺序交替判断。
+        var isOpeningQuote = [Bool](repeating: false, count: characters.count)
+        var quoteOpen = true
+        for index in characters.indices where characters[index] == "\"" {
+            isOpeningQuote[index] = quoteOpen
+            quoteOpen.toggle()
+        }
+
+        var lines: [String] = []
+        var lineStart = 0
+        var firstLine = true
+
+        while lineStart < characters.count {
+            let available = firstLine ? max(1, width - firstLineIndent) : width
+            var suggested = CTTypesetterSuggestClusterBreak(
+                typesetter,
+                utf16Starts[lineStart],
+                available
+            )
+            if suggested <= 0 {
+                suggested = max(1, String(characters[lineStart]).utf16.count)
+            }
+            let target = utf16Starts[lineStart] + suggested
+
+            var lineEnd = lineStart
+            while lineEnd < characters.count, utf16Starts[lineEnd + 1] <= target {
+                lineEnd += 1
+            }
+            if lineEnd <= lineStart {
+                lineEnd = lineStart + 1
+            }
+
+            lineEnd = adjustedBreak(
+                characters,
+                isOpeningQuote: isOpeningQuote,
+                start: lineStart,
+                end: lineEnd
+            )
+            lines.append(String(characters[lineStart..<lineEnd]))
+            lineStart = lineEnd
+            firstLine = false
+        }
+        return lines
+    }
+
+    /// 遇到行首禁则字符(或行尾禁则字符)就把断点往回挪。
+    /// 英文标点前会尽量带上整个单词,但不把整行挪空。
+    private static func adjustedBreak(
+        _ characters: [Character],
+        isOpeningQuote: [Bool],
+        start: Int,
+        end: Int
+    ) -> Int {
+        var lineEnd = end
+        while true {
+            var moved = false
+
+            if lineEnd < characters.count,
+               isForbiddenAtLineStart(characters, isOpeningQuote: isOpeningQuote, index: lineEnd),
+               lineEnd > start + 1 {
+                var candidate = lineEnd - 1
+                while candidate > start, isASCIIWordCharacter(characters[candidate - 1]) {
+                    candidate -= 1
+                }
+                if candidate <= start {
+                    candidate = start + 1
+                }
+                if candidate < lineEnd {
+                    lineEnd = candidate
+                    moved = true
+                }
+            }
+
+            if lineEnd > start + 1,
+               isForbiddenAtLineEnd(characters, isOpeningQuote: isOpeningQuote, index: lineEnd - 1) {
+                lineEnd -= 1
+                moved = true
+            }
+
+            if !moved { break }
+        }
+        return max(lineEnd, start + 1)
+    }
+
+    private static func isForbiddenAtLineStart(
+        _ characters: [Character],
+        isOpeningQuote: [Bool],
+        index: Int
+    ) -> Bool {
+        let character = characters[index]
+        if character == "\"" {
+            return !isOpeningQuote[index]
+        }
+        return forbiddenLineStart.contains(character)
+    }
+
+    private static func isForbiddenAtLineEnd(
+        _ characters: [Character],
+        isOpeningQuote: [Bool],
+        index: Int
+    ) -> Bool {
+        let character = characters[index]
+        if character == "\"" {
+            return isOpeningQuote[index]
+        }
+        return forbiddenLineEnd.contains(character)
+    }
+
+    private static func isASCIIWordCharacter(_ character: Character) -> Bool {
+        character.isASCII && (character.isLetter || character.isNumber)
     }
 }

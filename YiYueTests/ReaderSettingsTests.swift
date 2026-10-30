@@ -228,6 +228,97 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertNil(window.content(chapterID: ids[4], sourceIdentity: source))
     }
 
+    // MARK: - 中文标点禁则
+
+    private func lineBreakAttributes() -> [NSAttributedString.Key: Any] {
+        [.font: UIFont.systemFont(ofSize: 19), .kern: 0]
+    }
+
+    func testLineBreakerKeepsCommaOffLineStart() {
+        let font = UIFont.systemFont(ofSize: 19)
+        let advance = ("一" as NSString).size(withAttributes: [.font: font]).width
+        let width = advance * 10 + 0.1
+        let text = String(repeating: "一", count: 10) + "，" + String(repeating: "二", count: 10)
+
+        let lines = ReaderLineBreaker.lines(
+            in: text,
+            width: width,
+            firstLineIndent: 0,
+            attributes: lineBreakAttributes()
+        )
+
+        XCTAssertGreaterThan(lines.count, 1)
+        XCTAssertEqual(lines.joined(), text)
+        XCTAssertFalse(ReaderLineBreaker.forbiddenLineStart.contains(lines[0].last!))
+        for line in lines.dropFirst() {
+            XCTAssertFalse(ReaderLineBreaker.forbiddenLineStart.contains(line.first!))
+        }
+    }
+
+    func testLineBreakerKeepsPeriodOffLineStartAndOpeningQuoteOffLineEnd() {
+        let font = UIFont.systemFont(ofSize: 19)
+        let advance = ("一" as NSString).size(withAttributes: [.font: font]).width
+        let width = advance * 10 + 0.1
+        let text = String(repeating: "一", count: 10) + "。" +
+            String(repeating: "二", count: 9) + "“" +
+            String(repeating: "三", count: 10) + "”"
+
+        let lines = ReaderLineBreaker.lines(
+            in: text,
+            width: width,
+            firstLineIndent: 0,
+            attributes: lineBreakAttributes()
+        )
+
+        XCTAssertEqual(lines.joined(), text)
+        for index in lines.indices {
+            if index > 0 {
+                XCTAssertFalse(ReaderLineBreaker.forbiddenLineStart.contains(lines[index].first!))
+            }
+            if index < lines.count - 1 {
+                XCTAssertFalse(ReaderLineBreaker.forbiddenLineEnd.contains(lines[index].last!))
+            }
+        }
+    }
+
+    func testLineBreakerHandlesHalfwidthEnglishPunctuationAndQuotes() {
+        let text = "Hello, world. This; is: a? test! (note) \"quoted\" end"
+        var sawLineStartPunctuation = false
+
+        for width in stride(from: 80.0, through: 220.0, by: 7.0) {
+            let lines = ReaderLineBreaker.lines(
+                in: text,
+                width: CGFloat(width),
+                firstLineIndent: 0,
+                attributes: lineBreakAttributes()
+            )
+            XCTAssertEqual(lines.joined(), text)
+            for (index, line) in lines.enumerated() {
+                guard let first = line.first, let last = line.last else { continue }
+                XCTAssertFalse(ReaderLineBreaker.forbiddenLineStart.contains(first))
+                if index < lines.count - 1 {
+                    XCTAssertFalse(ReaderLineBreaker.forbiddenLineEnd.contains(last))
+                }
+                if [",", ".", ";", ":", "?", "!", ")"].contains(first) {
+                    sawLineStartPunctuation = true
+                }
+            }
+        }
+        XCTAssertFalse(sawLineStartPunctuation)
+    }
+
+    func testLineBreakerPreservesHardLineBreaks() {
+        let text = "第一行没有标点\n第二行,也没有。"
+        let lines = ReaderLineBreaker.lines(
+            in: text,
+            width: 200,
+            firstLineIndent: 0,
+            attributes: lineBreakAttributes()
+        )
+
+        XCTAssertEqual(lines, ["第一行没有标点", "第二行,也没有。"])
+    }
+
     private func makeLayoutKey(width: Double, fontSize: Double) -> ReaderChapterLayoutKey {
         ReaderChapterLayoutKey(
             width: width,
