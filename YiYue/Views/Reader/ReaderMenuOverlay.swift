@@ -63,11 +63,11 @@ enum ReaderToolbarMetrics {
     /// 底部工具条从 y=791 到屏幕底。
     static let height: CGFloat = 83
     static let topBarHeight: CGFloat = 40
-    /// 顶栏高 40、返回图标中心 y=80。
-    static let topBarTop: CGFloat = 60
+    /// 顶栏高 40、返回/目录图标中心 y=78。
+    static let topBarTop: CGFloat = 58
     static let iconSize: CGFloat = 24
-    /// 图标中心 y=820,工具条顶 791,图标 24:上沿留 17。
-    static let iconTopInset: CGFloat = 16
+    /// 图标中心 y=813,工具条顶 791,图标 24:上沿留 9。
+    static let iconTopInset: CGFloat = 9
 }
 
 /// 第五格:直径 22、线宽 2、18° 缺口朝上的自绘进度环,
@@ -171,6 +171,14 @@ struct ReaderMenuOverlay: View {
     var bodyLineTops: [CGFloat] = []
     /// 顶栏底边的屏幕 y:面板从这条线下面开始,不能盖住顶栏。
     var topBarBottomY: CGFloat = 0
+    /// 本书已读完整章数(章序号算真数,不估阅读时长)。
+    var readChapterCount: Int = 0
+    /// 自动翻页当前开关、间隔(秒);菜单开着时只显示,不驱动计时器。
+    var autoPageEnabled: Bool = false
+    var autoPageInterval: Int = 20
+    var onShowReadingDetails: (() -> Void)? = nil
+    var onSetAutoPageEnabled: ((Bool) -> Void)? = nil
+    var onSetAutoPageInterval: ((Int) -> Void)? = nil
 
     private var theme: ReaderTheme { settings.theme }
 
@@ -196,6 +204,7 @@ struct ReaderMenuOverlay: View {
     @State private var pendingDeletionID: UUID?
     @State private var undoToast: String?
     @State private var undoToastTask: Task<Void, Never>?
+    @State private var showAutoPageSheet = false
 
     var body: some View {
         GeometryReader { geo in
@@ -210,9 +219,15 @@ struct ReaderMenuOverlay: View {
                     .allowsHitTesting(false)
 
                 // 菜单开着时,正文区点一下要能收菜单/收面板。
-                // 放在顶栏、面板、工具栏下面,不挡它们自己的点击。
+                // 只铺在顶栏底边到菜单块顶边之间:顶栏按钮和底部胶囊不会因为
+                // 同一次触摸再命中这层,避免按钮动作和「收菜单」同时触发。
                 Color.clear
                     .contentShape(Rectangle())
+                    .frame(
+                        width: screenWidth,
+                        height: max(0, BottomChromeMetrics.panelTop - 98)
+                    )
+                    .offset(y: 98)
                     .onTapGesture {
                         if selectedTool != nil || showChapterList {
                             closePanel()
@@ -221,7 +236,11 @@ struct ReaderMenuOverlay: View {
                         }
                     }
 
-                // 顶栏:高 40、无底色无分隔线,只放返回;章节名不在这里。
+                // 底部菜单块:从 y=568 起到屏底,纸色、分隔线、软阴影。
+                // 内容全部画在这块里,正文排版视口一帧不动。
+                bottomChrome(width: screenWidth, height: screenHeight)
+
+                // 顶栏:高 40、无底色无分隔线,返回 / 章节名 / 目录。
                 topBar
 
                 if let panelTool = selectedTool {
@@ -261,26 +280,287 @@ struct ReaderMenuOverlay: View {
         .onChange(of: currentChapterIndex) { _, newValue in
             sliderValue = Double(newValue)
         }
+        .sheet(isPresented: $showAutoPageSheet) {
+            ReaderAutoPageSettingsSheet(
+                isEnabled: autoPageEnabled,
+                interval: autoPageInterval,
+                onChangeEnabled: { onSetAutoPageEnabled?($0) },
+                onChangeInterval: { onSetAutoPageInterval?($0) }
+            )
+            .presentationDetents([.height(220)])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    // MARK: - Bottom Chrome
+
+    private enum BottomChromeMetrics {
+        static let panelTop: CGFloat = 568
+        static let progressFrameTop: CGFloat = 587
+        static let sliderTop: CGFloat = 660
+        static let sliderHeight: CGFloat = 34
+        static let sliderInset: CGFloat = 34
+        static let knobSize: CGFloat = 37
+        static let pillTop: CGFloat = 730
+        static let pillHeight: CGFloat = 37
+        static let leftPillX: CGFloat = 34
+        static let leftPillWidth: CGFloat = 165
+        static let rightPillX: CGFloat = 210
+        static let rightPillWidth: CGFloat = 157
+    }
+
+    /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从 568 起,内容按屏幕绝对坐标。
+    private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
+        let contentHeight = max(0, height - BottomChromeMetrics.panelTop)
+        return ZStack(alignment: .topLeading) {
+            progressStatsRow(width: width)
+                .offset(y: BottomChromeMetrics.progressFrameTop - BottomChromeMetrics.panelTop)
+
+            chapterSlider(width: width)
+                .frame(width: width, height: BottomChromeMetrics.sliderHeight)
+                .offset(y: BottomChromeMetrics.sliderTop - BottomChromeMetrics.panelTop)
+
+            pillRow(width: width)
+                .offset(y: BottomChromeMetrics.pillTop - BottomChromeMetrics.panelTop)
+        }
+        .frame(width: width, height: contentHeight, alignment: .topLeading)
+        .background {
+            if theme.isDark {
+                LinearGradient(
+                    colors: [Color(hex: "#141416"), Color(hex: "#1c1c1e")],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            } else {
+                theme.menuBackground
+            }
+        }
+        .overlay(alignment: .top) {
+            if !theme.isDark {
+                Rectangle()
+                    .fill(theme.menuPrimary.opacity(0.12))
+                    .frame(height: 1)
+            }
+        }
+        .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 0)
+        .offset(y: BottomChromeMetrics.panelTop)
+    }
+
+    private func progressStatsRow(width: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 40) {
+            progressStatColumn(value: progressPercent, label: "阅读进度")
+            progressStatColumn(value: "\(max(0, readChapterCount))", label: "已读章节")
+        }
+        .frame(width: width, alignment: .center)
+    }
+
+    private func progressStatColumn(value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.system(size: 17, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(theme.textColor.opacity(0.9))
+                .lineLimit(1)
+                .fixedSize()
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(theme.textColor.opacity(0.45))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .frame(minWidth: 44)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) \(value)")
+    }
+
+    private func chapterSlider(width: CGFloat) -> some View {
+        let inset = BottomChromeMetrics.sliderInset
+        let trackWidth = max(0, width - inset * 2)
+        let maxIndex = max(totalChapters - 1, 1)
+        let fraction = min(max(sliderValue / Double(maxIndex), 0), 1)
+        let knobX = inset + CGFloat(fraction) * trackWidth
+        let centerY = BottomChromeMetrics.sliderHeight / 2
+        return ZStack {
+            Capsule()
+                .fill(theme.menuPrimary.opacity(0.12))
+                .frame(width: trackWidth, height: 2)
+                .position(x: width / 2, y: centerY)
+                .contentShape(Rectangle().inset(by: -16))
+                .gesture(chapterSliderGesture(width: width))
+
+            Circle()
+                .fill(theme.menuBackground)
+                .frame(width: BottomChromeMetrics.knobSize,
+                       height: BottomChromeMetrics.knobSize)
+                .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
+                .position(x: knobX, y: centerY)
+                .gesture(chapterSliderGesture(width: width))
+                .accessibilityElement()
+                .accessibilityLabel("章节滑轨")
+                .accessibilityValue("第 \(currentChapterIndex + 1) 章，共 \(totalChapters) 章")
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: jumpChapter(to: currentChapterIndex + 1)
+                    case .decrement: jumpChapter(to: currentChapterIndex - 1)
+                    @unknown default: break
+                    }
+                }
+
+            Button {
+                jumpChapter(to: currentChapterIndex - 1)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(theme.menuPrimary.opacity(0.6))
+                    .frame(width: 44, height: BottomChromeMetrics.sliderHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .position(x: inset, y: centerY)
+            .disabled(currentChapterIndex <= 0)
+            .accessibilityLabel("上一章")
+
+            Button {
+                jumpChapter(to: currentChapterIndex + 1)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(theme.menuPrimary.opacity(0.6))
+                    .frame(width: 44, height: BottomChromeMetrics.sliderHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .position(x: width - inset, y: centerY)
+            .disabled(currentChapterIndex >= totalChapters - 1)
+            .accessibilityLabel("下一章")
+        }
+        .coordinateSpace(name: "chapterSlider")
+    }
+
+    private func chapterSliderGesture(width: CGFloat) -> some Gesture {
+        let inset = BottomChromeMetrics.sliderInset
+        let trackWidth = max(1, width - inset * 2)
+        let maxIndex = max(totalChapters - 1, 1)
+        return DragGesture(minimumDistance: 0, coordinateSpace: .named("chapterSlider"))
+            .onChanged { value in
+                let x = min(max(value.location.x - inset, 0), trackWidth)
+                sliderValue = Double(x / trackWidth) * Double(maxIndex)
+            }
+            .onEnded { _ in
+                let index = Int(sliderValue.rounded())
+                jumpChapter(to: index)
+            }
+    }
+
+    private func jumpChapter(to index: Int) {
+        let clamped = min(max(index, 0), max(totalChapters - 1, 0))
+        sliderValue = Double(clamped)
+        if clamped != currentChapterIndex {
+            currentChapterIndex = clamped
+        }
+    }
+
+    private func pillRow(width: CGFloat) -> some View {
+        let height = BottomChromeMetrics.pillHeight
+        return ZStack {
+            pillButton(
+                title: "阅读明细",
+                highlighted: false,
+                action: { onShowReadingDetails?() }
+            )
+            .frame(width: BottomChromeMetrics.leftPillWidth, height: height)
+            .contentShape(Rectangle())
+            .position(
+                x: BottomChromeMetrics.leftPillX + BottomChromeMetrics.leftPillWidth / 2,
+                y: height / 2
+            )
+
+            pillButton(
+                title: autoPageEnabled ? "关闭自动翻页" : "开启自动翻页",
+                highlighted: autoPageEnabled,
+                action: {
+                    if autoPageEnabled {
+                        onSetAutoPageEnabled?(false)
+                    } else {
+                        onSetAutoPageEnabled?(true)
+                        showAutoPageSheet = true
+                    }
+                }
+            )
+            .frame(width: BottomChromeMetrics.rightPillWidth, height: height)
+            .contentShape(Rectangle())
+            .position(
+                x: BottomChromeMetrics.rightPillX + BottomChromeMetrics.rightPillWidth / 2,
+                y: height / 2
+            )
+        }
+        .frame(width: width, height: height)
+    }
+
+    private func pillButton(title: String, highlighted: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(highlighted ? theme.menuBackground : theme.menuPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(highlighted ? theme.accentColor : theme.menuPrimary.opacity(0.06))
+                )
+                .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(highlighted ? [.isSelected] : [])
     }
 
     // MARK: - Top Bar
 
     private var topBar: some View {
-        HStack(spacing: 0) {
-            Button(action: { onBack() }) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 24, weight: .regular))
-                    .foregroundStyle(theme.menuPrimary)
-                    .frame(width: 30, height: ReaderToolbarMetrics.topBarHeight)
-                    // 雪佛龙字形本身偏左,补 1.8 让字墨中心落在 x=15。
-                    .offset(x: 1.8)
-                    .contentShape(Rectangle())
+        ZStack {
+            // 中间:菜单打开时显示当前章节名。12 点、正文色 55%,和返回同一中线。
+            Text(chapterTitle)
+                .font(.system(size: 12))
+                .foregroundStyle(theme.textColor.opacity(0.55))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 62)
+                .frame(maxWidth: .infinity)
+                .frame(height: ReaderToolbarMetrics.topBarHeight)
+                .accessibilityLabel(chapterTitle.isEmpty ? "" : "当前章节 \(chapterTitle)")
+
+            HStack(spacing: 0) {
+                Button(action: { onBack() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 24, weight: .regular))
+                        .foregroundStyle(theme.menuPrimary)
+                        .frame(width: 30, height: ReaderToolbarMetrics.topBarHeight)
+                        // 雪佛龙字形本身偏左,补 2.8 让字墨中心落在 x=16。
+                        .offset(x: 2.8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("返回")
+
+                Spacer(minLength: 0)
+
+                // 右侧只有目录一个入口,等价于底部第一格。
+                Button {
+                    handleToolTap(.chapters)
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 24, weight: .regular))
+                        .foregroundStyle(theme.menuPrimary)
+                        .frame(width: 32, height: ReaderToolbarMetrics.topBarHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("目录")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("返回")
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
         .frame(height: ReaderToolbarMetrics.topBarHeight)
         // 无底色、无分隔线,直接压在正文上,正文不动。
         .background(Color.clear)
@@ -2171,5 +2451,70 @@ final class ReaderSliderAccessibilityElement: UIAccessibilityElement {
 
     override func accessibilityDecrement() {
         slider?.adjustLevel(by: -1)
+    }
+}
+
+/// 自动翻页设置:行名「自动翻页」+ 开关,下面「间隔」三档,默认 20 秒。
+/// 关着时不驱动计时器;菜单打开时 ReaderView 会暂停,菜单关掉自动接着走。
+struct ReaderAutoPageSettingsSheet: View {
+    let isEnabled: Bool
+    let interval: Int
+    let onChangeEnabled: (Bool) -> Void
+    let onChangeInterval: (Int) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private let intervals = [10, 20, 30]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack {
+                Text("自动翻页")
+                    .font(.system(size: 16))
+                Spacer(minLength: 16)
+                Toggle("", isOn: Binding(
+                    get: { isEnabled },
+                    set: { onChangeEnabled($0) }
+                ))
+                .labelsHidden()
+                .tint(.accentColor)
+                .accessibilityLabel("自动翻页")
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("间隔")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    ForEach(intervals, id: \.self) { seconds in
+                        Button {
+                            onChangeInterval(seconds)
+                        } label: {
+                            Text("\(seconds) 秒")
+                                .font(.system(size: 13, weight: interval == seconds ? .semibold : .regular))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 36)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(interval == seconds
+                                              ? Color.accentColor
+                                              : Color.primary.opacity(0.06))
+                                )
+                                .foregroundStyle(interval == seconds ? Color.white : Color.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(interval == seconds ? [.isSelected] : [])
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Button("完成") { dismiss() }
+                .font(.system(size: 15, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+        }
+        .padding(20)
     }
 }

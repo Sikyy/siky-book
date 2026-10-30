@@ -61,6 +61,8 @@
 		ADA45F1B1836C3003E070A91 /* Book.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2903DAF1D0B8E53C0F210DA8 /* Book.swift */; };
 		CC4B845643A4C4D677077460 /* ReaderTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 756CA588556A0BEA3B03DB0B /* ReaderTheme.swift */; };
 		CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */; };
+		D14EAD000000000000000002 /* ReaderReadingDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14EAD000000000000000001 /* ReaderReadingDetailsView.swift */; };
+		D14EAD000000000000000004 /* ReaderChromeStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14EAD000000000000000003 /* ReaderChromeStatsTests.swift */; };
 		A1B2C3D4E5F6001122334466 /* PageTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6001122334455 /* PageTextView.swift */; };
 		CE0CE03ED62DA066D58AABDF /* AddBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68860057A126AE3AAB1F3EB /* AddBookView.swift */; };
 		D3C66BB9A85E7D92498CF288 /* SourceImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 304F0AE1F193CD62D6AC5B10 /* SourceImportService.swift */; };
@@ -105,6 +107,8 @@
 		2ED0F163CF8B2E91EFCA639C /* YiYueTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = YiYueTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		304F0AE1F193CD62D6AC5B10 /* SourceImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceImportService.swift; sourceTree = "<group>"; };
 		3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderMenuOverlay.swift; sourceTree = "<group>"; };
+		D14EAD000000000000000001 /* ReaderReadingDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderReadingDetailsView.swift; sourceTree = "<group>"; };
+		D14EAD000000000000000003 /* ReaderChromeStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderChromeStatsTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6001122334455 /* PageTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageTextView.swift; sourceTree = "<group>"; };
 		52D15EC2268B99A237102047 /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enums.swift; sourceTree = "<group>"; };
 		542309D43B39B62127057473 /* SourceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEngine.swift; sourceTree = "<group>"; };
@@ -258,6 +262,7 @@
 				0B84FF998721056D60FD02CA /* LegadoRuleTests.swift */,
 				5B740020C3895911020C015E /* ModelTests.swift */,
 				E1172B8EA5341C366CB05581 /* ReaderSettingsTests.swift */,
+				D14EAD000000000000000003 /* ReaderChromeStatsTests.swift */,
 				F228B4C9D1386AE0B7C4E1DD /* TocMergerTests.swift */,
 				70D2269AB12F76D6F2B769A7 /* RuleExecutorTests.swift */,
 				25008981A8C5D1AEFFD85978 /* SourceEngineTests.swift */,
@@ -271,6 +276,7 @@
 			children = (
 				C0DEC0A50000000000000002 /* ReaderCachePresentationState.swift */,
 				3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */,
+				D14EAD000000000000000001 /* ReaderReadingDetailsView.swift */,
 				A1B2C3D4E5F6001122334455 /* PageTextView.swift */,
 				D075DEF90BF070FBED77D143 /* ReaderView.swift */,
 			);
@@ -440,6 +446,7 @@
 				380A78E493B71C6A084BDA72 /* LegadoRuleTests.swift in Sources */,
 				179296A13A0BAEDA2BE564CA /* ModelTests.swift in Sources */,
 				A1D5EAC7BF1168CE45C298CB /* ReaderSettingsTests.swift in Sources */,
+				D14EAD000000000000000004 /* ReaderChromeStatsTests.swift in Sources */,
 				B2E6FBD8C02759DF56D3A9CC /* TocMergerTests.swift in Sources */,
 				73E744EDBF4EBF362509B84B /* RuleExecutorTests.swift in Sources */,
 				E8B5F5B848AEDBEF380400CC /* SourceEngineTests.swift in Sources */,
@@ -477,6 +484,7 @@
 				4650F8DF7503331156A434B3 /* LegadoRule.swift in Sources */,
 				A406B298323372D82AFFBE58 /* NetworkClient.swift in Sources */,
 				CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */,
+				D14EAD000000000000000002 /* ReaderReadingDetailsView.swift in Sources */,
 				A1B2C3D4E5F6001122334466 /* PageTextView.swift in Sources */,
 				C0DEC0A50000000000000001 /* ReaderCachePresentationState.swift in Sources */,
 				36F42549D8E8A6330F6E3BD5 /* ReaderSettings.swift in Sources */,

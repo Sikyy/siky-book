@@ -215,9 +215,9 @@ final class PageUITextView: UITextView, UIGestureRecognizerDelegate {
             selectedRange = NSRange(location: 0, length: 0)
         }
         let inView = recognizer.location(in: self)
-        guard let window else { return }
-        let inWindow = convert(inView, to: window)
-        onScreenTap?(window.convert(inWindow, to: window.screen.coordinateSpace))
+        // 和 SwiftUI 的 .global 坐标一致:统一用窗口坐标,外层 80ms/80pt 去重才对得上。
+        let inWindow = convert(inView, to: nil)
+        onScreenTap?(inWindow)
     }
 
     /// 不去抢文本视图自己的手势:盯选中变化。手柄拖到上下 24 点内停住 0.45 秒就翻页。

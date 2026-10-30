@@ -41,6 +41,11 @@ struct ReaderView: View {
     @State private var visibleParagraphIndex = 0
     @State private var manualBrightness: Double?
     @State private var entryBrightness: Double = ReaderScreenBrightness.current
+    /// 阅读明细与自动翻页:菜单里的两块,数据都是本书现成的真数。
+    @State private var showReadingDetails = false
+    @State private var autoPageEnabled = false
+    @State private var autoPageInterval = 20
+    @State private var autoPageTask: Task<Void, Never>?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var settings = ReaderSettings()
@@ -95,7 +100,6 @@ struct ReaderView: View {
     @State private var pendingPagePosition: PaginationPosition?
     /// Fraction (0…1) of the way into the chapter to jump to once pagination finishes; cleared after use.
     @State private var restorePositionFraction: Double?
-    @State private var footerClock = ""
     @State private var skipPageReset = false
     @State private var viewSize: CGSize = .zero
     @State private var cachedPages: [[PageFragment]] = [[]]
@@ -120,6 +124,8 @@ struct ReaderView: View {
     private let nextPageTapWidth: CGFloat = 62
     /// 文本视图和父级手势可能同时收到同一次点击,用它去重。
     @State private var lastReaderTapAt: CFAbsoluteTime = -1
+    /// 菜单被浮层背景关掉的时刻;用来忽略同一次点击晚到的页面手势。
+    @State private var lastMenuDismissAt: CFAbsoluteTime = -1
     @State private var lastReaderTapLocation: CGPoint = .zero
 
     private enum TapSentinel { case prev, next }
@@ -332,7 +338,12 @@ struct ReaderView: View {
                     totalChapters: book.totalChapters,
                     chapterTitle: currentChapter?.title ?? "",
                     settings: settings,
-                    onDismiss: { showMenu = false },
+                    onDismiss: {
+                        // 记下浮层背景关菜单的时刻:同一次点击的另一份投递可能稍后
+                        // 才到页面手势,短暂忽略,避免菜单刚关又被开回来。
+                        lastMenuDismissAt = CFAbsoluteTimeGetCurrent()
+                        showMenu = false
+                    },
                     onBack: { closeReader() },
                     chapters: chapters,
                     onCache: book.sourceId != nil ? { count in cacheChapters(count: count) } : nil,
@@ -370,7 +381,19 @@ struct ReaderView: View {
                     progressPercent: menuProgressText,
                     progressFraction: overallProgressFraction,
                     bodyLineTops: currentPageLineTops,
-                    topBarBottomY: menuTopEdgeY
+                    topBarBottomY: menuTopEdgeY,
+                    readChapterCount: readChapterCount,
+                    autoPageEnabled: autoPageEnabled,
+                    autoPageInterval: autoPageInterval,
+                    onShowReadingDetails: { showReadingDetails = true },
+                    onSetAutoPageEnabled: { enabled in
+                        autoPageEnabled = enabled
+                        restartAutoPage()
+                    },
+                    onSetAutoPageInterval: { seconds in
+                        autoPageInterval = seconds
+                        restartAutoPage()
+                    }
                 )
             }
 
@@ -427,6 +450,9 @@ struct ReaderView: View {
                 }
             )
         }
+        .sheet(isPresented: $showReadingDetails) {
+            ReaderReadingDetailsView(stats: readingStats)
+        }
         .onPreferenceChange(ReaderBodyTopPreference.self) { y in bodyTopY = y }
         .onPreferenceChange(ReaderMenuTopEdgePreference.self) { y in
             // 面板自己会长,量到的底边会被上一次的补齐量带着跑;只在没有补齐时记录。
@@ -444,6 +470,8 @@ struct ReaderView: View {
             // 菜单开着就不该同时有选中段,toolbar 和菜单会叠在一起。
             if open { selection = nil }
             onMenuVisibilityChange?(open)
+            // 自动翻页在菜单打开时停,菜单关掉后接着走。
+            restartAutoPage()
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -451,8 +479,13 @@ struct ReaderView: View {
                 // Re-fetch before the first draw, so the reader never renders
                 // with a model the background reset has already destroyed.
                 refreshModelAfterSceneReset()
+                if sceneIsActive {
+                    ReaderActivityStore.recordReadingDay(bookID: bookID)
+                }
+                restartAutoPage()
             case .inactive, .background:
-                break
+                autoPageTask?.cancel()
+                autoPageTask = nil
             @unknown default:
                 break
             }
@@ -531,7 +564,7 @@ struct ReaderView: View {
             UIDevice.current.isBatteryMonitoringEnabled = true
             entryBrightness = ReaderScreenBrightness.current
             applyKeepScreenAwake()
-            footerClock = Self.footerTimeFormatter.string(from: Date())
+            ReaderActivityStore.recordReadingDay(bookID: bookID)
             loadChapters()
             recomputePages(position: .first)
             fetchChapterContentIfNeeded()
@@ -556,6 +589,8 @@ struct ReaderView: View {
             // Only queue preparation belongs to this Reader presentation. An
             // enqueued explicit cache operation is app-owned and keeps running.
             cacheTask?.cancel()
+            autoPageTask?.cancel()
+            autoPageTask = nil
             persistReadingPosition()
             try? modelContext.save()
             ReaderScreenBrightness.set(entryBrightness)
@@ -575,6 +610,7 @@ struct ReaderView: View {
             tapSentinel = nil
             cancelPendingHorizontalChapterTransition(returningToCurrentPage: true)
             recomputePages()
+            restartAutoPage()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             cancelPendingHorizontalChapterTransition(returningToCurrentPage: true)
@@ -690,6 +726,71 @@ struct ReaderView: View {
     /// 菜单进度,和页脚同一个算法。
     private var menuProgressText: String {
         "\(Int((overallProgressFraction * 100).rounded()))%"
+    }
+
+    /// 已读章节:读完的整章数用章序号算真数,不估阅读时长。
+    /// 读完整本时按总章数计;否则当前章之前的章节都算读完。
+    private var readChapterCount: Int {
+        let total = max(bookChapterCount, chapters.count)
+        if book.readingStatus == .finished {
+            return max(total, 0)
+        }
+        return min(max(currentChapterIndex, 0), max(total, 0))
+    }
+
+    /// 阅读明细:只读本机真有的记录,不补 0、不编时长/笔记。
+    private var readingStats: ReaderReadingStats {
+        ReaderReadingStats(
+            readingDays: ReaderActivityStore.readingDays(bookID: bookID),
+            pagesRead: ReaderActivityStore.pagesRead(bookID: bookID),
+            bookmarkCount: book.marks.filter { !$0.isNote }.count,
+            finishedChapters: readChapterCount
+        )
+    }
+
+    /// 自动翻页:关着或菜单开着时没有计时器;菜单关掉/回到前台自动接着走。
+    private func restartAutoPage() {
+        autoPageTask?.cancel()
+        autoPageTask = nil
+        guard autoPageEnabled,
+              !showMenu,
+              sceneIsActive,
+              settings.pageMode != .scroll,
+              !storeUnavailable,
+              !isClosing else { return }
+
+        let seconds = max(autoPageInterval, 1)
+        autoPageTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled else { return }
+                guard autoPageEnabled,
+                      !showMenu,
+                      scenePhase == .active,
+                      settings.pageMode != .scroll,
+                      !storeUnavailable,
+                      !isClosing,
+                      selection == nil,
+                      !isLoadingContent,
+                      !isPaginating else { continue }
+                advanceAutoPage()
+            }
+        }
+    }
+
+    private func advanceAutoPage() {
+        let totalPages = max(cachedPages.count, 1)
+        guard chapters.indices.contains(currentChapterIndex) else { return }
+        if settings.pageMode == .tap {
+            if currentPageIndex < totalPages - 1 {
+                currentPageIndex += 1
+            } else if currentChapterIndex < chapters.count - 1 {
+                currentChapterIndex += 1
+                currentPageIndex = 0
+            }
+        } else {
+            performPageTurn(direction: .next, totalPages: totalPages)
+        }
     }
 
     /// 正文一行的高度 = 字号 × (行距档位 × 字体基准),和排版用的是同一个算法。
@@ -877,7 +978,7 @@ struct ReaderView: View {
         }
         .id(currentChapterID)
         .contentShape(Rectangle())
-        .onTapGesture { location in
+        .onTapGesture(coordinateSpace: .global) { location in
             handleTap(location: location)
         }
         .overlay(alignment: .bottom) {
@@ -1026,7 +1127,7 @@ struct ReaderView: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture { location in
+            .onTapGesture(coordinateSpace: .global) { location in
                 handlePageTap(location: location, screenSize: geometry.size, totalPages: totalPages)
             }
             .overlay(alignment: .bottom) {
@@ -1665,10 +1766,11 @@ struct ReaderView: View {
 
     private func handleTap(location: CGPoint) {
         guard beginReaderTap(at: location) else { return }
-        if showMenu {
-            withAnimation(.easeInOut(duration: 0.2)) { showMenu = false }
-            return
-        }
+        // 页面手势只负责开菜单;关闭交给菜单浮层的全屏背景层,
+        // 避免同一次点击的第二份投递把刚打开的菜单又按回去。
+        guard !showMenu else { return }
+        // 浮层刚关菜单时,同一次点击的页面手势可能晚到;短暂忽略,防止又开回来。
+        guard CFAbsoluteTimeGetCurrent() - lastMenuDismissAt > 0.5 else { return }
         if selection != nil {
             selection = nil
             return
@@ -1676,8 +1778,9 @@ struct ReaderView: View {
 
         // 滚动模式没有左右翻页,保持原来的中间三分之一开菜单。
         if settings.pageMode == .scroll {
-            let screenWidth = UIScreen.main.bounds.width
-            let screenHeight = UIScreen.main.bounds.height
+            let screenSize = currentWindowSize
+            let screenWidth = screenSize.width
+            let screenHeight = screenSize.height
             let centerXRange = (screenWidth / 3)...(screenWidth * 2 / 3)
             let centerYRange = (screenHeight / 3)...(screenHeight * 2 / 3)
             if centerXRange.contains(location.x) && centerYRange.contains(location.y) {
@@ -1690,17 +1793,16 @@ struct ReaderView: View {
 
         performReaderTap(
             location: location,
-            screenSize: UIScreen.main.bounds.size,
+            screenSize: currentWindowSize,
             totalPages: max(cachedPages.count, 1)
         )
     }
 
     private func handlePageTap(location: CGPoint, screenSize: CGSize, totalPages: Int) {
         guard beginReaderTap(at: location) else { return }
-        if showMenu {
-            withAnimation(.easeInOut(duration: 0.2)) { showMenu = false }
-            return
-        }
+        // 同上:页面手势只开菜单,关闭交给浮层背景层。
+        guard !showMenu else { return }
+        guard CFAbsoluteTimeGetCurrent() - lastMenuDismissAt > 0.5 else { return }
         if selection != nil {
             selection = nil
             return
@@ -1708,12 +1810,19 @@ struct ReaderView: View {
         performReaderTap(location: location, screenSize: screenSize, totalPages: totalPages)
     }
 
+    /// 手势统一成窗口坐标后,分区判断也用同一套窗口尺寸。
+    private var currentWindowSize: CGSize {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow)
+        return window?.bounds.size ?? UIScreen.main.bounds.size
+    }
+
     /// 同一次点击可能被 PageTextView 的手势和父级 onTapGesture 各收到一次,
     /// 80 毫秒内同一点只处理一次,避免翻两页或菜单开了又关。
     ///
-    /// 两个手势一个用屏幕坐标、一个用页面局部坐标;页面有安全区/下拉偏移时
-    /// 同一个点会差几十点。容差只放到 80 点:人手不可能在 80 毫秒内点两处
-    /// 相距 80 点的位置,但足以把同一次点击的两份事件合并掉。
+    /// 两个手势现在都投递窗口坐标(.global / convert to nil),同一次点击的
+    /// 两点只差亚像素;80 点容差只是兜底,人手不可能在 80 毫秒内点两处相距
+    /// 80 点的位置。
     private func beginReaderTap(at location: CGPoint) -> Bool {
         let now = CFAbsoluteTimeGetCurrent()
         let dx = location.x - lastReaderTapLocation.x
@@ -1764,6 +1873,13 @@ struct ReaderView: View {
     }
 
     private func performPageTurn(direction: HorizontalDirection, totalPages: Int) {
+        let chapterBefore = currentChapterIndex
+        let pageBefore = currentPageIndex
+        defer {
+            if currentChapterIndex != chapterBefore || currentPageIndex != pageBefore {
+                ReaderActivityStore.recordPageFlip(bookID: bookID)
+            }
+        }
         let hasPrev = currentChapterIndex > 0
         let hasNext = currentChapterIndex < chapters.count - 1
 
@@ -4207,42 +4323,39 @@ struct ReaderView: View {
         UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
     }
 
-    private static let footerTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
+    /// 本章已读字符数(当前页起点,1 起算)与本篇总字符数;空白和分页硬换行都不算。
+    private var chapterPositionText: String {
+        let total = cachedParagraphs.reduce(0) { $0 + ReaderCharacterCount.count($1) }
+        guard total > 0 else { return "0 / 0" }
 
-    private var footerTimer: Publishers.Autoconnect<Timer.TimerPublisher> {
-        Self.footerTimerPublisher
+        let consumed: Int
+        if settings.pageMode == .scroll {
+            let end = min(max(visibleParagraphIndex, 0), cachedParagraphs.count)
+            consumed = cachedParagraphs.prefix(end).reduce(0) { $0 + ReaderCharacterCount.count($1) }
+        } else {
+            let end = min(max(currentPageIndex, 0), cachedPages.count)
+            consumed = cachedPages.prefix(end).reduce(0) { partial, page in
+                partial + page.reduce(0) { $0 + ReaderCharacterCount.count($1.text) }
+            }
+        }
+        let position = min(max(consumed + 1, 1), total)
+        return "\(position) / \(total)"
     }
 
-    private static let footerTimerPublisher = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
-
-    /// 页脚三样:左书名(一行省略,不加书名号)、中全书百分比、右 24 小时制时间。
+    /// 页脚:左书名(一行省略,不加书名号)、右本章已读/总字数。
     /// 11 点、次要色,左右和正文对齐,字底离屏幕底 55。
     private func readerFooter(currentPage: Int, totalPages: Int) -> some View {
-        let pageCount = max(totalPages, 1)
-        let chapterFraction = pageCount > 1
-            ? Double(min(max(currentPage - 1, 0), pageCount - 1)) / Double(pageCount - 1)
-            : 0
-        let overall = (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
-        let percentText = "\(Int((overall * 100).rounded()))%"
         let color = settings.theme.statusBarColor
-        let timeText = footerClock.isEmpty ? Self.footerTimeFormatter.string(from: Date()) : footerClock
-        return HStack(alignment: .firstTextBaseline, spacing: 0) {
+        let positionText = chapterPositionText
+        return HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(bookTitle)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(percentText)
+            Text(positionText)
+                .monospacedDigit()
                 .fixedSize()
-                .frame(maxWidth: .infinity, alignment: .center)
-            Text(timeText)
-                .fixedSize()
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityHidden(true)
+                .frame(alignment: .trailing)
         }
         .font(.system(size: 11))
         .foregroundStyle(color)
@@ -4252,12 +4365,9 @@ struct ReaderView: View {
         .padding(.bottom, ReaderTypography.footerBottomInset - 2.7)
         .frame(maxWidth: .infinity, alignment: .bottom)
         .allowsHitTesting(false)
-        // 读屏整行一句,时间不单独念。
+        // 读屏整行一句。
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("《\(bookTitle)》,读到 \(percentText)")
-        .onReceive(footerTimer) { date in
-            footerClock = Self.footerTimeFormatter.string(from: date)
-        }
+        .accessibilityLabel("《\(bookTitle)》,本章读到 \(positionText)")
     }
 
     private var showsBatteryInFooter: Bool {
