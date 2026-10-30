@@ -51,6 +51,8 @@ struct ReaderMenuOverlay: View {
     var onWriteNoteHere: (() -> Void)? = nil
     /// 底部面板往上多长多少,让它的顶边落在正文的行边界上。
     var bottomTopInset: CGFloat = 0
+    /// 顶部面板往下多长多少,让它的底边落在正文的行边界上。
+    var topBottomInset: CGFloat = 0
 
     private var theme: ReaderTheme { settings.theme }
 
@@ -88,6 +90,9 @@ struct ReaderMenuOverlay: View {
                         brightnessBar
                     }
                 }
+                .padding(.bottom, topBottomInset)
+                // 补齐出来的这一条也要用面板底色涂上,否则底下那行会透出来。
+                .background(theme.menuBackground)
                 .background(
                     GeometryReader { proxy in
                         Color.clear.preference(

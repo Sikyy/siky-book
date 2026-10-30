@@ -341,7 +341,8 @@ struct ReaderView: View {
                     },
                     onAddBookmarkHere: { addBookmarkAtCurrentPage() },
                     onWriteNoteHere: { writeNoteAtCurrentPage() },
-                    bottomTopInset: bottomMenuInset
+                    bottomTopInset: bottomMenuInset,
+                    topBottomInset: menuTopInset
                 )
             }
 
@@ -384,11 +385,11 @@ struct ReaderView: View {
                 }
             )
         }
-        .onPreferenceChange(ReaderBodyTopPreference.self) { y in
-            // 只有正文没被挪动时记录,挪动之后的值会把对齐量越算越大。
-            if menuTopInset == 0 { bodyTopY = y }
+        .onPreferenceChange(ReaderBodyTopPreference.self) { y in bodyTopY = y }
+        .onPreferenceChange(ReaderMenuTopEdgePreference.self) { y in
+            // 面板自己会长,量到的底边会被上一次的补齐量带着跑;只在没有补齐时记录。
+            if menuTopInset == 0 { menuTopEdgeY = y }
         }
-        .onPreferenceChange(ReaderMenuTopEdgePreference.self) { y in menuTopEdgeY = y }
         .onPreferenceChange(ReaderMenuBottomTopPreference.self) { y in
             if bottomMenuInset == 0 { menuBottomTopY = y }
         }
@@ -602,27 +603,22 @@ struct ReaderView: View {
                 case .scroll:
                     scrollContent
                 case .horizontal, .tap:
-                    // 菜单打开时顶部亮度面板会压住第一行的字头;把正文挪到整行边界,
-                    // 被压住的那一行完整藏在面板后面。
                     pagedContent
-                        .offset(y: menuTopInset)
-                        .animation(.easeInOut(duration: 0.2), value: menuTopInset)
                 }
             }
         }
     }
 
-    /// 菜单打开时正文下移多少:让正文的行边界正好落在顶部面板的底边上,
-    /// 被面板压住的那一行就不会被切掉字头。
+    /// 顶部面板往下多长多少:让面板底边落在正文的行边界上,被它压住的那一行
+    /// 整行藏起来。正文一动不动,动的只是面板。
     private var menuTopInset: CGFloat {
         guard showMenu, bodyTopY > 0, menuTopEdgeY > 0 else { return 0 }
         let line = bodyLineHeight
         guard line > 1 else { return 0 }
         let distance = menuTopEdgeY - bodyTopY
         guard distance > 0 else { return 0 }
-        // 下移「距离除以行高剩下的零头」,下一行的顶边就正好贴在面板底边上。
         let remainder = distance.truncatingRemainder(dividingBy: line)
-        return remainder < 0.5 ? 0 : remainder
+        return remainder < 0.5 ? 0 : line - remainder
     }
 
     /// 底部面板顶边同样按行网格取整:被它压住的那一行整行藏在面板后面,不露字头。
