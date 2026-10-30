@@ -139,7 +139,7 @@ struct ReaderView: View {
 
     private struct HorizontalPageDescriptor: Identifiable {
         enum Content {
-            case page(fragments: [PageFragment], chapterTitle: String)
+            case page(fragments: [PageFragment], chapterTitle: String, pageIndex: Int)
             case boundary(label: String, chapterTitle: String)
         }
 
@@ -361,6 +361,8 @@ struct ReaderView: View {
                     bodyTopY: bodyTopY,
                     bodyLineHeight: bodyLineHeight,
                     progressPercent: menuProgressText,
+                    progressFraction: overallProgressFraction,
+                    bodyLineTops: currentPageLineTops,
                     topBarBottomY: menuTopEdgeY
                 )
             }
@@ -560,6 +562,8 @@ struct ReaderView: View {
         .onChange(of: settings.lineSpacing) { _, _ in readerLayoutDidChange(delayNanoseconds: 0) }
         .onChange(of: settings.fontFamily) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
         .onChange(of: settings.horizontalPadding) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
+        .onChange(of: settings.firstLineIndentEnabled) { _, _ in readerLayoutDidChange(delayNanoseconds: 0) }
+        .onChange(of: settings.paragraphSpacingEnabled) { _, _ in readerLayoutDidChange(delayNanoseconds: 0) }
         .onChange(of: settings.pageMode) { _, _ in
             tapSentinel = nil
             cancelPendingHorizontalChapterTransition(returningToCurrentPage: true)
@@ -636,7 +640,8 @@ struct ReaderView: View {
                 case .scroll:
                     scrollContent
                 case .horizontal, .tap:
-                    pullablePage
+                    // 正文按屏幕绝对坐标排版:首行 116、页脚 55 都是相对屏幕底的。
+                    pullablePage.ignoresSafeArea()
                 }
             }
         }
@@ -665,25 +670,97 @@ struct ReaderView: View {
         return remainder < 0.5 ? 0 : remainder
     }
 
-    /// 菜单顶栏的进度,和页脚同一个算法。
-    private var menuProgressText: String {
+    /// 全书进度(0…1),和页脚、进度格同一个算法。
+    private var overallProgressFraction: Double {
         let pageCount = max(cachedPages.count, 1)
         let currentPage = min(max(currentPageIndex + 1, 1), pageCount)
         let chapterFraction = pageCount > 1
             ? Double(currentPage - 1) / Double(pageCount - 1)
             : 0
-        let overall = (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
-        return "\(Int((overall * 100).rounded()))%"
+        return (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
     }
 
-    /// 正文一行的高度(字号 + 行距),和排版用的是同一个算法。
+    /// 菜单进度,和页脚同一个算法。
+    private var menuProgressText: String {
+        "\(Int((overallProgressFraction * 100).rounded()))%"
+    }
+
+    /// 正文一行的高度 = 字号 × (行距档位 × 字体基准),和排版用的是同一个算法。
     private var bodyLineHeight: CGFloat {
+        settings.bodyLineHeight
+    }
+
+    /// SwiftUI Text 的 lineSpacing 只补自然行高之外的差额。
+    private var bodyLineGap: CGFloat {
         let size = CGFloat(settings.fontSize)
         let font: UIFont = settings.fontFamily.isSystem
             ? UIFont.systemFont(ofSize: size)
             : UIFont(name: settings.fontFamily.rawValue, size: size)
                 ?? UIFont.systemFont(ofSize: size)
-        return font.lineHeight + size * CGFloat(settings.lineSpacing - 1)
+        return max(0, bodyLineHeight - font.lineHeight)
+    }
+
+    /// 正文容器顶(屏幕坐标):首行字顶 116 减去行内字墨偏移。
+    private var bodyContainerTopY: CGFloat {
+        let size = CGFloat(settings.fontSize)
+        let font: UIFont = settings.fontFamily.isSystem
+            ? UIFont.systemFont(ofSize: size)
+            : UIFont(name: settings.fontFamily.rawValue, size: size)
+                ?? UIFont.systemFont(ofSize: size)
+        let inkOffset = ReaderTypography.inkTopOffset(
+            fontSize: size,
+            lineHeight: settings.bodyLineHeight,
+            font: font
+        )
+        return max(0, ReaderTypography.bodyTopInkY - inkOffset + ReaderTypography.bodyInkCalibration)
+    }
+
+    /// 当前页每一条正文线的行顶(屏幕坐标)。段间距 28 会让行位偏离
+    /// 34.2 的全局网格,面板顶边必须贴真实行顶,否则会压住半行字。
+    private var currentPageLineTops: [CGFloat] {
+        guard viewSize.width > 0,
+              cachedPages.indices.contains(currentPageIndex) else { return [] }
+        let fragments = cachedPages[currentPageIndex]
+        guard !fragments.isEmpty else { return [] }
+
+        let size = CGFloat(settings.fontSize)
+        let font: UIFont = settings.fontFamily.isSystem
+            ? UIFont.systemFont(ofSize: size)
+            : UIFont(name: settings.fontFamily.rawValue, size: size)
+                ?? UIFont.systemFont(ofSize: size)
+        let lineHeight = settings.bodyLineHeight
+        let textWidth = max(1, viewSize.width - settings.horizontalPadding * 2)
+        let spacing = ReaderTypography.characterSpacing(fontSize: size, textWidth: textWidth)
+        let indent = ReaderTypography.firstLineIndent(fontSize: size, textWidth: textWidth)
+
+        var tops: [CGFloat] = []
+        var y = bodyContainerTopY
+        for fragment in fragments {
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = 0
+            style.minimumLineHeight = lineHeight
+            style.maximumLineHeight = lineHeight
+            style.paragraphSpacing = 0
+            style.firstLineHeadIndent = fragment.indent && settings.firstLineIndentEnabled ? indent : 0
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .paragraphStyle: style,
+                .kern: spacing
+            ]
+            let height = NSAttributedString(string: fragment.text, attributes: attributes)
+                .boundingRect(
+                    with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                )
+                .height
+            let lineCount = max(1, Int((height / lineHeight).rounded()))
+            for line in 0..<lineCount {
+                tops.append(y + CGFloat(line) * lineHeight)
+            }
+            y += CGFloat(lineCount) * lineHeight + settings.paragraphSpacing
+        }
+        return tops
     }
 
     // MARK: - Scroll Mode
@@ -695,23 +772,36 @@ struct ReaderView: View {
         return body == (currentChapter?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// 滚动模式正文首行字顶 116:SwiftUI Text 的行框顶到字墨顶约 1.5 点。
+    private var scrollBodyTopInset: CGFloat {
+        116 - 1.5
+    }
+
+    /// 滚动模式章节名字顶 76:12 号字的行框顶到字墨顶约 1 点。
+    private var scrollChapterTitleTopInset: CGFloat {
+        76 - 1
+    }
+
     private var scrollContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: settings.fontSize * (settings.lineSpacing - 1)) {
+            VStack(alignment: .leading, spacing: 0) {
                 if !bodyRepeatsChapterTitle {
                     Text(currentChapter?.title ?? "")
                         .font(.system(size: 12))
                         .foregroundStyle(settings.theme.chapterTitleColor)
-                        .padding(.bottom, 8)
+                        .padding(.top, scrollChapterTitleTopInset)
+                        // 章节名行高 14.3 + 25 让正文行框顶落在 116 的字墨线上。
+                        .padding(.bottom, 25)
                 }
 
+                VStack(alignment: .leading, spacing: settings.paragraphSpacing) {
                 ForEach(Array(cachedParagraphs.enumerated()), id: \.offset) { index, para in
                     Text("\u{3000}\u{3000}" + para)
                         .font(settings.fontFamily.isSystem
                             ? .system(size: settings.fontSize)
                             : .custom(settings.fontFamily.rawValue, size: settings.fontSize))
                         .foregroundStyle(settings.theme.textColor)
-                        .lineSpacing(settings.fontSize * (settings.lineSpacing - 1))
+                        .lineSpacing(bodyLineGap)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(alignment: .topLeading) {
                             if selection?.paragraphIndex == index,
@@ -750,10 +840,11 @@ struct ReaderView: View {
                             announceSelection(para)
                         }
                 }
+                }
+                .padding(.top, bodyRepeatsChapterTitle ? scrollBodyTopInset : 0)
             }
             .padding(.horizontal, settings.horizontalPadding)
-            .padding(.top, 20)
-            .padding(.bottom, 60)
+            .padding(.bottom, 80)
         }
         .coordinateSpace(name: "readerScroll")
         .modifier(ScrollPhaseObserver { moving in
@@ -781,10 +872,12 @@ struct ReaderView: View {
             handleTap(location: location)
         }
         .overlay(alignment: .bottom) {
-            if !showMenu {
-                readerFooter(currentPage: currentPageIndex + 1, totalPages: max(cachedPages.count, 1))
-            }
+            readerFooter(currentPage: currentPageIndex + 1, totalPages: max(cachedPages.count, 1))
+                .opacity(showMenu ? 0 : 1)
+                .animation(.linear(duration: 0.12), value: showMenu)
         }
+        // 滚动模式也按屏幕绝对坐标排版:首行 116、页脚字底 55 和翻页模式一致。
+        .ignoresSafeArea()
     }
 
     // MARK: - 下拉加书签
@@ -928,9 +1021,9 @@ struct ReaderView: View {
                 handlePageTap(location: location, screenSize: geometry.size, totalPages: totalPages)
             }
             .overlay(alignment: .bottom) {
-                if !showMenu {
-                    readerFooter(currentPage: safeIndex + 1, totalPages: totalPages)
-                }
+                readerFooter(currentPage: safeIndex + 1, totalPages: totalPages)
+                    .opacity(showMenu ? 0 : 1)
+                    .animation(.linear(duration: 0.12), value: showMenu)
             }
             .onAppear {
                 updateReaderGeometry(geometry.size)
@@ -983,10 +1076,11 @@ struct ReaderView: View {
                 ForEach(descriptors) { descriptor in
                     Group {
                         switch descriptor.content {
-                        case let .page(fragments, chapterTitle):
+                        case let .page(fragments, chapterTitle, pageIndex):
                             pageView(
                                 fragments: fragments,
-                                chapterTitle: chapterTitle
+                                chapterTitle: chapterTitle,
+                                pageIndex: pageIndex
                             )
                         case let .boundary(label, chapterTitle):
                             chapterBoundaryPage(label: label, title: chapterTitle)
@@ -1112,7 +1206,8 @@ struct ReaderView: View {
                     ),
                     content: .page(
                         fragments: fragments,
-                        chapterTitle: previousChapter.title
+                        chapterTitle: previousChapter.title,
+                        pageIndex: max(prepared.pages.count - 1, 0)
                     )
                 ))
             } else {
@@ -1135,7 +1230,8 @@ struct ReaderView: View {
                 id: horizontalPageID(chapterID: chapter.id, pageIndex: index),
                 content: .page(
                     fragments: currentPages[index],
-                    chapterTitle: chapter.title
+                    chapterTitle: chapter.title,
+                    pageIndex: index
                 )
             )
         })
@@ -1154,7 +1250,8 @@ struct ReaderView: View {
                     id: horizontalPageID(chapterID: nextChapter.id, pageIndex: 0),
                     content: .page(
                         fragments: fragments,
-                        chapterTitle: nextChapter.title
+                        chapterTitle: nextChapter.title,
+                        pageIndex: 0
                     )
                 ))
             } else {
@@ -1518,6 +1615,7 @@ struct ReaderView: View {
         return StaticPageView(
             fragments: fragments,
             chapterTitle: chapterTitle ?? currentChapterTitle,
+            showsChapterTitle: (pageIndex ?? currentPageIndex) != 0 && !showMenu,
             fontSize: settings.fontSize,
             lineSpacing: settings.lineSpacing,
             fontFamily: settings.fontFamily.rawValue,
@@ -1525,6 +1623,9 @@ struct ReaderView: View {
             titleColor: settings.theme.chapterTitleColor,
             horizontalPadding: settings.horizontalPadding,
             bottomReserve: pageBottomReserve,
+            paragraphSpacing: settings.paragraphSpacing,
+            firstLineIndentEnabled: settings.firstLineIndentEnabled,
+            bodyLineHeight: settings.bodyLineHeight,
             selectedParagraphIndex: selection?.paragraphIndex,
             onSelectParagraph: { index, text, frame in
                 if showMenu {
@@ -1801,7 +1902,9 @@ struct ReaderView: View {
             fontFamily: settings.fontFamily.rawValue,
             usesSystemFont: settings.fontFamily.isSystem,
             horizontalPadding: Double(settings.horizontalPadding),
-            bottomReserve: Double(pageBottomReserve)
+            bottomReserve: Double(pageBottomReserve),
+            paragraphSpacing: Double(settings.paragraphSpacing),
+            firstLineIndent: settings.firstLineIndentEnabled
         )
     }
 
@@ -1815,7 +1918,9 @@ struct ReaderView: View {
             fontFamily: settings.fontFamily.rawValue,
             usesSystemFont: settings.fontFamily.isSystem,
             horizontalPadding: Double(settings.horizontalPadding),
-            bottomReserve: Double(pageBottomReserve)
+            bottomReserve: Double(pageBottomReserve),
+            paragraphSpacing: Double(settings.paragraphSpacing),
+            firstLineIndent: settings.firstLineIndentEnabled
         )
     }
 
@@ -2380,57 +2485,65 @@ struct ReaderView: View {
         }
 
         let textWidth = CGFloat(input.width - input.horizontalPadding * 2)
-        let pageHeight = max(120, CGFloat(input.height - 20 - input.bottomReserve))
         let fontSize = CGFloat(input.fontSize)
-        let lineSpacingValue = fontSize * CGFloat(input.lineSpacing - 1)
-        let pageHeaderHeight = ceil(UIFont.systemFont(
-            ofSize: ReaderPageHeaderMetrics.fontSize
-        ).lineHeight) + ReaderPageHeaderMetrics.bottomPadding + lineSpacingValue
+        // 一页正文固定 18 行的容量:行高 = 字号 × 倍率。
+        let lineHeight = ReaderTypography.bodyLineHeight(fontSize: fontSize, level: input.lineSpacing)
+        let pageHeight = lineHeight * ReaderTypography.bodyLineCount
+        let paragraphGap = CGFloat(input.paragraphSpacing)
+        let characterSpacing = ReaderTypography.characterSpacing(fontSize: fontSize, textWidth: textWidth)
+        let indentWidth = ReaderTypography.firstLineIndent(fontSize: fontSize, textWidth: textWidth)
 
         let font: UIFont = input.usesSystemFont
             ? UIFont.systemFont(ofSize: fontSize)
             : UIFont(name: input.fontFamily, size: fontSize)
                 ?? UIFont.systemFont(ofSize: fontSize)
-        let paraStyle = NSMutableParagraphStyle()
-        paraStyle.lineSpacing = lineSpacingValue
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .paragraphStyle: paraStyle
-        ]
+
+        func style(indent: Bool) -> NSParagraphStyle {
+            let paraStyle = NSMutableParagraphStyle()
+            paraStyle.lineSpacing = 0
+            paraStyle.minimumLineHeight = lineHeight
+            paraStyle.maximumLineHeight = lineHeight
+            paraStyle.paragraphSpacing = 0
+            paraStyle.firstLineHeadIndent = indent && input.firstLineIndent ? indentWidth : 0
+            return paraStyle
+        }
+
+        func attributes(indent: Bool) -> [NSAttributedString.Key: Any] {
+            [
+                .font: font,
+                .paragraphStyle: style(indent: indent),
+                .kern: characterSpacing
+            ]
+        }
 
         func measureHeight(_ text: String, indent: Bool) -> CGFloat {
-            let display = indent ? "\u{3000}\u{3000}" + text : text
-            let attrStr = NSAttributedString(string: display, attributes: attributes)
+            // 不再 ceil:34.2 的行高被 ceil 成 35 会少排一行。
+            let attrStr = NSAttributedString(string: text, attributes: attributes(indent: indent))
             let rect = attrStr.boundingRect(
                 with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading],
                 context: nil
             )
-            return ceil(rect.height)
+            return rect.height
         }
 
         func splitText(_ text: String, indent: Bool, fitting height: CGFloat) -> (String, String)? {
-            let safeHeight = height - font.lineHeight
-            guard safeHeight > font.lineHeight else { return nil }
+            // 剩下的高度能放下一整行就切一行,不要把整段推到下一页。
+            let safeHeight = height
+            guard safeHeight >= lineHeight - 0.5 else { return nil }
 
-            let display = indent ? "\u{3000}\u{3000}" + text : text
-            let prefixLen = indent ? 2 : 0
-            let attrStr = NSAttributedString(string: display, attributes: attributes)
+            let attrStr = NSAttributedString(string: text, attributes: attributes(indent: indent))
             let setter = CTFramesetterCreateWithAttributedString(attrStr)
             let path = CGPath(rect: CGRect(x: 0, y: 0, width: textWidth, height: safeHeight), transform: nil)
             let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil)
             let visibleRange = CTFrameGetVisibleStringRange(frame)
             let endIndex = visibleRange.location + visibleRange.length
 
-            let nsDisplay = display as NSString
-            guard endIndex > prefixLen, endIndex < nsDisplay.length else { return nil }
-
-            let originalEnd = endIndex - prefixLen
             let nsText = text as NSString
-            guard originalEnd > 0, originalEnd < nsText.length else { return nil }
+            guard endIndex > 0, endIndex < nsText.length else { return nil }
 
-            let first = nsText.substring(to: originalEnd)
-            let second = nsText.substring(from: originalEnd)
+            let first = nsText.substring(to: endIndex)
+            let second = nsText.substring(from: endIndex)
             guard !second.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
             return (first, second)
         }
@@ -2446,13 +2559,13 @@ struct ReaderView: View {
         }
         var pages: [[PageFragment]] = []
         var currentPage: [PageFragment] = []
-        var currentHeight: CGFloat = pageHeaderHeight
+        var currentHeight: CGFloat = 0
         var fragmentId = 0
 
         while let item = queue.popLast() {
             guard !Task.isCancelled else { return nil }
             let h = measureHeight(item.text, indent: item.indent)
-            let gap = currentPage.isEmpty ? 0 : lineSpacingValue
+            let gap = currentPage.isEmpty ? 0 : paragraphGap
 
             if currentHeight + gap + h <= pageHeight {
                 fragmentId += 1
@@ -2464,29 +2577,29 @@ struct ReaderView: View {
                     currentPage.append(PageFragment(id: fragmentId, text: first, indent: item.indent, paragraphIndex: item.paragraphIndex))
                     pages.append(currentPage)
                     currentPage = []
-                    currentHeight = pageHeaderHeight
+                    currentHeight = 0
                     queue.append(QueueItem(text: second, indent: false, paragraphIndex: item.paragraphIndex))
                 } else {
                     fragmentId += 1
                     currentPage.append(PageFragment(id: fragmentId, text: item.text, indent: item.indent, paragraphIndex: item.paragraphIndex))
                     pages.append(currentPage)
                     currentPage = []
-                    currentHeight = pageHeaderHeight
+                    currentHeight = 0
                 }
             } else {
                 let remaining = pageHeight - currentHeight - gap
-                if remaining > font.lineHeight * 1.5,
+                if remaining >= lineHeight - 0.5,
                    let (first, second) = splitText(item.text, indent: item.indent, fitting: remaining) {
                     fragmentId += 1
                     currentPage.append(PageFragment(id: fragmentId, text: first, indent: item.indent, paragraphIndex: item.paragraphIndex))
                     pages.append(currentPage)
                     currentPage = []
-                    currentHeight = pageHeaderHeight
+                    currentHeight = 0
                     queue.append(QueueItem(text: second, indent: false, paragraphIndex: item.paragraphIndex))
                 } else {
                     pages.append(currentPage)
                     currentPage = []
-                    currentHeight = pageHeaderHeight
+                    currentHeight = 0
                     queue.append(item)
                 }
             }
@@ -4041,7 +4154,8 @@ struct ReaderView: View {
 
     private static let footerTimerPublisher = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
-    /// Left: book title, centre: overall progress, right: time — or the battery when it runs low.
+    /// 页脚三样:左书名(一行省略,不加书名号)、中全书百分比、右 24 小时制时间。
+    /// 11 点、次要色,左右和正文对齐,字底离屏幕底 55。
     private func readerFooter(currentPage: Int, totalPages: Int) -> some View {
         let pageCount = max(totalPages, 1)
         let chapterFraction = pageCount > 1
@@ -4050,38 +4164,30 @@ struct ReaderView: View {
         let overall = (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
         let percentText = "\(Int((overall * 100).rounded()))%"
         let color = settings.theme.statusBarColor
-        return GeometryReader { geo in
-            ZStack {
-                Text(percentText)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(color)
-                HStack(spacing: 8) {
-                    Text(bookTitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(color)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: geo.size.width * 0.4, alignment: .leading)
-                    Spacer(minLength: 0)
-                    if showsBatteryInFooter {
-                        HStack(spacing: 3) {
-                            Image(systemName: "battery.25")
-                                .font(.system(size: 10))
-                            Text("\(Int((UIDevice.current.batteryLevel * 100).rounded()))%")
-                                .font(.system(size: 11, design: .monospaced))
-                        }
-                        .foregroundStyle(footerWarningColor)
-                    } else {
-                        Text(footerClock.isEmpty ? Self.footerTimeFormatter.string(from: Date()) : footerClock)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(color)
-                    }
-                }
-            }
+        let timeText = footerClock.isEmpty ? Self.footerTimeFormatter.string(from: Date()) : footerClock
+        return HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(bookTitle)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(percentText)
+                .fixedSize()
+                .frame(maxWidth: .infinity, alignment: .center)
+            Text(timeText)
+                .fixedSize()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityHidden(true)
         }
-        .frame(height: 28)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 4)
+        .font(.system(size: 11))
+        .foregroundStyle(color)
+        .padding(.horizontal, settings.horizontalPadding)
+        // 字底 55:字身底边到屏幕底的距离,行框底还留着 descender 的一点空。
+        .padding(.bottom, ReaderTypography.footerBottomInset - 3)
+        .frame(maxWidth: .infinity, alignment: .bottom)
+        .allowsHitTesting(false)
+        // 读屏整行一句,时间不单独念。
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("《\(bookTitle)》,读到 \(percentText)")
         .onReceive(footerTimer) { date in
             footerClock = Self.footerTimeFormatter.string(from: date)
         }
@@ -4130,6 +4236,8 @@ struct ReaderChapterLayoutKey: Hashable, Sendable {
     let usesSystemFont: Bool
     let horizontalPadding: Double
     let bottomReserve: Double
+    let paragraphSpacing: Double
+    let firstLineIndent: Bool
 }
 
 struct ReaderPreparedChapterWindow: Sendable {
@@ -4274,6 +4382,8 @@ private struct PaginationInput: Sendable {
     let usesSystemFont: Bool
     let horizontalPadding: Double
     let bottomReserve: Double
+    let paragraphSpacing: Double
+    let firstLineIndent: Bool
 }
 
 private struct PaginationOutput: Sendable {
@@ -4308,6 +4418,8 @@ private enum ReaderPageHeaderMetrics {
 private struct StaticPageView: View {
     let fragments: [ReaderView.PageFragment]
     let chapterTitle: String
+    /// 章节名只在「本章不是第一页」且菜单关着时出现。
+    let showsChapterTitle: Bool
     let fontSize: CGFloat
     let lineSpacing: Double
     let fontFamily: String
@@ -4315,6 +4427,9 @@ private struct StaticPageView: View {
     let titleColor: Color
     let horizontalPadding: CGFloat
     let bottomReserve: CGFloat
+    let paragraphSpacing: CGFloat
+    let firstLineIndentEnabled: Bool
+    let bodyLineHeight: CGFloat
     /// Paragraph currently selected for a bookmark or note.
     var selectedParagraphIndex: Int?
     /// Long press on a paragraph: index, full text and its screen frame.
@@ -4329,35 +4444,48 @@ private struct StaticPageView: View {
     /// 文本视图吃掉单击,把它截下来交回 SwiftUI 的点击分流。
     var onScreenTap: ((CGPoint) -> Void)?
 
-    @State private var paragraphFrames: [Int: CGRect] = [:]
+    private var uiFont: UIFont {
+        fontFamily == FontFamily.system.rawValue
+            ? .systemFont(ofSize: fontSize)
+            : UIFont(name: fontFamily, size: fontSize) ?? .systemFont(ofSize: fontSize)
+    }
 
-    /// The chapter heading is drawn as body text in many books; printing it in
-    /// the page header as well would show it twice on the same page.
-    private var bodyRepeatsChapterTitle: Bool {
-        guard let first = fragments.first else { return false }
-        let body = first.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return false }
-        return body == chapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// 章节名 12 号字在 76 的位置:行框顶到字面顶约 3 点。
+    private var chapterTitleLayoutY: CGFloat {
+        ReaderTypography.chapterTitleTopInkY - 2
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: fontSize * (lineSpacing - 1)) {
-            if !bodyRepeatsChapterTitle {
-                Text(chapterTitle)
-                    .font(.system(size: ReaderPageHeaderMetrics.fontSize))
-                    .foregroundStyle(titleColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.bottom, ReaderPageHeaderMetrics.bottomPadding)
-            }
+        GeometryReader { proxy in
+            let pageWidth = proxy.size.width
+            let textWidth = max(0, pageWidth - horizontalPadding * 2)
+            let inkOffset = ReaderTypography.inkTopOffset(
+                fontSize: fontSize,
+                lineHeight: bodyLineHeight,
+                font: uiFont
+            )
+            // 首行字顶 116:文本容器顶 = 116 - 行内字顶偏移。
+            let bodyLayoutY = max(0, ReaderTypography.bodyTopInkY - inkOffset + ReaderTypography.bodyInkCalibration)
+            ZStack(alignment: .topLeading) {
+                if showsChapterTitle {
+                    Text(chapterTitle)
+                        .font(.system(size: ReaderPageHeaderMetrics.fontSize))
+                        .foregroundStyle(titleColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(width: textWidth, alignment: .leading)
+                        .offset(x: horizontalPadding, y: chapterTitleLayoutY)
+                }
 
-            GeometryReader { proxy in
                 PageTextView(
                     fragments: fragments,
                     fontSize: fontSize,
                     lineSpacing: lineSpacing,
                     fontFamily: fontFamily,
                     textColor: textColor,
+                    textWidth: textWidth,
+                    paragraphSpacing: paragraphSpacing,
+                    firstLineIndentEnabled: firstLineIndentEnabled,
                     highlightedParagraph: selectedParagraphIndex,
                     accentColor: accentColor,
                     highlightAll: highlightAll,
@@ -4367,21 +4495,19 @@ private struct StaticPageView: View {
                     onEdgeHold: onEdgeHold,
                     onScreenTap: onScreenTap
                 )
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-                .background(
-                    Color.clear
-                        .preference(
-                            key: ReaderBodyTopPreference.self,
-                            value: proxy.frame(in: .global).minY
-                        )
+                .frame(
+                    width: textWidth,
+                    height: max(0, proxy.size.height - bodyLayoutY),
+                    alignment: .topLeading
                 )
-            }
+                .offset(x: horizontalPadding, y: bodyLayoutY)
 
-            Spacer()
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .preference(key: ReaderBodyTopPreference.self, value: ReaderTypography.bodyTopInkY)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        .padding(.horizontal, horizontalPadding)
-        .padding(.top, 20)
-        .padding(.bottom, bottomReserve)
     }
 }
 

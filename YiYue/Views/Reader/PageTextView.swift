@@ -9,6 +9,12 @@ struct PageTextView: UIViewRepresentable {
     let lineSpacing: Double
     let fontFamily: String
     let textColor: Color
+    /// 正文行宽(已扣左右边距),用来算 19 字一行所需的字距和两字缩进。
+    let textWidth: CGFloat
+    /// 段与段之间的空隙。
+    var paragraphSpacing: CGFloat = ReaderTypography.baseParagraphSpacing
+    /// 首行缩进两字。
+    var firstLineIndentEnabled: Bool = true
     /// 选中的段落(书签/笔记高亮),用于页面重画时的兜底高亮。
     var highlightedParagraph: Int?
     /// 主题强调色:选中高亮和两端手柄用它。
@@ -54,12 +60,8 @@ struct PageTextView: UIViewRepresentable {
         view.highlightAll = highlightAll
         view.desiredSelection = desiredSelection
         view.extraHighlight = extraHighlight
-        view.attributedText = attributed(gap: 0)
+        view.attributedText = attributed()
         view.layoutManager.ensureLayout(for: view.textContainer)
-        let natural = view.layoutManager.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height
-        let targetPitch = uiFont.lineHeight + fontSize * CGFloat(lineSpacing - 1)
-        let adjusted = max(0, targetPitch - natural)
-        view.attributedText = attributed(gap: adjusted)
         view.pageFragments = fragments
         view.applyHighlightState()
     }
@@ -71,30 +73,37 @@ struct PageTextView: UIViewRepresentable {
         return UIFont(name: fontFamily, size: fontSize) ?? .systemFont(ofSize: fontSize)
     }
 
-    /// 每段一个 paragraph,段间距、行间距、段首两字缩进都和原来的 Text 一致。
-    private func attributed(gap: CGFloat) -> NSAttributedString {
-        let style = NSMutableParagraphStyle()
-        style.lineSpacing = gap
-        // TextKit 换行本身就是一整行,和原来 VStack 里段与段之间的间距是同一个值。
-        style.paragraphSpacing = 0
-        style.alignment = .natural
-        style.lineBreakMode = .byWordWrapping
-        // 中文断行的避头尾交给系统,和之前 Text 用的是同一套。
-
+    /// 每段一个 paragraph:行高钉在 字号 × 倍率,段间距 28,
+    /// 行宽里塞 19 个全角字,首行缩进两个字身。
+    private func attributed() -> NSAttributedString {
+        let lineHeight = ReaderTypography.bodyLineHeight(fontSize: fontSize, level: lineSpacing)
+        let spacing = ReaderTypography.characterSpacing(fontSize: fontSize, textWidth: textWidth)
+        let indent = ReaderTypography.firstLineIndent(fontSize: fontSize, textWidth: textWidth)
         let font = uiFont
-
 
         let result = NSMutableAttributedString()
         var highlightRange: NSRange?
         for (index, fragment) in fragments.enumerated() {
-            let body = fragment.indent ? "\u{3000}\u{3000}" + fragment.text : fragment.text
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = 0
+            style.minimumLineHeight = lineHeight
+            style.maximumLineHeight = lineHeight
+            style.paragraphSpacing = paragraphSpacing
+            style.paragraphSpacingBefore = 0
+            style.firstLineHeadIndent = fragment.indent && firstLineIndentEnabled ? indent : 0
+            // TextKit 换行本身就是一整行,段与段之间的空隙只由 paragraphSpacing 决定。
+            style.alignment = .natural
+            style.lineBreakMode = .byWordWrapping
+
+            let body = fragment.text
             let text = index == fragments.count - 1 ? body : body + "\n"
             let piece = NSMutableAttributedString(
                 string: text,
                 attributes: [
                     .font: font,
                     .foregroundColor: UIColor(textColor),
-                    .paragraphStyle: style
+                    .paragraphStyle: style,
+                    .kern: spacing
                 ]
             )
             if let highlightedParagraph, highlightedParagraph == fragment.paragraphIndex {

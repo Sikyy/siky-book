@@ -26,6 +26,64 @@ struct ReaderMenuBottomTopPreference: PreferenceKey {
     }
 }
 
+/// 底部五格:目录 / 书签 / 文字 / 亮度 / 进度。
+enum ReaderTool: String, CaseIterable, Identifiable {
+    case chapters
+    case bookmarks
+    case text
+    case brightness
+    case progress
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chapters: return "目录"
+        case .bookmarks: return "书签"
+        case .text: return "文字"
+        case .brightness: return "亮度"
+        case .progress: return "进度"
+        }
+    }
+
+    /// 第五格是自绘圆环,不用 SF Symbol。
+    var icon: String {
+        switch self {
+        case .chapters: return "line.3.horizontal"
+        case .bookmarks: return "bookmark"
+        case .text: return "textformat.size"
+        case .brightness: return "sun.max"
+        case .progress: return "circle"
+        }
+    }
+}
+
+enum ReaderToolbarMetrics {
+    /// 底部工具条从 y=791 到屏幕底。
+    static let height: CGFloat = 83
+    static let topBarHeight: CGFloat = 40
+    /// 顶栏高 40、返回图标中心 y=80。
+    static let topBarTop: CGFloat = 60
+    static let iconSize: CGFloat = 24
+    /// 图标中心 y=820,工具条顶 791,图标 24:上沿留 17。
+    static let iconTopInset: CGFloat = 16
+}
+
+/// 第五格:直径 22、线宽 2、62% 弧、缺口朝上的自绘圆环。
+struct ReaderProgressRing: View {
+    var color: Color
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.62)
+            .stroke(
+                color,
+                style: StrokeStyle(lineWidth: 2, lineCap: .round)
+            )
+            .rotationEffect(.degrees(-21.6))
+            .frame(width: 22, height: 22)
+    }
+}
+
 struct ReaderMenuOverlay: View {
     let book: Book
     @Binding var currentChapterIndex: Int
@@ -58,8 +116,12 @@ struct ReaderMenuOverlay: View {
     /// 正文第一条线的屏幕 y 和一行的高度:目录/设置面板的顶边要落在行边界上。
     var bodyTopY: CGFloat = 0
     var bodyLineHeight: CGFloat = 0
-    /// 顶栏右侧的阅读进度,和页脚同一个算法。
+    /// 阅读进度,和页脚同一个算法。
     var progressPercent: String = ""
+    /// 进度格的圆环取 0…1。
+    var progressFraction: Double = 0
+    /// 当前页每一条正文线的行顶(屏幕坐标),面板顶边贴它。
+    var bodyLineTops: [CGFloat] = []
     /// 顶栏底边的屏幕 y:面板从这条线下面开始,不能盖住顶栏。
     var topBarBottomY: CGFloat = 0
 
@@ -69,7 +131,8 @@ struct ReaderMenuOverlay: View {
 
     @State private var showChapterList = false
     @State private var sliderValue: Double = 0
-    @State private var showSettings = false
+    /// 当前选中的工具格:目录/书签/文字/亮度/进度。
+    @State private var selectedTool: ReaderTool?
     @State private var draggingFontSize: Double?
     @State private var draggingLineSpacing: Double?
     @State private var chapterSearch = ""
@@ -88,42 +151,54 @@ struct ReaderMenuOverlay: View {
     @State private var undoToastTask: Task<Void, Never>?
 
     var body: some View {
-        ZStack {
-            // 正文自己处理「点一下收菜单」和「长按直接选段」,这一层只负责铺底色,
-            // 不能再吃掉手势——否则菜单开着时长按正文没反应。
-            Color.clear
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
+        GeometryReader { geo in
+            let screenWidth = geo.size.width
+            let screenHeight = geo.size.height
+            let barHeight = ReaderToolbarMetrics.height
+            let barTop = screenHeight - barHeight
+            ZStack(alignment: .topLeading) {
+                // 正文自己处理「点一下收菜单」和「长按直接选段」,这一层只负责铺底色,
+                // 不能再吃掉手势——否则菜单开着时长按正文没反应。
+                Color.clear
+                    .allowsHitTesting(false)
 
-            VStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    topBar
-                }
-                .padding(.bottom, topBottomInset)
-                // 补齐出来的这一条也要用面板底色涂上,否则底下那行会透出来。
-                .background(theme.menuBackground)
-                // 分隔线要落在面板真正的底边,包括补齐出来的那一段。
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(theme.menuPrimary.opacity(0.12))
-                        .frame(height: 1)
-                }
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: ReaderMenuTopEdgePreference.self,
-                            value: proxy.frame(in: .global).maxY
-                        )
+                // 菜单开着时,正文区点一下要能收菜单/收面板。
+                // 放在顶栏、面板、工具栏下面,不挡它们自己的点击。
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if selectedTool != nil || showChapterList {
+                            closePanel()
+                        } else {
+                            onDismiss()
+                        }
                     }
-                )
-                Spacer()
-                bottomPanel
-            }
 
-            if showChapterList {
-                panelOverlay
+                // 顶栏:高 40、无底色无分隔线,只放返回;章节名不在这里。
+                topBar
+
+                if let panelTool = selectedTool {
+                    switch panelTool {
+                    case .text:
+                        textSettingsPanel(barTop: barTop)
+                    case .brightness:
+                        brightnessFloatingPanel(barTop: barTop)
+                    case .progress:
+                        progressFloatingPanel(barTop: barTop)
+                    case .chapters, .bookmarks:
+                        EmptyView()
+                    }
+                }
+
+                bottomToolbar(width: screenWidth, top: barTop, height: barHeight)
+
+                if showChapterList {
+                    panelOverlay
+                }
             }
+            .frame(width: screenWidth, height: screenHeight, alignment: .topLeading)
         }
+        .ignoresSafeArea()
         .onAppear {
             sliderValue = Double(currentChapterIndex)
             brightnessValue = brightness
@@ -144,46 +219,33 @@ struct ReaderMenuOverlay: View {
     // MARK: - Top Bar
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 0) {
             Button(action: { onBack() }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .medium))
-                    Text("返回")
-                        .font(.system(size: 16))
-                }
-                .foregroundStyle(theme.menuPrimary)
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundStyle(theme.menuPrimary)
+                    .frame(width: 30, height: ReaderToolbarMetrics.topBarHeight)
+                    // 雪佛龙字形本身偏左,补 1.8 让字墨中心落在 x=15。
+                    .offset(x: 1.8)
+                    .contentShape(Rectangle())
             }
-            Spacer()
-            Text(chapterTitle)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(theme.menuPrimary)
-                .lineLimit(1)
-            Spacer()
-            if progressPercent.isEmpty {
-                cacheTopBarControl
-            } else {
-                Text(progressPercent)
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(theme.menuSecondary)
-                    .frame(minWidth: 56, alignment: .trailing)
-                    .accessibilityLabel("阅读进度 \(progressPercent)")
-            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("返回")
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-        .padding(.bottom, 10 + topBarRowInset)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: ReaderToolbarMetrics.topBarHeight)
+        // 无底色、无分隔线,直接压在正文上,正文不动。
+        .background(Color.clear)
         .background(
-            GeometryReader { geo in
-                theme.menuBackground
-                    .ignoresSafeArea(edges: .top)
-                    .onAppear { topBarHeight = geo.size.height - topBarRowInset }
-                    .onChange(of: geo.size.height) { _, h in
-                        topBarHeight = h - topBarRowInset
-                    }
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ReaderMenuTopEdgePreference.self,
+                    value: proxy.frame(in: .global).maxY
+                )
             }
         )
+        .offset(y: ReaderToolbarMetrics.topBarTop)
     }
 
     @ViewBuilder
@@ -380,299 +442,420 @@ struct ReaderMenuOverlay: View {
         return "缓存任务排队中\(positionText)，全书已缓存 \(cached)/\(total)"
     }
 
-    // MARK: - Bottom Panel
+    // MARK: - 底部工具栏(五格,只有图标)
 
-    private var bottomPanel: some View {
-        VStack(spacing: showSettings ? 12 : 16) {
-            if let status = cacheStatusMessage {
-                Text(status.text)
-                    .font(.system(size: 11))
-                    .foregroundStyle(status.color.opacity(0.9))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .padding(.horizontal, 20)
-            }
-            if showSettings {
-                settingsControls
-            } else {
-                chapterSlider
-                    .padding(.horizontal, 20)
-            }
-            iconRow
-                .padding(.horizontal, 20)
-        }
-        .padding(.top, 12 + bottomTopInset)
-        // 底部标签离屏幕底只留安全区:负的底距把这二十来点空白收掉。
-        .padding(.bottom, -1)
-        .frame(maxWidth: .infinity)
-        .background(theme.menuBackground, ignoresSafeAreaEdges: .bottom)
-        .overlay(alignment: .top) {
-            Rectangle().fill(theme.menuPrimary.opacity(0.12)).frame(height: 1)
-        }
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: ReaderMenuBottomTopPreference.self,
-                    value: proxy.frame(in: .global).minY
-                )
-            }
-        )
-        .animation(.easeInOut(duration: 0.2), value: showSettings)
-    }
-
-    // MARK: - Chapter Slider
-
-    private var chapterSlider: some View {
-        HStack(spacing: 16) {
-            Button {
-                if currentChapterIndex > 0 {
-                    currentChapterIndex -= 1
-                    sliderValue = Double(currentChapterIndex)
-                }
-            } label: {
-                Text("上一章")
-                    .font(.system(size: 13))
-                    .foregroundStyle(currentChapterIndex > 0 ? theme.menuPrimary : theme.menuDisabled)
-            }
-            .disabled(currentChapterIndex <= 0)
-
-            Slider(
-                value: $sliderValue,
-                in: 0...max(Double(totalChapters - 1), 1),
-                step: 1
-            ) { editing in
-                if !editing {
-                    currentChapterIndex = Int(sliderValue)
-                }
-            }
-            .tint(theme.menuSecondary)
-            .accessibilityLabel("章节")
-            .accessibilityValue("第 \(currentChapterIndex + 1) 章，共 \(totalChapters) 章")
-
-            Button {
-                if currentChapterIndex < totalChapters - 1 {
-                    currentChapterIndex += 1
-                    sliderValue = Double(currentChapterIndex)
-                }
-            } label: {
-                Text("下一章")
-                    .font(.system(size: 13))
-                    .foregroundStyle(currentChapterIndex < totalChapters - 1 ? theme.menuPrimary : theme.menuDisabled)
-            }
-            .disabled(currentChapterIndex >= totalChapters - 1)
-        }
-    }
-
-    // MARK: - Settings Controls
-
-    private var settingsControls: some View {
-        VStack(spacing: 8) {
-            // 字号
-            HStack(spacing: 12) {
-                Button {
-                    settings.fontSize = max(settings.fontSize - 1, 12)
-                    settings.save()
-                } label: {
-                    Image(systemName: "textformat.size.smaller")
-                        .font(.system(size: 14))
-                        .foregroundStyle(theme.menuPrimary)
-                        .frame(width: 36, height: 32)
-                        .background(theme.menuSelectedFill, in: RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("缩小字号")
-
-                Slider(
-                    value: Binding(
-                        get: { draggingFontSize ?? Double(settings.fontSize) },
-                        set: {
-                            draggingFontSize = $0
-                            if Int($0) != Int(settings.fontSize) {
-                                settings.fontSize = CGFloat($0)
-                            }
-                        }
-                    ),
-                    in: 12...32,
-                    step: 1
-                ) { editing in
-                    guard !editing, let value = draggingFontSize else { return }
-                    draggingFontSize = nil
-                    guard Int(value) != Int(settings.fontSize) else { return }
-                    settings.fontSize = CGFloat(value)
-                    settings.save()
-                }
-                .tint(theme.menuSecondary)
-                .accessibilityLabel("字号")
-                .accessibilityValue("\(Int(draggingFontSize ?? Double(settings.fontSize)))")
-
-                Button {
-                    settings.fontSize = min(settings.fontSize + 1, 32)
-                    settings.save()
-                } label: {
-                    Image(systemName: "textformat.size.larger")
-                        .font(.system(size: 14))
-                        .foregroundStyle(theme.menuPrimary)
-                        .frame(width: 36, height: 32)
-                        .background(theme.menuSelectedFill, in: RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("放大字号")
-
-                Text("\(Int(draggingFontSize ?? Double(settings.fontSize)))")
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(theme.menuSecondary)
-                    .frame(width: 22)
-            }
-            .frame(height: 56)
-            .padding(.horizontal, 20)
-
-            // 行距
-            HStack(spacing: 10) {
-                Text("行距")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.menuSecondary)
-                    .frame(width: 28)
-                Slider(
-                    value: Binding(
-                        get: { draggingLineSpacing ?? settings.lineSpacing },
-                        set: {
-                            draggingLineSpacing = $0
-                            if abs($0 - settings.lineSpacing) > 0.001 {
-                                settings.lineSpacing = $0
-                            }
-                        }
-                    ),
-                    in: 1.5...2.5,
-                    step: 0.1
-                ) { editing in
-                    guard !editing, let value = draggingLineSpacing else { return }
-                    draggingLineSpacing = nil
-                    guard abs(value - settings.lineSpacing) > 0.001 else { return }
-                    settings.lineSpacing = value
-                    settings.save()
-                }
-                .tint(theme.menuSecondary)
-                .accessibilityLabel("行距")
-                .accessibilityValue(String(format: "%.1f", draggingLineSpacing ?? settings.lineSpacing))
-                Text(String(format: "%.1f", draggingLineSpacing ?? settings.lineSpacing))
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(theme.menuSecondary)
-                    .frame(width: 26)
-            }
-            .frame(height: 56)
-            .padding(.horizontal, 20)
-
-            // 字体:三颗一个样子,选中的加一圈强调色描边和强调色文字。
-            HStack(spacing: 8) {
-                ForEach(FontFamily.allCases, id: \.self) { font in
-                    let selected = settings.fontFamily == font
+    private func bottomToolbar(width: CGFloat, top: CGFloat, height: CGFloat) -> some View {
+        let cellWidth = width / CGFloat(ReaderTool.allCases.count)
+        return VStack(spacing: 0) {
+            Rectangle()
+                .fill(theme.menuPrimary.opacity(0.12))
+                .frame(height: 1)
+            HStack(spacing: 0) {
+                ForEach(ReaderTool.allCases) { tool in
                     Button {
-                        settings.fontFamily = font
-                        settings.save()
+                        handleToolTap(tool)
                     } label: {
-                        Text(font.displayName)
-                            .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                            .foregroundStyle(selected ? theme.menuBackground : theme.menuSecondary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 34)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(selected ? theme.accentColor : theme.menuPrimary.opacity(0.05))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(
-                                        selected ? Color.clear : theme.menuPrimary.opacity(0.10),
-                                        lineWidth: 1
-                                    )
-                            )
-                            .frame(height: 44)
+                        toolIcon(tool)
+                            .frame(width: ReaderToolbarMetrics.iconSize,
+                                   height: ReaderToolbarMetrics.iconSize)
+                            .frame(width: cellWidth, height: height - 1, alignment: .top)
+                            .offset(y: ReaderToolbarMetrics.iconTopInset)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(font.displayName)
-                    .accessibilityAddTraits(selected ? [.isSelected] : [])
+                    .accessibilityLabel(tool.title)
+                    .accessibilityValue(selectedTool == tool ? "已选中" : "")
+                    .accessibilityAddTraits(selectedTool == tool ? [.isSelected] : [])
                 }
             }
-            .frame(height: 56)
-            .padding(.horizontal, 20)
+            .frame(height: height - 1)
+        }
+        .frame(width: width, height: height)
+        .background(theme.menuBackground, ignoresSafeAreaEdges: .bottom)
+        .offset(y: top)
+    }
 
-            // 主题
-            HStack(spacing: 16) {
-                ForEach(ReaderTheme.allCases, id: \.self) { item in
-                    Button {
-                        settings.theme = item
-                        settings.save()
-                    } label: {
-                        VStack(spacing: 6) {
-                            ZStack {
-                                Circle()
-                                    .fill(item.backgroundColor)
-                                    .frame(width: 32, height: 32)
-                                Circle()
-                                    .strokeBorder(
-                                        settings.theme == item ? theme.menuPrimary : theme.menuDisabled,
-                                        lineWidth: 1
-                                    )
-                                    .frame(width: 32, height: 32)
-                                if settings.theme == item {
-                                    Circle()
-                                        .strokeBorder(theme.accentColor, lineWidth: 2)
-                                        .frame(width: 36, height: 36)
-                                }
-                            }
-                            .frame(width: 36, height: 36)
-                            Text(item.displayName)
-                                .font(.system(size: 10))
-                                .foregroundStyle(settings.theme == item ? theme.menuPrimary : theme.menuSecondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(item.displayName)
-                    .accessibilityAddTraits(settings.theme == item ? [.isSelected] : [])
-                }
-            }
-            .padding(.top, 12)
-            .frame(height: 56, alignment: .top)
-            .padding(.horizontal, 20)
-
-            // 保持屏幕常亮
-            HStack {
-                Text("保持屏幕常亮")
-                    .font(.system(size: 13))
-                    .foregroundStyle(theme.menuPrimary)
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { settings.keepScreenAwake },
-                    set: { value in
-                        settings.keepScreenAwake = value
-                        settings.save()
-                    }
-                ))
-                .labelsHidden()
-                .tint(theme.menuPrimary)
-                .accessibilityLabel("保持屏幕常亮")
-                .accessibilityValue(settings.keepScreenAwake ? "已开启" : "已关闭")
-            }
-            .frame(height: 56)
-            .padding(.horizontal, 20)
-
-            // 亮度:最后一行,离底部四个图标最近。
-            brightnessBar
-
+    @ViewBuilder
+    private func toolIcon(_ tool: ReaderTool) -> some View {
+        let selected = selectedTool == tool
+        let color = selected ? theme.accentColor : theme.menuPrimary.opacity(0.7)
+        switch tool {
+        case .progress:
+            ReaderProgressRing(color: color)
+                .frame(width: 22, height: 22)
+        case .bookmarks:
+            Image(systemName: hasPageBookmark ? "bookmark.fill" : "bookmark")
+                .font(.system(size: ReaderToolbarMetrics.iconSize, weight: .regular))
+                .foregroundStyle(color)
+                .frame(width: ReaderToolbarMetrics.iconSize,
+                       height: ReaderToolbarMetrics.iconSize)
+        default:
+            Image(systemName: tool.icon)
+                .font(.system(size: ReaderToolbarMetrics.iconSize, weight: .regular))
+                .foregroundStyle(color)
+                .frame(width: ReaderToolbarMetrics.iconSize,
+                       height: ReaderToolbarMetrics.iconSize)
         }
     }
 
-    // MARK: - Brightness
+    private func handleToolTap(_ tool: ReaderTool) {
+        switch tool {
+        case .chapters:
+            selectedTool = .chapters
+            openPanel(.chapters)
+        case .bookmarks:
+            selectedTool = .bookmarks
+            openPanel(.bookmarks)
+        case .text, .brightness, .progress:
+            if selectedTool == tool {
+                selectedTool = nil
+            } else {
+                selectedTool = tool
+                brightnessValue = brightness
+            }
+        }
+    }
 
-    private var brightnessBar: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "sun.min")
-                .font(.system(size: 14))
+    // MARK: - 文字面板(九行)
+
+    /// 面板顶边必须落在正文行边界上(行高 34 的整数倍)。
+    private func gridAlignedTop(naturalHeight: CGFloat, barTop: CGFloat) -> CGFloat {
+        let raw = barTop - naturalHeight
+        // 优先贴当前页真实行顶:段间距不是行高的整数倍,全局网格会压住半行。
+        if let lineTop = bodyLineTops.last(where: { $0 <= raw }) {
+            return lineTop
+        }
+        let bodyTop = bodyTopY > 0 ? bodyTopY : ReaderTypography.bodyTopInkY
+        let line = bodyLineHeight > 1
+            ? bodyLineHeight
+            : ReaderTypography.bodyLineHeight(fontSize: settings.fontSize, level: settings.lineSpacing)
+        let steps = floor((raw - bodyTop) / line)
+        return bodyTop + max(0, steps) * line
+    }
+
+    private func textSettingsPanel(barTop: CGFloat) -> some View {
+        let rowHeight: CGFloat = 56
+        let gap: CGFloat = 8
+        let topPadding: CGFloat = 0
+        let naturalHeight = rowHeight * 9 + gap * 8 + topPadding
+        let top = gridAlignedTop(naturalHeight: naturalHeight, barTop: barTop)
+        return VStack(spacing: gap) {
+            fontFamilyRow
+            fontSizeRow
+            lineSpacingRow
+            horizontalPaddingRow
+            pageModeRow
+            firstLineIndentRow
+            backgroundRow
+            paragraphSpacingRow
+            keepScreenAwakeRow
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, topPadding)
+        .frame(maxWidth: .infinity)
+        .frame(height: max(0, barTop - top), alignment: .top)
+        .background(theme.menuBackground)
+        .overlay(alignment: .top) {
+            Rectangle().fill(theme.menuPrimary.opacity(0.12)).frame(height: 1)
+        }
+        .offset(y: top)
+    }
+
+    private func settingLabel(_ text: String, width: CGFloat = 64) -> some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(theme.menuSecondary)
+            .frame(width: width, alignment: .leading)
+    }
+
+    private var fontFamilyRow: some View {
+        HStack(spacing: 8) {
+            settingLabel("字体", width: 44)
+            ForEach(FontFamily.allCases, id: \.self) { font in
+                let selected = settings.fontFamily == font
+                Button {
+                    settings.fontFamily = font
+                    settings.save()
+                } label: {
+                    Text(font.displayName)
+                        .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? theme.menuBackground : theme.menuSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 34)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(selected ? theme.accentColor : theme.menuPrimary.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(
+                                    selected ? Color.clear : theme.menuPrimary.opacity(0.10),
+                                    lineWidth: 1
+                                )
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(font.displayName)
+                .accessibilityAddTraits(selected ? [.isSelected] : [])
+            }
+        }
+        .frame(height: 56)
+    }
+
+    private var fontSizeRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                stepFontSize(-1)
+            } label: {
+                Image(systemName: "textformat.size.smaller")
+                    .font(.system(size: 15))
+                    .foregroundStyle(theme.menuPrimary)
+                    .frame(width: 28, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("缩小字号")
+
+            Slider(value: fontSizeIndexBinding,
+                   in: 0...Double(ReaderTypography.fontSizeLevels.count - 1),
+                   step: 1)
+                .tint(theme.menuSecondary)
+                .accessibilityLabel("字号")
+                .accessibilityValue("\(Int(settings.fontSize))")
+
+            Button {
+                stepFontSize(1)
+            } label: {
+                Image(systemName: "textformat.size.larger")
+                    .font(.system(size: 15))
+                    .foregroundStyle(theme.menuPrimary)
+                    .frame(width: 28, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("放大字号")
+
+            Text("\(Int(settings.fontSize))")
+                .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(theme.menuSecondary)
-                .frame(width: 24, height: 24)
+                .frame(width: 24, alignment: .trailing)
+        }
+        .frame(height: 56)
+    }
 
+    private var fontSizeIndexBinding: Binding<Double> {
+        Binding(
+            get: { Double(settings.fontSizeLevelIndex) },
+            set: { value in
+                let levels = ReaderTypography.fontSizeLevels
+                let index = min(max(Int(value.rounded()), 0), levels.count - 1)
+                guard levels[index] != settings.fontSize else { return }
+                settings.fontSize = levels[index]
+                settings.save()
+            }
+        )
+    }
+
+    private func stepFontSize(_ direction: Int) {
+        let levels = ReaderTypography.fontSizeLevels
+        let index = min(max(settings.fontSizeLevelIndex + direction, 0), levels.count - 1)
+        guard levels[index] != settings.fontSize else { return }
+        settings.fontSize = levels[index]
+        settings.save()
+    }
+
+    private var lineSpacingRow: some View {
+        HStack(spacing: 10) {
+            settingLabel("行距", width: 44)
+            Slider(value: lineSpacingIndexBinding,
+                   in: 0...Double(ReaderTypography.lineSpacingLevels.count - 1),
+                   step: 1)
+                .tint(theme.menuSecondary)
+                .accessibilityLabel("行距")
+                .accessibilityValue(String(format: "%.1f", settings.lineSpacing))
+            Text(String(format: "%.1f", settings.lineSpacing))
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(theme.menuSecondary)
+                .frame(width: 30, alignment: .trailing)
+        }
+        .frame(height: 56)
+    }
+
+    private var lineSpacingIndexBinding: Binding<Double> {
+        Binding(
+            get: { Double(settings.lineSpacingLevelIndex) },
+            set: { value in
+                let levels = ReaderTypography.lineSpacingLevels
+                let index = min(max(Int(value.rounded()), 0), levels.count - 1)
+                guard abs(levels[index] - settings.lineSpacing) > 0.001 else { return }
+                settings.lineSpacing = levels[index]
+                settings.save()
+            }
+        )
+    }
+
+    private var horizontalPaddingRow: some View {
+        HStack(spacing: 10) {
+            settingLabel("边距", width: 44)
+            Slider(value: horizontalPaddingIndexBinding,
+                   in: 0...Double(ReaderTypography.horizontalPaddingLevels.count - 1),
+                   step: 1)
+                .tint(theme.menuSecondary)
+                .accessibilityLabel("边距")
+                .accessibilityValue("第 \(settings.horizontalPaddingLevelIndex + 1) 档")
+            // 边距不显数字。
+            Color.clear.frame(width: 30, height: 1)
+        }
+        .frame(height: 56)
+    }
+
+    private var horizontalPaddingIndexBinding: Binding<Double> {
+        Binding(
+            get: { Double(settings.horizontalPaddingLevelIndex) },
+            set: { value in
+                let levels = ReaderTypography.horizontalPaddingLevels
+                let index = min(max(Int(value.rounded()), 0), levels.count - 1)
+                guard levels[index] != settings.horizontalPadding else { return }
+                settings.horizontalPadding = levels[index]
+                settings.save()
+            }
+        )
+    }
+
+    private var pageModeRow: some View {
+        HStack(spacing: 8) {
+            settingLabel("翻页方式", width: 72)
+            Spacer(minLength: 0)
+            ForEach([PageMode.horizontal, PageMode.scroll], id: \.self) { mode in
+                let selected = mode == .scroll
+                    ? settings.pageMode == .scroll
+                    : settings.pageMode != .scroll
+                Button {
+                    settings.pageMode = mode
+                    settings.save(markPageModeExplicit: true)
+                } label: {
+                    Text(mode.displayName)
+                        .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? theme.menuBackground : theme.menuSecondary)
+                        .frame(width: 62, height: 32)
+                        .background(
+                            Capsule().fill(selected ? theme.accentColor : theme.menuPrimary.opacity(0.05))
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(mode.displayName)
+                .accessibilityAddTraits(selected ? [.isSelected] : [])
+            }
+        }
+        .frame(height: 56)
+    }
+
+    private var firstLineIndentRow: some View {
+        HStack {
+            Text("首行缩进")
+                .font(.system(size: 13))
+                .foregroundStyle(theme.menuPrimary)
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { settings.firstLineIndentEnabled },
+                set: { value in
+                    settings.firstLineIndentEnabled = value
+                    settings.save()
+                }
+            ))
+            .labelsHidden()
+            .tint(theme.accentColor)
+            .accessibilityLabel("首行缩进")
+            .accessibilityValue(settings.firstLineIndentEnabled ? "已开启" : "已关闭")
+        }
+        .frame(height: 56)
+    }
+
+    private var backgroundRow: some View {
+        HStack(spacing: 12) {
+            settingLabel("背景", width: 44)
+            ForEach(ReaderTheme.allCases, id: \.self) { item in
+                Button {
+                    settings.theme = item
+                    settings.save()
+                } label: {
+                    VStack(spacing: 4) {
+                        ZStack {
+                            Circle()
+                                .fill(item.backgroundColor)
+                                .frame(width: 32, height: 32)
+                            Circle()
+                                .strokeBorder(
+                                    settings.theme == item ? theme.accentColor : theme.menuPrimary.opacity(0.18),
+                                    lineWidth: settings.theme == item ? 2 : 1
+                                )
+                                .frame(width: 32, height: 32)
+                        }
+                        .frame(width: 36, height: 36)
+                        Text(item.displayName)
+                            .font(.system(size: 10))
+                            .foregroundStyle(settings.theme == item ? theme.menuPrimary : theme.menuSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.displayName)
+                .accessibilityAddTraits(settings.theme == item ? [.isSelected] : [])
+            }
+        }
+        .frame(height: 56)
+    }
+
+    private var paragraphSpacingRow: some View {
+        HStack {
+            Text("段间距")
+                .font(.system(size: 13))
+                .foregroundStyle(theme.menuPrimary)
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { settings.paragraphSpacingEnabled },
+                set: { value in
+                    settings.paragraphSpacingEnabled = value
+                    settings.save()
+                }
+            ))
+            .labelsHidden()
+            .tint(theme.accentColor)
+            .accessibilityLabel("段间距")
+            .accessibilityValue(settings.paragraphSpacingEnabled ? "已开启" : "已关闭")
+        }
+        .frame(height: 56)
+    }
+
+    private var keepScreenAwakeRow: some View {
+        HStack {
+            Text("保持屏幕常亮")
+                .font(.system(size: 13))
+                .foregroundStyle(theme.menuPrimary)
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { settings.keepScreenAwake },
+                set: { value in
+                    settings.keepScreenAwake = value
+                    settings.save()
+                }
+            ))
+            .labelsHidden()
+            .tint(theme.accentColor)
+            .accessibilityLabel("保持屏幕常亮")
+            .accessibilityValue(settings.keepScreenAwake ? "已开启" : "已关闭")
+        }
+        .frame(height: 56)
+    }
+
+    // MARK: - 亮度 / 进度面板
+
+    private func brightnessFloatingPanel(barTop: CGFloat) -> some View {
+        let naturalHeight: CGFloat = 56
+        let top = gridAlignedTop(naturalHeight: naturalHeight, barTop: barTop)
+        return HStack(spacing: 12) {
             Slider(
                 value: Binding(
                     get: { brightnessValue },
@@ -699,16 +882,48 @@ struct ReaderMenuOverlay: View {
                             : theme.menuSecondary
                     )
                     .frame(width: 36, height: 26)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(followSystemFlash ? theme.menuPrimary.opacity(0.08) : Color.clear)
-                    )
             }
             .buttonStyle(.plain)
             .accessibilityLabel("跟随系统亮度")
         }
         .padding(.horizontal, 24)
-        .frame(height: 56)
+        .frame(maxWidth: .infinity)
+        .frame(height: max(0, barTop - top), alignment: .center)
+        .background(theme.menuBackground)
+        .overlay(alignment: .top) {
+            Rectangle().fill(theme.menuPrimary.opacity(0.12)).frame(height: 1)
+        }
+        .offset(y: top)
+    }
+
+    private func progressFloatingPanel(barTop: CGFloat) -> some View {
+        let naturalHeight: CGFloat = 92
+        let top = gridAlignedTop(naturalHeight: naturalHeight, barTop: barTop)
+        return VStack(spacing: 8) {
+            Text(progressPercent)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(theme.menuPrimary)
+            Slider(
+                value: $sliderValue,
+                in: 0...max(Double(totalChapters - 1), 1),
+                step: 1
+            ) { editing in
+                if !editing {
+                    currentChapterIndex = Int(sliderValue)
+                }
+            }
+            .tint(theme.menuSecondary)
+            .accessibilityLabel("章节")
+            .accessibilityValue("第 \(currentChapterIndex + 1) 章，共 \(totalChapters) 章")
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity)
+        .frame(height: max(0, barTop - top), alignment: .center)
+        .background(theme.menuBackground)
+        .overlay(alignment: .top) {
+            Rectangle().fill(theme.menuPrimary.opacity(0.12)).frame(height: 1)
+        }
+        .offset(y: top)
     }
 
     private func flashFollowSystem() {
@@ -719,49 +934,6 @@ struct ReaderMenuOverlay: View {
                 withAnimation(.easeInOut(duration: 0.15)) { followSystemFlash = false }
             }
         }
-    }
-
-    // MARK: - Icon Row
-
-    private var iconRow: some View {
-        HStack(spacing: 0) {
-            toolButton(icon: "list.bullet", label: "目录") {
-                openPanel(.chapters)
-            }
-            toolButton(icon: hasPageBookmark ? "bookmark.fill" : "bookmark", label: "书签") {
-                openPanel(.bookmarks)
-            }
-            toolButton(
-                icon: settings.theme.isDark ? "sun.max" : "moon.fill",
-                label: settings.theme.isDark ? "日间" : "夜间"
-            ) {
-                settings.theme = settings.theme.isDark ? .paper : .dark
-                settings.save()
-            }
-            toolButton(icon: "gearshape", label: "设置") {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showSettings.toggle()
-                }
-            }
-        }
-    }
-
-    private func toolButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(theme.menuPrimary)
-                    .frame(height: 24)
-                Text(label)
-                    .font(.system(size: 10))
-                    .foregroundStyle(theme.menuSecondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 8)
-            .padding(.bottom, 0)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - 目录 / 书签面板
@@ -812,10 +984,7 @@ struct ReaderMenuOverlay: View {
         VStack(spacing: 0) {
             panelHandle
             panelHeader
-            if isPanelSearchOpen {
-                chapterSearchRow
-            }
-            panelSegments
+            chapterCacheRow
             panelSectionContent
             Spacer(minLength: 0)
         }
@@ -853,75 +1022,88 @@ struct ReaderMenuOverlay: View {
             }
     }
 
-    /// 书名 17 semibold,下一行「共 N 章 · 当前第 M 章」;搜索收进右侧一个 36pt 图标。
+    /// 顶部一行:左「搜索本书」胶囊(高 36、圆角 18、底 字色 6%),右目录/书签 tab;
+    /// 下面一条 1pt 分隔线。
     private var panelHeader: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(book.title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(theme.menuPrimary)
-                    .lineLimit(1)
-                Text("共 \(chapters.count) 章 · 当前第 \(currentChapterIndex + 1) 章")
-                    .font(.system(size: 13))
-                    .foregroundStyle(theme.menuSecondary)
-                    .lineLimit(1)
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                chapterSearchRow
+                panelSegments
             }
-            Spacer(minLength: 0)
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) { isPanelSearchOpen.toggle() }
-                if !isPanelSearchOpen { chapterSearch = "" }
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(theme.menuPrimary)
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(isPanelSearchOpen ? "收起搜索" : "搜索章节")
+            .padding(.leading, 24)
+            .padding(.trailing, 24)
+            .frame(height: 56)
+            .contentShape(Rectangle())
+            .gesture(panelDragGesture)
+
+            Rectangle()
+                .fill(theme.menuPrimary.opacity(0.12))
+                .frame(height: 1)
         }
-        .padding(.leading, 24)
-        .padding(.trailing, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 8)
-        .contentShape(Rectangle())
-        .gesture(panelDragGesture)
     }
 
     private var visibleSegments: [ReaderPanelSegment] {
         ReaderPanelSegment.allCases.filter { $0 != .notes || !notes.isEmpty }
     }
 
-    /// 三段是 tab:选中是主色加 2pt 短横线,未选是 55%。
+    /// 右端 tab:目录 / 书签(有笔记时再多一个);选中是主色加 2pt 短横线。
     private var panelSegments: some View {
-        HStack(spacing: 28) {
+        HStack(spacing: 18) {
             ForEach(visibleSegments) { segment in
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) { panelSegment = segment }
                 } label: {
-                    VStack(spacing: 6) {
+                    VStack(spacing: 4) {
                         Text(segment.title)
                             .font(.system(size: 15, weight: panelSegment == segment ? .semibold : .regular))
                             .foregroundStyle(panelSegment == segment ? theme.menuPrimary : theme.menuSecondary)
                         RoundedRectangle(cornerRadius: 1)
-                            .fill(panelSegment == segment ? theme.menuPrimary : Color.clear)
-                            .frame(width: 20, height: 2)
+                            .fill(panelSegment == segment ? theme.accentColor : Color.clear)
+                            .frame(width: 18, height: 2)
                     }
-                    .frame(height: 44)
+                    .frame(height: 36)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(segment.title)
                 .accessibilityAddTraits(panelSegment == segment ? [.isSelected] : [])
             }
-            Spacer(minLength: 0)
-            if panelSegment == .chapters {
+        }
+    }
+
+    /// 有书源的书才显示缓存/更新目录这一行;测试书没有书源时整行不出现。
+    @ViewBuilder
+    private var chapterCacheRow: some View {
+        if panelSegment == .chapters,
+           onCache != nil,
+           cacheState != .unavailable {
+            HStack(spacing: 16) {
+                Spacer(minLength: 0)
                 chapterListCacheControl
                     .font(.system(size: 12))
+                if onRefreshToc != nil {
+                    Button {
+                        updateToc()
+                    } label: {
+                        if isUpdatingToc {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 20, height: 20)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 15))
+                                .foregroundStyle(theme.menuPrimary)
+                                .frame(width: 20, height: 20)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isUpdatingToc)
+                    .accessibilityLabel("更新目录")
+                }
             }
+            .padding(.horizontal, 24)
+            .frame(height: 32)
         }
-        .padding(.horizontal, 24)
-        .frame(height: 44)
     }
 
     @ViewBuilder
@@ -980,6 +1162,7 @@ struct ReaderMenuOverlay: View {
         withAnimation(.easeOut(duration: 0.25)) {
             panelDragOffset = 0
             showChapterList = false
+            selectedTool = nil
         }
     }
 
@@ -1221,46 +1404,38 @@ struct ReaderMenuOverlay: View {
         return chapters.filter { $0.title.localizedCaseInsensitiveContains(keyword) }
     }
 
+    /// 搜索本书:高 36、圆角 18 的胶囊,底色 = 字色 6%;输入即过滤章节。
     private var chapterSearchRow: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14))
-                    .foregroundStyle(theme.menuSecondary)
-                TextField("", text: $chapterSearch)
-                    .font(.system(size: 14))
-                    .foregroundStyle(theme.menuPrimary)
-                    .tint(theme.menuPrimary)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .accessibilityLabel("搜索章节")
-                    .overlay(alignment: .leading) {
-                        if chapterSearch.isEmpty {
-                            Text("搜索章节")
-                                .font(.system(size: 14))
-                                .foregroundStyle(theme.menuPrimary.opacity(0.75))
-                                .allowsHitTesting(false)
-                        }
-                    }
-                if !chapterSearch.isEmpty {
-                    Button {
-                        chapterSearch = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14))
+                .foregroundStyle(theme.menuSecondary)
+            TextField("", text: $chapterSearch)
+                .font(.system(size: 14))
+                .foregroundStyle(theme.menuPrimary)
+                .tint(theme.menuPrimary)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityLabel("搜索本书")
+                .overlay(alignment: .leading) {
+                    if chapterSearch.isEmpty {
+                        Text("搜索本书")
                             .font(.system(size: 14))
                             .foregroundStyle(theme.menuSecondary)
+                            .allowsHitTesting(false)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("清除")
                 }
+            if !chapterSearch.isEmpty {
+                Button {
+                    chapterSearch = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(theme.menuSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("清除")
             }
-            .padding(.horizontal, 10)
-            .frame(height: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(theme.menuPrimary.opacity(0.06))
-            )
-
             if onRefreshToc != nil {
                 Button {
                     updateToc()
@@ -1271,7 +1446,7 @@ struct ReaderMenuOverlay: View {
                             .frame(width: 20, height: 20)
                     } else {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 16))
+                            .font(.system(size: 15))
                             .foregroundStyle(theme.menuPrimary)
                             .frame(width: 20, height: 20)
                     }
@@ -1281,8 +1456,13 @@ struct ReaderMenuOverlay: View {
                 .accessibilityLabel("更新目录")
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 36)
+        .background(
+            Capsule(style: .continuous)
+                .fill(theme.menuPrimary.opacity(0.06))
+        )
     }
 
     private var emptyChapterSearchResult: some View {
@@ -1385,6 +1565,11 @@ struct ReaderMenuOverlay: View {
     }
 
     /// 目录行:56pt 高,当前章强调色 + 左侧 3×20 竖条,有书签的章右侧一个 6pt 圆点。
+    private func chapterPercent(for chapter: Chapter) -> Int {
+        guard !chapters.isEmpty else { return 0 }
+        return Int((Double(chapter.index) / Double(chapters.count) * 100).rounded())
+    }
+
     private func chapterRow(_ chapter: Chapter) -> some View {
         let isCurrent = chapter.index == currentChapterIndex
         let hasBookmark = bookmarkChapterIndices.contains(chapter.index)
@@ -1394,16 +1579,29 @@ struct ReaderMenuOverlay: View {
                 .frame(width: 3, height: 20)
                 .padding(.leading, 8)
                 .opacity(isCurrent ? 1 : 0)
-            Text(chapter.title)
-                .font(.system(size: 16, weight: isCurrent ? .semibold : .regular))
-                .foregroundStyle(isCurrent ? theme.accentColor : theme.menuPrimary)
-                .lineLimit(2)
-                .padding(.leading, 13)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(chapter.title)
+                    .font(.system(size: 16, weight: isCurrent ? .semibold : .regular))
+                    .foregroundStyle(isCurrent ? theme.accentColor : theme.menuPrimary)
+                    .lineLimit(2)
+                if isCurrent {
+                    Text("当前读到")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.menuSecondary)
+                }
+            }
+            .padding(.leading, 13)
             Spacer(minLength: 8)
             if hasBookmark {
                 Circle()
                     .fill(theme.menuSecondary)
                     .frame(width: 6, height: 6)
+                    .padding(.trailing, 10)
+            }
+            if !isCurrent {
+                Text("\(chapterPercent(for: chapter))%")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.menuSecondary)
                     .padding(.trailing, 24)
             }
         }

@@ -9,15 +9,19 @@ final class ReaderSettingsTests: XCTestCase {
         let defaults = UserDefaults.standard
         for key in ["reader.fontSize", "reader.lineSpacing", "reader.horizontalPadding",
                      "reader.fontFamily", "reader.theme", "reader.pageMode",
-                     "reader.pageMode.explicit"] {
+                     "reader.pageMode.explicit", "reader.typographyVersion",
+                     "reader.firstLineIndent", "reader.paragraphSpacing"] {
             defaults.removeObject(forKey: key)
         }
         settings = ReaderSettings()
     }
 
     func testDefaultValues() {
-        XCTAssertEqual(settings.fontSize, 17)
-        XCTAssertEqual(settings.lineSpacing, 2.0, accuracy: 0.01)
+        XCTAssertEqual(settings.fontSize, 19)
+        XCTAssertEqual(settings.lineSpacing, 1.5, accuracy: 0.01)
+        // 行高 = 字号 × (档位 1.5 × 字体基准 1.2) = 34.2
+        XCTAssertEqual(settings.lineHeightMultiplier, 1.8, accuracy: 0.001)
+        XCTAssertEqual(settings.bodyLineHeight, 34.2, accuracy: 0.001)
         XCTAssertEqual(settings.fontFamily, .system)
         XCTAssertEqual(settings.theme, .paper)
         XCTAssertEqual(settings.horizontalPadding, 28)
@@ -56,15 +60,15 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertEqual(settings.fontSize, 12)
 
         settings.fontSize = 50
-        XCTAssertEqual(settings.fontSize, 32)
+        XCTAssertEqual(settings.fontSize, 28)
     }
 
     func testLineSpacingClamping() {
         settings.lineSpacing = 1.0
-        XCTAssertEqual(settings.lineSpacing, 1.5, accuracy: 0.01)
+        XCTAssertEqual(settings.lineSpacing, 1.2, accuracy: 0.01)
 
         settings.lineSpacing = 3.0
-        XCTAssertEqual(settings.lineSpacing, 2.5, accuracy: 0.01)
+        XCTAssertEqual(settings.lineSpacing, 1.8, accuracy: 0.01)
     }
 
     func testPreparedWindowPrioritizesNextThenPreviousChapter() {
@@ -191,7 +195,9 @@ final class ReaderSettingsTests: XCTestCase {
             fontFamily: "System",
             usesSystemFont: true,
             horizontalPadding: 28,
-            bottomReserve: 72
+            bottomReserve: 72,
+            paragraphSpacing: 28,
+            firstLineIndent: true
         )
     }
 }
