@@ -67,14 +67,20 @@ struct PageTextView: UIViewRepresentable {
     }
 
     private var uiFont: UIFont {
-        if fontFamily == FontFamily.system.rawValue {
-            return .systemFont(ofSize: fontSize)
-        }
-        return UIFont(name: fontFamily, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        FontFamily.uiFont(
+            family: fontFamily,
+            size: fontSize,
+            usesSystemFont: fontFamily == FontFamily.system.rawValue
+        )
     }
 
     /// 每段一个 paragraph:行高钉在 字号 × 倍率,段间距 28,
     /// 行宽里按自然字距排 18 个全角字,首行缩进两个字身。
+    ///
+    /// 分页阶段已经把标点禁则断行结果用硬换行写进 `fragment.text`,
+    /// 而 TextKit 里每个硬换行都是一个新段落。所以段间距只能落在
+    /// 这一段的最后一行,首行缩进只能落在第一行;否则每一行都会被
+    /// 额外拉开 28 点、再缩进两个字,页数和实际显示就会错位。
     private func attributed() -> NSAttributedString {
         let lineHeight = ReaderTypography.bodyLineHeight(fontSize: fontSize, level: lineSpacing)
         let font = uiFont
@@ -86,36 +92,42 @@ struct PageTextView: UIViewRepresentable {
         let indent = ReaderTypography.firstLineIndent(fontSize: fontSize, textWidth: textWidth)
 
         let result = NSMutableAttributedString()
-        var highlightRange: NSRange?
+        var highlightRanges: [NSRange] = []
         for (index, fragment) in fragments.enumerated() {
-            let style = NSMutableParagraphStyle()
-            style.lineSpacing = 0
-            style.minimumLineHeight = lineHeight
-            style.maximumLineHeight = lineHeight
-            style.paragraphSpacing = paragraphSpacing
-            style.paragraphSpacingBefore = 0
-            style.firstLineHeadIndent = fragment.indent && firstLineIndentEnabled ? indent : 0
-            // TextKit 换行本身就是一整行,段与段之间的空隙只由 paragraphSpacing 决定。
-            style.alignment = .natural
-            style.lineBreakMode = .byWordWrapping
+            // 分页时算好的显示行;沿用同一组硬换行,TextKit 不再自行改断点。
+            let lineTexts = fragment.text.components(separatedBy: "\n")
+            for (lineIndex, lineText) in lineTexts.enumerated() {
+                let isLastLine = lineIndex == lineTexts.count - 1
+                let style = NSMutableParagraphStyle()
+                style.lineSpacing = 0
+                style.minimumLineHeight = lineHeight
+                style.maximumLineHeight = lineHeight
+                // 段间距只加在整段最后一行;行内换行是禁则断行,不是新段落。
+                style.paragraphSpacing = isLastLine ? paragraphSpacing : 0
+                style.paragraphSpacingBefore = 0
+                style.firstLineHeadIndent = lineIndex == 0 && fragment.indent && firstLineIndentEnabled ? indent : 0
+                style.alignment = .natural
+                style.lineBreakMode = .byWordWrapping
 
-            let body = fragment.text
-            let text = index == fragments.count - 1 ? body : body + "\n"
-            let piece = NSMutableAttributedString(
-                string: text,
-                attributes: [
-                    .font: font,
-                    .foregroundColor: UIColor(textColor),
-                    .paragraphStyle: style,
-                    .kern: spacing
-                ]
-            )
-            if let highlightedParagraph, highlightedParagraph == fragment.paragraphIndex {
-                highlightRange = NSRange(location: result.length, length: piece.length)
+                // 段与段之间用换行分隔,页内最后一行不加。
+                let isLastFragment = index == fragments.count - 1
+                let suffix = isLastLine && isLastFragment ? "" : "\n"
+                let piece = NSMutableAttributedString(
+                    string: lineText + suffix,
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: UIColor(textColor),
+                        .paragraphStyle: style,
+                        .kern: spacing
+                    ]
+                )
+                if let highlightedParagraph, highlightedParagraph == fragment.paragraphIndex {
+                    highlightRanges.append(NSRange(location: result.length, length: piece.length))
+                }
+                result.append(piece)
             }
-            result.append(piece)
         }
-        if let highlightRange {
+        for highlightRange in highlightRanges {
             result.addAttribute(
                 .backgroundColor,
                 value: UIColor(textColor).withAlphaComponent(0.12),
@@ -196,7 +208,12 @@ final class PageUITextView: UITextView, UIGestureRecognizerDelegate {
 
     @objc private func handleScreenTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
-        guard selectedRange.length == 0 else { return }
+        // 误触成双指/双击选字后,selectedRange 会一直非空;如果这里直接 return,
+        // 中间区域的单击会被永久吞掉(左右边缘还能翻页),菜单就再也打不开。
+        // 单击先清掉文本视图自己的选区,再把这一下正常交给外层分流。
+        if selectedRange.length > 0 {
+            selectedRange = NSRange(location: 0, length: 0)
+        }
         let inView = recognizer.location(in: self)
         guard let window else { return }
         let inWindow = convert(inView, to: window)

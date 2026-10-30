@@ -700,20 +700,14 @@ struct ReaderView: View {
     /// SwiftUI Text 的 lineSpacing 只补自然行高之外的差额。
     private var bodyLineGap: CGFloat {
         let size = CGFloat(settings.fontSize)
-        let font: UIFont = settings.fontFamily.isSystem
-            ? UIFont.systemFont(ofSize: size)
-            : UIFont(name: settings.fontFamily.rawValue, size: size)
-                ?? UIFont.systemFont(ofSize: size)
+        let font = settings.fontFamily.uiFont(size: size)
         return max(0, bodyLineHeight - font.lineHeight)
     }
 
     /// 正文容器顶(屏幕坐标):首行字顶 116 减去行内字墨偏移。
     private var bodyContainerTopY: CGFloat {
         let size = CGFloat(settings.fontSize)
-        let font: UIFont = settings.fontFamily.isSystem
-            ? UIFont.systemFont(ofSize: size)
-            : UIFont(name: settings.fontFamily.rawValue, size: size)
-                ?? UIFont.systemFont(ofSize: size)
+        let font = settings.fontFamily.uiFont(size: size)
         let inkOffset = ReaderTypography.inkTopOffset(
             fontSize: size,
             lineHeight: settings.bodyLineHeight,
@@ -731,10 +725,7 @@ struct ReaderView: View {
         guard !fragments.isEmpty else { return [] }
 
         let size = CGFloat(settings.fontSize)
-        let font: UIFont = settings.fontFamily.isSystem
-            ? UIFont.systemFont(ofSize: size)
-            : UIFont(name: settings.fontFamily.rawValue, size: size)
-                ?? UIFont.systemFont(ofSize: size)
+        let font = settings.fontFamily.uiFont(size: size)
         let lineHeight = settings.bodyLineHeight
         let textWidth = max(1, viewSize.width - settings.horizontalPadding * 2)
         let spacing = ReaderTypography.characterSpacing(
@@ -785,10 +776,7 @@ struct ReaderView: View {
     /// 滚动模式也按默认 19 号的 18 字行宽补字距,和翻页模式同一套排版。
     private var scrollCharacterSpacing: CGFloat {
         let size = settings.fontSize
-        let font: UIFont = settings.fontFamily.isSystem
-            ? UIFont.systemFont(ofSize: size)
-            : UIFont(name: settings.fontFamily.rawValue, size: size)
-                ?? UIFont.systemFont(ofSize: size)
+        let font = settings.fontFamily.uiFont(size: size)
         let width = viewSize.width > 0 ? viewSize.width : UIScreen.main.bounds.width
         let textWidth = max(1, width - settings.horizontalPadding * 2)
         return ReaderTypography.characterSpacing(
@@ -808,6 +796,10 @@ struct ReaderView: View {
                         .padding(.top, scrollChapterTitleTopInset)
                         // 章节名行高 14.3 + 25 让正文行框顶落在 116 的字墨线上。
                         .padding(.bottom, 25)
+                        // 菜单开着时左上角只有返回箭头,章节名不能和它挤在一起。
+                        // 只藏不删,滚动内容的高度和位置保持不变。
+                        .opacity(showMenu ? 0 : 1)
+                        .allowsHitTesting(!showMenu)
                 }
 
                 VStack(alignment: .leading, spacing: settings.paragraphSpacing) {
@@ -815,7 +807,7 @@ struct ReaderView: View {
                     Text("\u{3000}\u{3000}" + para)
                         .font(settings.fontFamily.isSystem
                             ? .system(size: settings.fontSize)
-                            : .custom(settings.fontFamily.rawValue, size: settings.fontSize))
+                            : .custom(settings.fontFamily.postScriptName, size: settings.fontSize))
                         .foregroundStyle(settings.theme.textColor)
                         .lineSpacing(bodyLineGap)
                         .kerning(scrollCharacterSpacing)
@@ -1718,11 +1710,16 @@ struct ReaderView: View {
 
     /// 同一次点击可能被 PageTextView 的手势和父级 onTapGesture 各收到一次,
     /// 80 毫秒内同一点只处理一次,避免翻两页或菜单开了又关。
+    ///
+    /// 两个手势一个用屏幕坐标、一个用页面局部坐标;页面有安全区/下拉偏移时
+    /// 同一个点会差几十点。容差只放到 80 点:人手不可能在 80 毫秒内点两处
+    /// 相距 80 点的位置,但足以把同一次点击的两份事件合并掉。
     private func beginReaderTap(at location: CGPoint) -> Bool {
         let now = CFAbsoluteTimeGetCurrent()
         let dx = location.x - lastReaderTapLocation.x
         let dy = location.y - lastReaderTapLocation.y
-        if now - lastReaderTapAt < 0.08, dx * dx + dy * dy < 16 {
+        let tolerance: CGFloat = 80
+        if now - lastReaderTapAt < 0.08, dx * dx + dy * dy < tolerance * tolerance {
             return false
         }
         lastReaderTapAt = now
@@ -2554,10 +2551,11 @@ struct ReaderView: View {
         let pageHeight = lineHeight * ReaderTypography.bodyLineCount
         let paragraphGap = CGFloat(input.paragraphSpacing)
 
-        let font: UIFont = input.usesSystemFont
-            ? UIFont.systemFont(ofSize: fontSize)
-            : UIFont(name: input.fontFamily, size: fontSize)
-                ?? UIFont.systemFont(ofSize: fontSize)
+        let font = FontFamily.uiFont(
+            family: input.fontFamily,
+            size: fontSize,
+            usesSystemFont: input.usesSystemFont
+        )
         let characterSpacing = ReaderTypography.characterSpacing(
             fontSize: fontSize,
             textWidth: textWidth,
@@ -4514,9 +4512,11 @@ private struct StaticPageView: View {
     var onScreenTap: ((CGPoint) -> Void)?
 
     private var uiFont: UIFont {
-        fontFamily == FontFamily.system.rawValue
-            ? .systemFont(ofSize: fontSize)
-            : UIFont(name: fontFamily, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        FontFamily.uiFont(
+            family: fontFamily,
+            size: fontSize,
+            usesSystemFont: fontFamily == FontFamily.system.rawValue
+        )
     }
 
     /// 章节名 12 号字在 76 的位置:行框顶到字面顶约 3 点。

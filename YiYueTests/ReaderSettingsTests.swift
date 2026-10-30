@@ -333,4 +333,28 @@ final class ReaderSettingsTests: XCTestCase {
             firstLineIndent: true
         )
     }
+
+    // MARK: - 字体与档位
+
+    func testChineseFontFamiliesResolveToRealFonts() throws {
+        for family in [FontFamily.songti, .kaiti] {
+            let available = UIFont.fontNames(forFamilyName: family.rawValue)
+            // 部分模拟器运行时不带中文衬线字体;真机有,这里跳过而不是误报。
+            guard !available.isEmpty else {
+                throw XCTSkip("\(family.rawValue) 在当前运行环境不可用")
+            }
+            let font = family.uiFont(size: 19)
+            XCTAssertTrue(
+                available.contains(font.fontName),
+                "\(family.rawValue) 回退到了 \(font.fontName)"
+            )
+        }
+    }
+
+
+    func testFontSizeLevelsReachForty() {
+        XCTAssertEqual(ReaderTypography.fontSizeLevels.last, 40)
+        settings.fontSize = 40
+        XCTAssertEqual(settings.fontSizeLevelIndex, ReaderTypography.fontSizeLevels.count - 1)
+    }
 }

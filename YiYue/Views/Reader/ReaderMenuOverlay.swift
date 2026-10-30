@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 /// Result of asking the book's source for its latest table of contents.
 enum TocRefreshOutcome: Sendable {
@@ -649,6 +650,16 @@ struct ReaderMenuOverlay: View {
         .frame(height: 56)
     }
 
+    /// 三根档位滑轨统一念「第 N 档,共 M 档」,两端补「已是最小 / 已是最大」。
+    private func levelAccessibilityString(index: Int, count: Int) -> String {
+        let total = max(count, 1)
+        let clamped = min(max(index, 0), total - 1)
+        let base = "第 \(clamped + 1) 档，共 \(total) 档"
+        if clamped == 0 { return "\(base)，已是最小" }
+        if clamped == total - 1 { return "\(base)，已是最大" }
+        return base
+    }
+
     private var fontSizeRow: some View {
         HStack(spacing: 8) {
             settingLabel("字号", width: 36)
@@ -664,20 +675,24 @@ struct ReaderMenuOverlay: View {
             .buttonStyle(.plain)
             .accessibilityLabel("缩小字号")
 
-            Slider(value: fontSizeIndexBinding,
-                   in: 0...Double(ReaderTypography.fontSizeLevels.count - 1),
-                   step: 1)
-                .tint(theme.menuSecondary)
-                .frame(height: 44)
-                .overlay {
-                    ReaderSliderTicks(
-                        count: ReaderTypography.fontSizeLevels.count,
-                        selectedIndex: settings.fontSizeLevelIndex,
-                        color: theme.menuSecondary
-                    )
-                }
-                .accessibilityLabel("字号")
-                .accessibilityValue("\(Int(settings.fontSize))")
+            ReaderLevelSlider(
+                normalizedValue: fontSizeIndexBinding,
+                tint: theme.menuSecondary,
+                label: "字号",
+                spokenValue: levelAccessibilityString(
+                    index: settings.fontSizeLevelIndex,
+                    count: ReaderTypography.fontSizeLevels.count
+                ),
+                levelCount: ReaderTypography.fontSizeLevels.count
+            )
+            .frame(height: 44)
+            .overlay {
+                ReaderSliderTicks(
+                    count: ReaderTypography.fontSizeLevels.count,
+                    selectedIndex: settings.fontSizeLevelIndex,
+                    color: theme.menuSecondary
+                )
+            }
 
             Button {
                 stepFontSize(1)
@@ -694,17 +709,24 @@ struct ReaderMenuOverlay: View {
             Text("\(Int(settings.fontSize))")
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(theme.menuSecondary)
-                .frame(width: 24, alignment: .trailing)
+                // 不占固定宽度:把省下的 8 点给滑轨,最后一档 40 才能拖到。
+                .fixedSize()
         }
         .frame(height: 56)
     }
 
     private var fontSizeIndexBinding: Binding<Double> {
         Binding(
-            get: { Double(settings.fontSizeLevelIndex) },
+            get: {
+                let count = ReaderTypography.fontSizeLevels.count
+                guard count > 1 else { return 0 }
+                return Double(settings.fontSizeLevelIndex) / Double(count - 1)
+            },
             set: { value in
                 let levels = ReaderTypography.fontSizeLevels
-                let index = min(max(Int(value.rounded()), 0), levels.count - 1)
+                let count = levels.count
+                guard count > 1 else { return }
+                let index = min(max(Int((value * Double(count - 1)).rounded()), 0), count - 1)
                 guard levels[index] != settings.fontSize else { return }
                 settings.fontSize = levels[index]
                 settings.save()
@@ -720,23 +742,43 @@ struct ReaderMenuOverlay: View {
         settings.save()
     }
 
+    private func stepLineSpacing(_ direction: Int) {
+        let levels = ReaderTypography.lineSpacingLevels
+        let index = min(max(settings.lineSpacingLevelIndex + direction, 0), levels.count - 1)
+        guard abs(levels[index] - settings.lineSpacing) > 0.001 else { return }
+        settings.lineSpacing = levels[index]
+        settings.save()
+    }
+
+    private func stepHorizontalPadding(_ direction: Int) {
+        let levels = ReaderTypography.horizontalPaddingLevels
+        let index = min(max(settings.horizontalPaddingLevelIndex + direction, 0), levels.count - 1)
+        guard levels[index] != settings.horizontalPadding else { return }
+        settings.horizontalPadding = levels[index]
+        settings.save()
+    }
+
     private var lineSpacingRow: some View {
         HStack(spacing: 10) {
             settingLabel("行距", width: 44)
-            Slider(value: lineSpacingIndexBinding,
-                   in: 0...Double(ReaderTypography.lineSpacingLevels.count - 1),
-                   step: 1)
-                .tint(theme.menuSecondary)
-                .frame(height: 44)
-                .overlay {
-                    ReaderSliderTicks(
-                        count: ReaderTypography.lineSpacingLevels.count,
-                        selectedIndex: settings.lineSpacingLevelIndex,
-                        color: theme.menuSecondary
-                    )
-                }
-                .accessibilityLabel("行距")
-                .accessibilityValue(String(format: "%.1f", settings.lineSpacing))
+            ReaderLevelSlider(
+                normalizedValue: lineSpacingIndexBinding,
+                tint: theme.menuSecondary,
+                label: "行距",
+                spokenValue: levelAccessibilityString(
+                    index: settings.lineSpacingLevelIndex,
+                    count: ReaderTypography.lineSpacingLevels.count
+                ),
+                levelCount: ReaderTypography.lineSpacingLevels.count
+            )
+            .frame(height: 44)
+            .overlay {
+                ReaderSliderTicks(
+                    count: ReaderTypography.lineSpacingLevels.count,
+                    selectedIndex: settings.lineSpacingLevelIndex,
+                    color: theme.menuSecondary
+                )
+            }
             Text(String(format: "%.1f", settings.lineSpacing))
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(theme.menuSecondary)
@@ -747,10 +789,16 @@ struct ReaderMenuOverlay: View {
 
     private var lineSpacingIndexBinding: Binding<Double> {
         Binding(
-            get: { Double(settings.lineSpacingLevelIndex) },
+            get: {
+                let count = ReaderTypography.lineSpacingLevels.count
+                guard count > 1 else { return 0 }
+                return Double(settings.lineSpacingLevelIndex) / Double(count - 1)
+            },
             set: { value in
                 let levels = ReaderTypography.lineSpacingLevels
-                let index = min(max(Int(value.rounded()), 0), levels.count - 1)
+                let count = levels.count
+                guard count > 1 else { return }
+                let index = min(max(Int((value * Double(count - 1)).rounded()), 0), count - 1)
                 guard abs(levels[index] - settings.lineSpacing) > 0.001 else { return }
                 settings.lineSpacing = levels[index]
                 settings.save()
@@ -761,20 +809,24 @@ struct ReaderMenuOverlay: View {
     private var horizontalPaddingRow: some View {
         HStack(spacing: 10) {
             settingLabel("边距", width: 44)
-            Slider(value: horizontalPaddingIndexBinding,
-                   in: 0...Double(ReaderTypography.horizontalPaddingLevels.count - 1),
-                   step: 1)
-                .tint(theme.menuSecondary)
-                .frame(height: 44)
-                .overlay {
-                    ReaderSliderTicks(
-                        count: ReaderTypography.horizontalPaddingLevels.count,
-                        selectedIndex: settings.horizontalPaddingLevelIndex,
-                        color: theme.menuSecondary
-                    )
-                }
-                .accessibilityLabel("边距")
-                .accessibilityValue("第 \(settings.horizontalPaddingLevelIndex + 1) 档")
+            ReaderLevelSlider(
+                normalizedValue: horizontalPaddingIndexBinding,
+                tint: theme.menuSecondary,
+                label: "边距",
+                spokenValue: levelAccessibilityString(
+                    index: settings.horizontalPaddingLevelIndex,
+                    count: ReaderTypography.horizontalPaddingLevels.count
+                ),
+                levelCount: ReaderTypography.horizontalPaddingLevels.count
+            )
+            .frame(height: 44)
+            .overlay {
+                ReaderSliderTicks(
+                    count: ReaderTypography.horizontalPaddingLevels.count,
+                    selectedIndex: settings.horizontalPaddingLevelIndex,
+                    color: theme.menuSecondary
+                )
+            }
             // 边距不显数字。
             Color.clear.frame(width: 30, height: 1)
         }
@@ -783,10 +835,16 @@ struct ReaderMenuOverlay: View {
 
     private var horizontalPaddingIndexBinding: Binding<Double> {
         Binding(
-            get: { Double(settings.horizontalPaddingLevelIndex) },
+            get: {
+                let count = ReaderTypography.horizontalPaddingLevels.count
+                guard count > 1 else { return 0 }
+                return Double(settings.horizontalPaddingLevelIndex) / Double(count - 1)
+            },
             set: { value in
                 let levels = ReaderTypography.horizontalPaddingLevels
-                let index = min(max(Int(value.rounded()), 0), levels.count - 1)
+                let count = levels.count
+                guard count > 1 else { return }
+                let index = min(max(Int((value * Double(count - 1)).rounded()), 0), count - 1)
                 guard levels[index] != settings.horizontalPadding else { return }
                 settings.horizontalPadding = levels[index]
                 settings.save()
@@ -1667,6 +1725,8 @@ struct ReaderMenuOverlay: View {
     }
 
     /// 目录行:56pt 高,当前章强调色 + 左侧 3×20 竖条,有书签的章右侧一个 6pt 圆点。
+    /// 右侧百分比只给读过的章(章序号在当前章之前);没读过的章不显示数字,
+    /// 免得把「这一章在全书的位置」误当成阅读进度。
     private func chapterPercent(for chapter: Chapter) -> Int {
         guard !chapters.isEmpty else { return 0 }
         return Int((Double(chapter.index) / Double(chapters.count) * 100).rounded())
@@ -1674,6 +1734,7 @@ struct ReaderMenuOverlay: View {
 
     private func chapterRow(_ chapter: Chapter) -> some View {
         let isCurrent = chapter.index == currentChapterIndex
+        let isRead = chapter.index < currentChapterIndex
         let hasBookmark = bookmarkChapterIndices.contains(chapter.index)
         return HStack(spacing: 0) {
             RoundedRectangle(cornerRadius: 1.5)
@@ -1700,7 +1761,7 @@ struct ReaderMenuOverlay: View {
                     .frame(width: 6, height: 6)
                     .padding(.trailing, 10)
             }
-            if !isCurrent {
+            if !isCurrent, isRead {
                 Text("\(chapterPercent(for: chapter))%")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.menuSecondary)
@@ -1970,5 +2031,141 @@ struct TopRoundedRectangle: Shape {
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
         path.closeSubpath()
         return path
+    }
+}
+
+/// 滑轨本体用 UISlider;读屏交给自定义 UIAccessibilityElement,
+/// 才能把「第 N 档,共 M 档」作为值念出来,而不是小数百分比。
+struct ReaderLevelSlider: View {
+    @Binding var normalizedValue: Double
+    let tint: Color
+    let label: String
+    let spokenValue: String
+    let levelCount: Int
+
+    var body: some View {
+        ReaderLevelSliderControl(
+            normalizedValue: $normalizedValue,
+            tint: tint,
+            label: label,
+            spokenValue: spokenValue,
+            levelCount: levelCount
+        )
+    }
+}
+
+private struct ReaderLevelSliderControl: UIViewRepresentable {
+    @Binding var normalizedValue: Double
+    let tint: Color
+    let label: String
+    let spokenValue: String
+    let levelCount: Int
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> ReaderLevelUISlider {
+        let slider = ReaderLevelUISlider()
+        slider.isAccessibilityElement = false
+        slider.minimumValue = 0
+        slider.maximumValue = 1
+        slider.isContinuous = true
+        slider.addTarget(
+            context.coordinator,
+            action: #selector(Coordinator.valueChanged(_:)),
+            for: .valueChanged
+        )
+        return slider
+    }
+
+    func updateUIView(_ slider: ReaderLevelUISlider, context: Context) {
+        context.coordinator.parent = self
+        slider.value = Float(min(max(normalizedValue, 0), 1))
+        slider.minimumTrackTintColor = UIColor(tint)
+        slider.maximumTrackTintColor = UIColor(tint).withAlphaComponent(0.22)
+        slider.levelCount = max(levelCount, 2)
+        slider.spokenLabel = label
+        slider.spokenValue = spokenValue
+        slider.refreshAccessibilityElement()
+    }
+
+    final class Coordinator: NSObject {
+        var parent: ReaderLevelSliderControl
+
+        init(_ parent: ReaderLevelSliderControl) {
+            self.parent = parent
+        }
+
+        @objc func valueChanged(_ sender: UISlider) {
+            parent.normalizedValue = Double(sender.value)
+        }
+    }
+}
+
+final class ReaderLevelUISlider: UISlider {
+    var spokenLabel: String = ""
+    var spokenValue: String = ""
+    var levelCount: Int = 2
+
+    private lazy var levelElement: ReaderSliderAccessibilityElement = {
+        let element = ReaderSliderAccessibilityElement(accessibilityContainer: self)
+        element.slider = self
+        return element
+    }()
+
+    private lazy var levelElements: [Any] = [levelElement]
+
+    override var accessibilityElements: [Any]? {
+        get { levelElements }
+        set { }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        levelElement.accessibilityFrameInContainerSpace = bounds
+    }
+
+    func refreshAccessibilityElement() {
+        levelElement.spokenLabel = spokenLabel
+        levelElement.spokenValue = spokenValue
+        levelElement.accessibilityFrameInContainerSpace = bounds
+    }
+
+    func adjustLevel(by direction: Int) {
+        let steps = max(levelCount - 1, 1)
+        let next = min(max(value + Float(direction) / Float(steps), 0), 1)
+        guard next != value else { return }
+        value = next
+        sendActions(for: .valueChanged)
+    }
+}
+
+final class ReaderSliderAccessibilityElement: UIAccessibilityElement {
+    weak var slider: ReaderLevelUISlider?
+    var spokenLabel = ""
+    var spokenValue = ""
+
+    override var accessibilityLabel: String? {
+        get { spokenLabel }
+        set { spokenLabel = newValue ?? "" }
+    }
+
+    override var accessibilityValue: String? {
+        get { spokenValue }
+        set { spokenValue = newValue ?? "" }
+    }
+
+    override var accessibilityTraits: UIAccessibilityTraits {
+        get { .adjustable }
+        set { }
+    }
+
+    override func accessibilityIncrement() {
+        slider?.adjustLevel(by: 1)
+    }
+
+    override func accessibilityDecrement() {
+        slider?.adjustLevel(by: -1)
     }
 }

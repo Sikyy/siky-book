@@ -107,7 +107,7 @@ struct SeriesBookView: View {
         } else if let book = currentBook, book.readingStatus == .reading {
             ShelfCornerBadge(
                 text: "\(Int(book.progress * 100))%",
-                background: Color.accentColor
+                background: .shelfReadingAccent
             )
         } else {
             ShelfCornerBadge(

@@ -16,6 +16,39 @@ enum FontFamily: String, CaseIterable, Codable {
     }
 
     var isSystem: Bool { self == .system }
+
+    /// UIFont(name:) 要的是 PostScript 名,不是家族名;"Songti SC" 直接传进去
+    /// 会静默拿到 nil 再回退系统无衬线。这里先按家族名查可用字面,取 Regular。
+    private static let postScriptNames: [String: String] = {
+        var names: [String: String] = [:]
+        for family in FontFamily.allCases where !family.isSystem {
+            let available = UIFont.fontNames(forFamilyName: family.rawValue)
+            names[family.rawValue] = available.first {
+                $0.localizedCaseInsensitiveContains("regular")
+            } ?? available.first
+        }
+        return names
+    }()
+
+    /// 供 SwiftUI `Font.custom` 用的字体名(同样是 PostScript 名)。
+    var postScriptName: String {
+        Self.postScriptNames[rawValue] ?? rawValue
+    }
+
+    /// 统一解析字体:分页测量、TextKit 渲染和 SwiftUI 滚动正文必须拿到同一个字体。
+    func uiFont(size: CGFloat) -> UIFont {
+        Self.uiFont(family: rawValue, size: size, usesSystemFont: isSystem)
+    }
+
+    static func uiFont(family: String, size: CGFloat, usesSystemFont: Bool) -> UIFont {
+        if usesSystemFont { return .systemFont(ofSize: size) }
+        if let name = postScriptNames[family], let font = UIFont(name: name, size: size) {
+            return font
+        }
+        // 家族名兜底:即使字面名和系统版本对不上,也尽量留在同一字族里。
+        let descriptor = UIFontDescriptor(fontAttributes: [.family: family])
+        return UIFont(descriptor: descriptor, size: size)
+    }
 }
 
 enum PageMode: String, CaseIterable, Codable {
@@ -348,11 +381,20 @@ enum ReaderLineBreaker {
 
         while lineStart < characters.count {
             let available = firstLine ? max(1, width - firstLineIndent) : width
-            var suggested = CTTypesetterSuggestClusterBreak(
+            // 优先按词断行:英文单词不会被拆成两半;中文没有词间空格时
+            // 仍会落在一个字簇的边界上。没有可用断点(超长单词)再退回字簇。
+            var suggested = CTTypesetterSuggestLineBreak(
                 typesetter,
                 utf16Starts[lineStart],
                 available
             )
+            if suggested <= 0 {
+                suggested = CTTypesetterSuggestClusterBreak(
+                    typesetter,
+                    utf16Starts[lineStart],
+                    available
+                )
+            }
             if suggested <= 0 {
                 suggested = max(1, String(characters[lineStart]).utf16.count)
             }
