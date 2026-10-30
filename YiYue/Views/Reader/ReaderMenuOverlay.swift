@@ -241,6 +241,8 @@ struct ReaderMenuOverlay: View {
                 // 内容全部画在这块里,正文排版视口一帧不动。
                 bottomChrome(width: screenWidth, height: screenHeight)
 
+                panelTopFade
+
                 // 顶栏:高 40、无底色无分隔线,返回 / 章节名 / 目录。
                 topBar
 
@@ -314,18 +316,36 @@ struct ReaderMenuOverlay: View {
     }
 
     /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从 568 起,内容按屏幕绝对坐标。
+    /// 菜单块顶边:固定值;上面那行用 12 点渐隐收尾,不做半行硬切。
+    private var resolvedPanelTop: CGFloat {
+        BottomChromeMetrics.panelTop
+    }
+
+    /// 菜单块上沿的渐隐带:让压在边上的那行字淡出去,而不是被切一半。
+    private var panelTopFade: some View {
+        LinearGradient(
+            colors: [theme.menuBackground.opacity(0), theme.menuBackground],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 12)
+        .allowsHitTesting(false)
+        .offset(y: resolvedPanelTop - 12)
+    }
+
     private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
-        let contentHeight = max(0, height - BottomChromeMetrics.panelTop)
+        let panelTop = resolvedPanelTop
+        let contentHeight = max(0, height - panelTop)
         return ZStack(alignment: .topLeading) {
             progressStatsRow(width: width)
-                .offset(y: BottomChromeMetrics.progressFrameTop - BottomChromeMetrics.panelTop)
+                .offset(y: BottomChromeMetrics.progressFrameTop - panelTop)
 
             chapterSlider(width: width)
                 .frame(width: width, height: BottomChromeMetrics.sliderHeight)
-                .offset(y: BottomChromeMetrics.sliderTop - BottomChromeMetrics.panelTop)
+                .offset(y: BottomChromeMetrics.sliderTop - panelTop)
 
             pillRow(width: width)
-                .offset(y: BottomChromeMetrics.pillTop - BottomChromeMetrics.panelTop)
+                .offset(y: BottomChromeMetrics.pillTop - panelTop)
         }
         .frame(width: width, height: contentHeight, alignment: .topLeading)
         .background {
@@ -347,7 +367,7 @@ struct ReaderMenuOverlay: View {
             }
         }
         .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 0)
-        .offset(y: BottomChromeMetrics.panelTop)
+        .offset(y: panelTop)
     }
 
     private func progressStatsRow(width: CGFloat) -> some View {
@@ -556,7 +576,7 @@ struct ReaderMenuOverlay: View {
                 Button {
                     handleToolTap(.chapters)
                 } label: {
-                    Image(systemName: "list.bullet")
+                    Image(systemName: "line.3.horizontal")
                         .font(.system(size: 24, weight: .regular))
                         .foregroundStyle(theme.menuPrimary)
                         .frame(width: 32, height: ReaderToolbarMetrics.topBarHeight)
