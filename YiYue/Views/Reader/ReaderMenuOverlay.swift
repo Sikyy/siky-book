@@ -73,6 +73,8 @@ struct ReaderMenuOverlay: View {
     @State private var brightnessValue: Double = 1
     @State private var followSystemFlash = false
     @State private var panelSegment: ReaderPanelSegment = .chapters
+    @State private var panelDragOffset: CGFloat = 0
+    @State private var isPanelSearchOpen = false
     @State private var pendingDeletionID: UUID?
     @State private var undoToast: String?
     @State private var undoToastTask: Task<Void, Never>?
@@ -88,13 +90,16 @@ struct ReaderMenuOverlay: View {
             VStack(spacing: 0) {
                 VStack(spacing: 0) {
                     topBar
-                    if onBrightnessChange != nil && !showSettings {
-                        brightnessBar
-                    }
                 }
                 .padding(.bottom, topBottomInset)
                 // 补齐出来的这一条也要用面板底色涂上,否则底下那行会透出来。
                 .background(theme.menuBackground)
+                // 分隔线要落在面板真正的底边,包括补齐出来的那一段。
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(theme.menuPrimary.opacity(0.12))
+                        .frame(height: 1)
+                }
                 .background(
                     GeometryReader { proxy in
                         Color.clear.preference(
@@ -150,13 +155,10 @@ struct ReaderMenuOverlay: View {
             cacheTopBarControl
         }
         .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity)
         .background(theme.menuBackground, ignoresSafeAreaEdges: .top)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.menuSeparator).frame(height: 1)
-        }
     }
 
     @ViewBuilder
@@ -356,29 +358,31 @@ struct ReaderMenuOverlay: View {
     // MARK: - Bottom Panel
 
     private var bottomPanel: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: showSettings ? 12 : 16) {
             if let status = cacheStatusMessage {
                 Text(status.text)
                     .font(.system(size: 11))
                     .foregroundStyle(status.color.opacity(0.9))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
+                    .padding(.horizontal, 20)
             }
             if showSettings {
                 settingsControls
             } else {
                 chapterSlider
+                    .padding(.horizontal, 20)
             }
             iconRow
+                .padding(.horizontal, 20)
         }
         .padding(.top, 12 + bottomTopInset)
         // 底部标签离屏幕底只留安全区:负的底距把这二十来点空白收掉。
         .padding(.bottom, -1)
-        .padding(.horizontal, 20)
         .frame(maxWidth: .infinity)
         .background(theme.menuBackground, ignoresSafeAreaEdges: .bottom)
         .overlay(alignment: .top) {
-            Rectangle().fill(theme.menuSeparator).frame(height: 1)
+            Rectangle().fill(theme.menuPrimary.opacity(0.12)).frame(height: 1)
         }
         .background(
             GeometryReader { proxy in
@@ -435,8 +439,8 @@ struct ReaderMenuOverlay: View {
     // MARK: - Settings Controls
 
     private var settingsControls: some View {
-        VStack(spacing: 12) {
-            // Font size
+        VStack(spacing: 8) {
+            // 字号
             HStack(spacing: 12) {
                 Button {
                     settings.fontSize = max(settings.fontSize - 1, 12)
@@ -453,7 +457,12 @@ struct ReaderMenuOverlay: View {
                 Slider(
                     value: Binding(
                         get: { draggingFontSize ?? Double(settings.fontSize) },
-                        set: { draggingFontSize = $0 }
+                        set: {
+                            draggingFontSize = $0
+                            if Int($0) != Int(settings.fontSize) {
+                                settings.fontSize = CGFloat($0)
+                            }
+                        }
                     ),
                     in: 12...32,
                     step: 1
@@ -483,37 +492,84 @@ struct ReaderMenuOverlay: View {
                     .foregroundStyle(theme.menuSecondary)
                     .frame(width: 22)
             }
+            .frame(height: 56)
+            .padding(.horizontal, 20)
 
-            // Theme circles
-            HStack(spacing: 0) {
-                ForEach(ReaderTheme.allCases, id: \.self) { theme in
+            // 行距
+            HStack(spacing: 10) {
+                Text("行距")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.menuSecondary)
+                    .frame(width: 28)
+                Slider(
+                    value: Binding(
+                        get: { draggingLineSpacing ?? settings.lineSpacing },
+                        set: {
+                            draggingLineSpacing = $0
+                            if abs($0 - settings.lineSpacing) > 0.001 {
+                                settings.lineSpacing = $0
+                            }
+                        }
+                    ),
+                    in: 1.5...2.5,
+                    step: 0.1
+                ) { editing in
+                    guard !editing, let value = draggingLineSpacing else { return }
+                    draggingLineSpacing = nil
+                    guard abs(value - settings.lineSpacing) > 0.001 else { return }
+                    settings.lineSpacing = value
+                    settings.save()
+                }
+                .tint(theme.menuSecondary)
+                Text(String(format: "%.1f", draggingLineSpacing ?? settings.lineSpacing))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(theme.menuSecondary)
+                    .frame(width: 26)
+            }
+            .frame(height: 56)
+            .padding(.horizontal, 20)
+
+            // 主题
+            HStack(spacing: 16) {
+                ForEach(ReaderTheme.allCases, id: \.self) { item in
                     Button {
-                        settings.theme = theme
+                        settings.theme = item
                         settings.save()
                     } label: {
-                        VStack(spacing: 5) {
+                        VStack(spacing: 6) {
                             ZStack {
                                 Circle()
-                                    .fill(theme.backgroundColor)
-                                    .frame(width: 28, height: 28)
+                                    .fill(item.backgroundColor)
+                                    .frame(width: 32, height: 32)
                                 Circle()
                                     .strokeBorder(
-                                        settings.theme == theme ? theme.menuPrimary : theme.menuDisabled,
-                                        lineWidth: settings.theme == theme ? 2.5 : 1
+                                        settings.theme == item ? theme.menuPrimary : theme.menuDisabled,
+                                        lineWidth: 1
                                     )
-                                    .frame(width: 28, height: 28)
+                                    .frame(width: 32, height: 32)
+                                if settings.theme == item {
+                                    Circle()
+                                        .strokeBorder(theme.accentColor, lineWidth: 2)
+                                        .frame(width: 36, height: 36)
+                                }
                             }
-                            Text(theme.displayName)
+                            .frame(width: 36, height: 36)
+                            Text(item.displayName)
                                 .font(.system(size: 10))
-                                .foregroundStyle(settings.theme == theme ? theme.menuPrimary : theme.menuSecondary)
+                                .foregroundStyle(settings.theme == item ? theme.menuPrimary : theme.menuSecondary)
                         }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
                 }
             }
+            .frame(height: 64)
+            .padding(.horizontal, 20)
 
-            // Font family
+            // 亮度
+            brightnessBar
+
+            // 字体
             HStack(spacing: 8) {
                 ForEach(FontFamily.allCases, id: \.self) { font in
                     Button {
@@ -540,39 +596,10 @@ struct ReaderMenuOverlay: View {
                     .buttonStyle(.plain)
                 }
             }
+            .frame(height: 40)
+            .padding(.horizontal, 20)
 
-            // Line spacing
-            HStack(spacing: 10) {
-                Text("行距")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.menuSecondary)
-                    .frame(width: 28)
-                Slider(
-                    value: Binding(
-                        get: { draggingLineSpacing ?? settings.lineSpacing },
-                        set: { draggingLineSpacing = $0 }
-                    ),
-                    in: 1.5...2.5,
-                    step: 0.1
-                ) { editing in
-                    guard !editing, let value = draggingLineSpacing else { return }
-                    draggingLineSpacing = nil
-                    guard abs(value - settings.lineSpacing) > 0.001 else { return }
-                    settings.lineSpacing = value
-                    settings.save()
-                }
-                .tint(theme.menuSecondary)
-                Text(String(format: "%.1f", draggingLineSpacing ?? settings.lineSpacing))
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(theme.menuSecondary)
-                    .frame(width: 26)
-            }
-
-            // Keep screen awake
-            Rectangle()
-                .fill(theme.menuSeparator)
-                .frame(height: 1)
-
+            // 保持屏幕常亮
             HStack {
                 Text("保持屏幕常亮")
                     .font(.system(size: 13))
@@ -591,6 +618,7 @@ struct ReaderMenuOverlay: View {
                 .accessibilityValue(settings.keepScreenAwake ? "已开启" : "已关闭")
             }
             .frame(height: 44)
+            .padding(.horizontal, 20)
         }
     }
 
@@ -598,29 +626,10 @@ struct ReaderMenuOverlay: View {
 
     private var brightnessBar: some View {
         HStack(spacing: 12) {
-            Button {
-                onFollowSystemBrightness?()
-                flashFollowSystem()
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(
-                        isFollowingSystemBrightness || followSystemFlash
-                            ? theme.menuPrimary
-                            : theme.menuSecondary
-                    )
-                    .frame(width: 20, height: 20)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .fill(followSystemFlash ? theme.menuSelectedFill : Color.clear)
-                    )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("跟随系统亮度")
-
             Image(systemName: "sun.min")
                 .font(.system(size: 14))
                 .foregroundStyle(theme.menuSecondary)
+                .frame(width: 24, height: 24)
 
             Slider(
                 value: Binding(
@@ -636,16 +645,28 @@ struct ReaderMenuOverlay: View {
             .accessibilityLabel("屏幕亮度")
             .accessibilityValue("\(Int((brightnessValue * 100).rounded()))%")
 
-            Image(systemName: "sun.max")
-                .font(.system(size: 16))
-                .foregroundStyle(theme.menuPrimary)
+            Button {
+                onFollowSystemBrightness?()
+                flashFollowSystem()
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(
+                        isFollowingSystemBrightness || followSystemFlash
+                            ? theme.menuPrimary
+                            : theme.menuSecondary
+                    )
+                    .frame(width: 28, height: 28)
+                    .background(
+                        Circle()
+                            .fill(followSystemFlash ? theme.menuSelectedFill : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("跟随系统亮度")
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 24)
         .frame(height: 44)
-        .background(theme.menuBackground, ignoresSafeAreaEdges: .top)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.menuSeparator).frame(height: 1)
-        }
     }
 
     private func flashFollowSystem() {
@@ -665,7 +686,7 @@ struct ReaderMenuOverlay: View {
             toolButton(icon: "list.bullet", label: "目录") {
                 openPanel(.chapters)
             }
-            toolButton(icon: "bookmark", label: "书签") {
+            toolButton(icon: hasPageBookmark ? "bookmark.fill" : "bookmark", label: "书签") {
                 openPanel(.bookmarks)
             }
             toolButton(
@@ -701,179 +722,225 @@ struct ReaderMenuOverlay: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Chapter, Bookmark and Note Panel
+    // MARK: - 目录 / 书签面板
 
-    /// The panel is drawn in place rather than presented as a sheet, so it can
-    /// never desync from the segment the reader tapped.
+    /// 面板顶边:状态栏底(59pt)下面 8pt,高度因此是 807pt。
+    static let panelTop: CGFloat = 67
+
+    /// 目录 / 书签面板:从底部升到状态栏下 8pt,左右贴边、只有上边两个 16pt 圆角,
+    /// 界面上没有关闭按钮——出三条:拖动条轻点、往下拖、读屏的自定义动作「关闭」。
     private var panelOverlay: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.2)
+        // 用屏幕高度而不是 GeometryReader:盖层自己的坐标系从安全区开始,
+        // 量出来会比屏幕短,面板顶边就落不到状态栏下 8pt。
+        let height = max(UIScreen.main.bounds.height - Self.panelTop, 320)
+        return ZStack(alignment: .top) {
+            Color.black.opacity(theme.isDark ? 0.5 : 0.3)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { closePanel() }
                 .transition(.opacity)
 
-            chapterListContent
-                .frame(height: 470, alignment: .top)
+            panelSheet
+                .frame(height: height, alignment: .top)
                 .background(theme.menuBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                .clipShape(TopRoundedRectangle(radius: 16))
+                .offset(y: Self.panelTop + max(0, panelDragOffset))
                 .transition(.move(edge: .bottom))
+        }
+        .ignoresSafeArea()
+        .accessibilityAction(named: "关闭") { closePanel() }
+        .accessibilityAction(.escape) { closePanel() }
+    }
+
+    private var panelSheet: some View {
+        VStack(spacing: 0) {
+            panelHandle
+            panelHeader
+            if isPanelSearchOpen {
+                chapterSearchRow
+            }
+            panelSegments
+            panelSectionContent
+            Spacer(minLength: 0)
         }
     }
 
-    private func closePanel() {
-        withAnimation(.easeInOut(duration: 0.2)) { showChapterList = false }
+    /// 拖动条 36×4,热区 88×44;轻点收起,读屏提示「向下拖动或轻点收起」。
+    private var panelHandle: some View {
+        Capsule()
+            .fill(theme.menuPrimary.opacity(0.25))
+            .frame(width: 36, height: 4)
+            .frame(maxWidth: .infinity)
+            .frame(height: 22, alignment: .bottom)
+            .padding(.horizontal, 26)
+            .contentShape(Rectangle())
+            .onTapGesture { closePanel() }
+            .gesture(panelDragGesture)
+            .accessibilityElement()
+            .accessibilityLabel("向下拖动或轻点收起")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { closePanel() }
     }
 
-    private var chapterListContent: some View {
-        VStack(spacing: 0) {
-            panelHeader
-            switch panelSegment {
-            case .chapters:
-                chapterSearchRow
+    private var panelDragGesture: some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { value in
+                panelDragOffset = max(0, value.translation.height)
+            }
+            .onEnded { value in
+                let flick = value.predictedEndTranslation.height - value.translation.height > 300
+                if value.translation.height > 80 || flick {
+                    closePanel()
+                } else {
+                    withAnimation(.easeOut(duration: 0.25)) { panelDragOffset = 0 }
+                }
+            }
+    }
+
+    /// 书名 17 semibold,下一行「共 N 章 · 当前第 M 章」;搜索收进右侧一个 36pt 图标。
+    private var panelHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(book.title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(theme.menuPrimary)
+                    .lineLimit(1)
+                Text("共 \(chapters.count) 章 · 当前第 \(currentChapterIndex + 1) 章")
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.menuSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { isPanelSearchOpen.toggle() }
+                if !isPanelSearchOpen { chapterSearch = "" }
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(theme.menuPrimary)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isPanelSearchOpen ? "收起搜索" : "搜索章节")
+        }
+        .padding(.leading, 24)
+        .padding(.trailing, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+        .contentShape(Rectangle())
+        .gesture(panelDragGesture)
+    }
+
+    private var visibleSegments: [ReaderPanelSegment] {
+        ReaderPanelSegment.allCases.filter { $0 != .notes || !notes.isEmpty }
+    }
+
+    /// 三段是 tab:选中是主色加 2pt 短横线,未选是 55%。
+    private var panelSegments: some View {
+        HStack(spacing: 28) {
+            ForEach(visibleSegments) { segment in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { panelSegment = segment }
+                } label: {
+                    VStack(spacing: 6) {
+                        Text(segment.title)
+                            .font(.system(size: 15, weight: panelSegment == segment ? .semibold : .regular))
+                            .foregroundStyle(panelSegment == segment ? theme.menuPrimary : theme.menuSecondary)
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(panelSegment == segment ? theme.menuPrimary : Color.clear)
+                            .frame(width: 20, height: 2)
+                    }
+                    .frame(height: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(segment.title)
+                .accessibilityAddTraits(panelSegment == segment ? [.isSelected] : [])
+            }
+            Spacer(minLength: 0)
+            if panelSegment == .chapters {
+                chapterListCacheControl
+                    .font(.system(size: 12))
+            }
+        }
+        .padding(.horizontal, 24)
+        .frame(height: 44)
+    }
+
+    @ViewBuilder
+    private var panelSectionContent: some View {
+        switch panelSegment {
+        case .chapters:
+            VStack(spacing: 0) {
                 if let tocToast {
                     tocToastBar(tocToast)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
                         .transition(.opacity)
                 }
-                if !chapterSearchKeyword.isEmpty && !filteredChapters.isEmpty {
-                    Text("找到 \(filteredChapters.count) 章")
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.menuSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 6)
-                }
-                if filteredChapters.isEmpty && !chapterSearchKeyword.isEmpty {
+                if chapterSearchKeyword.isEmpty {
+                    chapterList
+                } else if filteredChapters.isEmpty {
                     emptyChapterSearchResult
                 } else {
+                    Text("找到 \(filteredChapters.count) 章")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.menuSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 6)
                     chapterList
                 }
-            case .bookmarks:
-                if onWriteNoteHere != nil {
-                    writeNoteRow
-                }
+            }
+        case .bookmarks:
+            VStack(spacing: 0) {
                 addBookmarkRow
                 markList(
                     marks: bookmarks,
-                    emptyIcon: "bookmark",
                     emptyTitle: "还没有书签",
-                    emptyBody: "长按正文可以加书签或写笔记"
-                )
-            case .notes:
-                markList(
-                    marks: notes,
-                    emptyIcon: "note.text",
-                    emptyTitle: "还没有笔记",
-                    emptyBody: "长按正文选中文字，就能写笔记"
+                    emptyBody: "从页面顶部下拉,松手就能加书签"
                 )
             }
+        case .notes:
+            markList(
+                marks: notes,
+                emptyTitle: "还没有笔记",
+                emptyBody: "长按正文选中文字，就能写笔记"
+            )
         }
-        .overlay(alignment: .bottom) {
-            if let undoToast {
-                undoBar(undoToast)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    /// Two rows: close alone on top, the three segments centred underneath, so
-    /// no shortcut shares a line with them.
-    private var panelHeader: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Group {
-                    if panelSegment == .chapters {
-                        chapterListCacheControl
-                    }
-                }
-                .frame(height: 34, alignment: .leading)
-
-                Spacer(minLength: 0)
-
-                Button("关闭") { closePanel() }
-                    .font(.system(size: 15))
-                    .foregroundStyle(theme.menuPrimary)
-                    .buttonStyle(.plain)
-                    .frame(height: 34)
-                    .accessibilityLabel("关闭")
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-
-            HStack(spacing: 18) {
-                ForEach(ReaderPanelSegment.allCases) { segment in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) { panelSegment = segment }
-                    } label: {
-                        VStack(spacing: 5) {
-                            Text(segment.title)
-                                .font(.system(size: 14, weight: panelSegment == segment ? .semibold : .regular))
-                                .foregroundStyle(panelSegment == segment ? theme.menuPrimary : theme.menuSecondary)
-                            Rectangle()
-                                .fill(panelSegment == segment ? theme.menuPrimary : Color.clear)
-                                .frame(height: 2)
-                        }
-                        .frame(width: 56, height: 34)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(segment.title)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 6)
-        }
-        .frame(height: 90)
     }
 
     private func openPanel(_ segment: ReaderPanelSegment) {
         panelSegment = segment
-        withAnimation(.easeInOut(duration: 0.2)) { showChapterList = true }
+        isPanelSearchOpen = false
+        panelDragOffset = 0
+        withAnimation(.easeOut(duration: 0.3)) { showChapterList = true }
     }
 
-    /// 书签面板顶部:直接给当前页第一段写笔记。
-    private var writeNoteRow: some View {
-        Button {
-            onWriteNoteHere?()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 12, weight: .medium))
-                Text("写笔记")
-                    .font(.system(size: 14))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(theme.menuPrimary)
-            .padding(.horizontal, 16)
-            .frame(height: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("给当前这一页写笔记")
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(theme.menuPrimary.opacity(0.06))
-                .frame(height: 1)
+    private func closePanel() {
+        isPanelSearchOpen = false
+        chapterSearch = ""
+        withAnimation(.easeOut(duration: 0.25)) {
+            panelDragOffset = 0
+            showChapterList = false
         }
     }
 
-    /// Full-width row above the bookmark list; it used to crowd the header.
+    /// 书签面板顶部那颗按钮:本页没书签「给这一页加书签」,已有「移除书签」。
     private var addBookmarkRow: some View {
         Button {
             onAddBookmarkHere?()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: hasPageBookmark ? "minus" : "plus")
-                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: hasPageBookmark ? "bookmark.fill" : "bookmark")
+                    .font(.system(size: 14, weight: .medium))
                 Text(hasPageBookmark ? "移除书签" : "给这一页加书签")
                     .font(.system(size: 14))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(theme.menuPrimary)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 24)
             .frame(height: 44)
             .contentShape(Rectangle())
         }
@@ -895,29 +962,28 @@ struct ReaderMenuOverlay: View {
     private var bookmarks: [ReadingMark] { bookMarks.filter { !$0.isNote } }
     private var notes: [ReadingMark] { bookMarks.filter { $0.isNote } }
 
+    /// 有书签的章:目录行右侧那个 6pt 圆点。
+    private var bookmarkChapterIndices: Set<Int> {
+        Set(bookmarks.map(\.chapterIndex))
+    }
+
     private func markList(
         marks: [ReadingMark],
-        emptyIcon: String,
         emptyTitle: String,
         emptyBody: String
     ) -> some View {
         Group {
             if marks.isEmpty {
                 VStack(spacing: 8) {
-                    Spacer()
-                    Image(systemName: emptyIcon)
-                        .font(.system(size: 30))
-                        .foregroundStyle(theme.menuSecondary.opacity(0.6))
                     Text(emptyTitle)
                         .font(.system(size: 15))
                         .foregroundStyle(theme.menuPrimary)
                     Text(emptyBody)
                         .font(.system(size: 13))
                         .foregroundStyle(theme.menuSecondary)
-                    Spacer()
-                    Spacer()
                 }
                 .frame(maxWidth: .infinity)
+                .padding(.top, 120)
             } else {
                 List {
                     ForEach(marks) { mark in
@@ -934,7 +1000,7 @@ struct ReaderMenuOverlay: View {
                         .buttonStyle(.plain)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 deleteMark(mark)
@@ -942,6 +1008,7 @@ struct ReaderMenuOverlay: View {
                                 Text("删除")
                             }
                         }
+                        .accessibilityAction(named: "删除") { deleteMark(mark) }
                     }
                 }
                 .listStyle(.plain)
@@ -950,45 +1017,74 @@ struct ReaderMenuOverlay: View {
         }
     }
 
+    /// 书签行:第一行「第 12 章 夜行 · 33%」加右侧时间,下面两行摘录,行高 84。
     private func markRow(_ mark: ReadingMark) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if mark.isNote, let note = mark.note {
-                Text(note)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 0) {
+                Text("\(chapterLabel(for: mark)) · \(percentText(for: mark))")
                     .font(.system(size: 15))
                     .foregroundStyle(theme.menuPrimary)
                     .lineLimit(1)
-                Text(Self.excerptText(mark.excerpt))
+                Spacer(minLength: 8)
+                Text(Self.shortDate(mark.createdAt))
                     .font(.system(size: 12))
                     .foregroundStyle(theme.menuSecondary)
-                    .lineLimit(1)
-            } else {
-                Text(Self.excerptText(mark.excerpt))
-                    .font(.system(size: 14))
-                    .foregroundStyle(theme.menuPrimary)
+            }
+            if mark.isNote, let note = mark.note {
+                Text(note)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.menuSecondary)
                     .lineLimit(2)
             }
-            HStack(spacing: 6) {
-                Text("第 \(mark.chapterIndex + 1) 章")
-                Text("·")
-                Text(Self.shortDate(mark.createdAt))
-            }
-            .font(.system(size: 11))
-            .foregroundStyle(theme.menuSecondary)
+            Text(Self.excerptText(mark.excerpt))
+                .font(.system(size: 13))
+                .foregroundStyle(theme.menuSecondary)
+                .lineLimit(2)
         }
         .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: mark.isNote ? 74 : 58)
+        .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    /// 章节名本身常常已经带「第 N 章」,别在书签行里再叠一遍。
+    private func chapterLabel(for mark: ReadingMark) -> String {
+        let title = (chapters.first { $0.index == mark.chapterIndex }?.title ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? "第 \(mark.chapterIndex + 1) 章" : title
+    }
+
+    /// 书签在章内的百分比,按段落在本章里的位置算。
+    private func percentText(for mark: ReadingMark) -> String {
+        let total = max(chapterParagraphCount(at: mark.chapterIndex), 1)
+        let value = min(max(Double(mark.paragraphIndex + 1) / Double(total), 0), 1)
+        return "\(Int((value * 100).rounded()))%"
+    }
+
+    private func chapterParagraphCount(at index: Int) -> Int {
+        guard let chapter = chapters.first(where: { $0.index == index }) else { return 1 }
+        return (chapter.content ?? "")
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .count
     }
 
     static func excerptText(_ text: String) -> String {
         text.count > 200 ? String(text.prefix(200)) + "…" : text
     }
 
+    /// 当天「今天」、今年「8月6日」、往年「2025年8月6日」。
     static func shortDate(_ date: Date) -> String {
+        let calendar = Calendar.current
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日"
+        if calendar.isDateInToday(date) {
+            return "今天"
+        }
+        if calendar.component(.year, from: date) == calendar.component(.year, from: Date()) {
+            formatter.dateFormat = "M月d日"
+        } else {
+            formatter.dateFormat = "yyyy年M月d日"
+        }
         return formatter.string(from: date)
     }
 
@@ -996,8 +1092,9 @@ struct ReaderMenuOverlay: View {
     /// the pending delete instead of putting a mark back.
     private func deleteMark(_ mark: ReadingMark) {
         pendingDeletionID = mark.id
-        showUndoToast("已删除")
+        showUndoToast("已删除书签")
     }
+
 
     private func commitPendingDeletion() {
         guard let id = pendingDeletionID else { return }
@@ -1128,7 +1225,7 @@ struct ReaderMenuOverlay: View {
                 .accessibilityLabel("更新目录")
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 24)
         .padding(.vertical, 8)
     }
 
@@ -1211,26 +1308,13 @@ struct ReaderMenuOverlay: View {
                     currentChapterIndex = chapter.index
                     closePanel()
                 } label: {
-                    HStack(spacing: 8) {
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(theme.menuPrimary)
-                            .frame(width: 3)
-                            .opacity(chapter.index == currentChapterIndex ? 1 : 0)
-                        Text(chapter.title)
-                            .font(.body)
-                            .foregroundStyle(theme.menuPrimary)
-                            .fontWeight(chapter.index == currentChapterIndex ? .semibold : .regular)
-                        Spacer()
-                        if chapter.index != currentChapterIndex && chapter.isCached {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(theme.menuSecondary)
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                    }
+                    chapterRow(chapter)
                 }
+                .buttonStyle(.plain)
                 .id(chapter.index)
                 .listRowBackground(Color.clear)
-                .listRowSeparatorTint(theme.menuPrimary.opacity(0.08))
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -1242,6 +1326,41 @@ struct ReaderMenuOverlay: View {
                 scrollToCurrentChapter(with: proxy, animated: true)
             }
         }
+    }
+
+    /// 目录行:56pt 高,当前章强调色 + 左侧 3×20 竖条,有书签的章右侧一个 6pt 圆点。
+    private func chapterRow(_ chapter: Chapter) -> some View {
+        let isCurrent = chapter.index == currentChapterIndex
+        let hasBookmark = bookmarkChapterIndices.contains(chapter.index)
+        return HStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(theme.accentColor)
+                .frame(width: 3, height: 20)
+                .padding(.leading, 8)
+                .opacity(isCurrent ? 1 : 0)
+            Text(chapter.title)
+                .font(.system(size: 16, weight: isCurrent ? .semibold : .regular))
+                .foregroundStyle(isCurrent ? theme.accentColor : theme.menuPrimary)
+                .lineLimit(2)
+                .padding(.leading, 13)
+            Spacer(minLength: 8)
+            if hasBookmark {
+                Circle()
+                    .fill(theme.menuSecondary)
+                    .frame(width: 6, height: 6)
+                    .padding(.trailing, 24)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.menuPrimary.opacity(0.08))
+                .frame(height: 1)
+                .padding(.leading, 24)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(hasBookmark ? "\(chapter.title),有书签" : chapter.title)
     }
 
     @ViewBuilder
@@ -1354,10 +1473,10 @@ struct ReaderMenuOverlay: View {
         DispatchQueue.main.async {
             if animated {
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(currentChapterIndex, anchor: .center)
+                    proxy.scrollTo(currentChapterIndex, anchor: UnitPoint(x: 0, y: 0.34))
                 }
             } else {
-                proxy.scrollTo(currentChapterIndex, anchor: .center)
+                proxy.scrollTo(currentChapterIndex, anchor: UnitPoint(x: 0, y: 0.34))
             }
         }
     }
@@ -1472,5 +1591,28 @@ struct NoteEditorView: View {
             }
         }
         .onAppear { isFocused = true }
+    }
+}
+
+/// 面板只有上边两个圆角,下边是直角。
+struct TopRoundedRectangle: Shape {
+    var radius: CGFloat = 16
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + radius, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY + radius),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }

@@ -93,6 +93,8 @@ struct ReaderView: View {
     @State private var skipPageReset = false
     @State private var viewSize: CGSize = .zero
     @State private var cachedPages: [[PageFragment]] = [[]]
+    /// 调整字号/行距后,用当前页起始段落把读者留在原来的位置。
+    @State private var layoutAnchorParagraph: Int?
     @State private var cachedParagraphs: [String] = []
     @State private var currentChapterContent: String?
     @State private var preparedChapterWindow = ReaderPreparedChapterWindow()
@@ -544,8 +546,8 @@ struct ReaderView: View {
             persistReadingPosition()
         }
         .onChange(of: settings.keepScreenAwake) { _, _ in applyKeepScreenAwake() }
-        .onChange(of: settings.fontSize) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
-        .onChange(of: settings.lineSpacing) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
+        .onChange(of: settings.fontSize) { _, _ in readerLayoutDidChange(delayNanoseconds: 0) }
+        .onChange(of: settings.lineSpacing) { _, _ in readerLayoutDidChange(delayNanoseconds: 0) }
         .onChange(of: settings.fontFamily) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
         .onChange(of: settings.horizontalPadding) { _, _ in readerLayoutDidChange(delayNanoseconds: 150_000_000) }
         .onChange(of: settings.pageMode) { _, _ in
@@ -1763,6 +1765,8 @@ struct ReaderView: View {
     }
 
     private func readerLayoutDidChange(delayNanoseconds: UInt64 = 0) {
+        let anchorParagraph = currentPageAnchorParagraph()?.index
+        layoutAnchorParagraph = anchorParagraph
         cancelPendingHorizontalChapterTransition(returningToCurrentPage: true)
         adjacentPreparationTask?.cancel()
         adjacentPreparationTask = nil
@@ -1770,6 +1774,28 @@ struct ReaderView: View {
         adjacentPreparationActiveChapterID = nil
         preparedChapterWindow.invalidateLayouts()
         recomputePages(delayNanoseconds: delayNanoseconds)
+
+        guard let anchorParagraph else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            // 只有这次重排设下的锚点才生效,不抢正常的翻页。
+            guard layoutAnchorParagraph == anchorParagraph else { return }
+            layoutAnchorParagraph = nil
+            guard !cachedPages.isEmpty else { return }
+            let targetPage: Int?
+            if let exactPage = cachedPages.firstIndex(where: {
+                $0.first?.paragraphIndex == anchorParagraph
+            }) {
+                targetPage = exactPage
+            } else {
+                targetPage = cachedPages.lastIndex(where: {
+                    ($0.first?.paragraphIndex ?? Int.max) <= anchorParagraph
+                })
+            }
+            guard let targetPage else { return }
+            currentPageIndex = min(max(targetPage, 0), max(cachedPages.count - 1, 0))
+            scrolledPage = currentHorizontalPageID(pageIndex: currentPageIndex)
+        }
     }
 
     private func cancelPendingHorizontalChapterTransition(
