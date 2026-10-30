@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import YiYue
 
 final class ReaderSettingsTests: XCTestCase {
@@ -57,18 +58,59 @@ final class ReaderSettingsTests: XCTestCase {
 
     func testFontSizeClamping() {
         settings.fontSize = 10
-        XCTAssertEqual(settings.fontSize, 12)
+        XCTAssertEqual(settings.fontSize, 16)
 
         settings.fontSize = 50
-        XCTAssertEqual(settings.fontSize, 28)
+        XCTAssertEqual(settings.fontSize, 40)
     }
 
     func testLineSpacingClamping() {
         settings.lineSpacing = 1.0
-        XCTAssertEqual(settings.lineSpacing, 1.2, accuracy: 0.01)
+        XCTAssertEqual(settings.lineSpacing, 1.05, accuracy: 0.001)
 
         settings.lineSpacing = 3.0
-        XCTAssertEqual(settings.lineSpacing, 1.8, accuracy: 0.01)
+        XCTAssertEqual(settings.lineSpacing, 1.95, accuracy: 0.001)
+    }
+
+    func testTypographyLevelTables() {
+        XCTAssertEqual(
+            ReaderTypography.fontSizeLevels,
+            [16, 17, 18, 19, 20, 22, 24, 27, 30, 33, 36, 40]
+        )
+        XCTAssertEqual(
+            ReaderTypography.lineSpacingLevels,
+            [1.05, 1.20, 1.35, 1.50, 1.65, 1.80, 1.95]
+        )
+        XCTAssertEqual(
+            ReaderTypography.horizontalPaddingLevels,
+            [16, 20, 24, 28, 32, 36, 40]
+        )
+        XCTAssertEqual(settings.fontSizeLevelIndex, 3)
+        XCTAssertEqual(settings.lineSpacingLevelIndex, 3)
+        XCTAssertEqual(settings.horizontalPaddingLevelIndex, 3)
+    }
+
+    func testDefaultWidthFitsEighteenCharactersAtNineteenPoints() {
+        let textWidth: CGFloat = 402 - 28 * 2
+        let font = UIFont.systemFont(ofSize: 19)
+        let advance = ("国" as NSString).size(withAttributes: [.font: font]).width
+        let spacing = ReaderTypography.characterSpacing(
+            fontSize: 19,
+            textWidth: textWidth,
+            font: font
+        )
+
+        XCTAssertEqual(ReaderTypography.charactersPerLine, 18)
+        XCTAssertGreaterThanOrEqual(spacing, 0)
+        // 18 字排得下,19 字排不下。
+        XCTAssertLessThanOrEqual(18 * advance + 17 * spacing, textWidth)
+        XCTAssertGreaterThan(19 * advance + 18 * spacing, textWidth)
+        // 首行缩进固定两个字身 38 点,不跟着字距走。
+        XCTAssertEqual(
+            ReaderTypography.firstLineIndent(fontSize: 19, textWidth: textWidth),
+            38,
+            accuracy: 0.001
+        )
     }
 
     func testPreparedWindowPrioritizesNextThenPreviousChapter() {

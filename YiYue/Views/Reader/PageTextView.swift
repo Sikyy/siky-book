@@ -9,7 +9,7 @@ struct PageTextView: UIViewRepresentable {
     let lineSpacing: Double
     let fontFamily: String
     let textColor: Color
-    /// 正文行宽(已扣左右边距),用来算 19 字一行所需的字距和两字缩进。
+    /// 正文行宽(已扣左右边距),用来算 18 字一行所需的字距和两字缩进。
     let textWidth: CGFloat
     /// 段与段之间的空隙。
     var paragraphSpacing: CGFloat = ReaderTypography.baseParagraphSpacing
@@ -74,12 +74,16 @@ struct PageTextView: UIViewRepresentable {
     }
 
     /// 每段一个 paragraph:行高钉在 字号 × 倍率,段间距 28,
-    /// 行宽里塞 19 个全角字,首行缩进两个字身。
+    /// 行宽里按自然字距排 18 个全角字,首行缩进两个字身。
     private func attributed() -> NSAttributedString {
         let lineHeight = ReaderTypography.bodyLineHeight(fontSize: fontSize, level: lineSpacing)
-        let spacing = ReaderTypography.characterSpacing(fontSize: fontSize, textWidth: textWidth)
-        let indent = ReaderTypography.firstLineIndent(fontSize: fontSize, textWidth: textWidth)
         let font = uiFont
+        let spacing = ReaderTypography.characterSpacing(
+            fontSize: fontSize,
+            textWidth: textWidth,
+            font: font
+        )
+        let indent = ReaderTypography.firstLineIndent(fontSize: fontSize, textWidth: textWidth)
 
         let result = NSMutableAttributedString()
         var highlightRange: NSRange?

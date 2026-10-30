@@ -45,7 +45,7 @@ enum ReaderTypography {
 
     /// 第 2 步:行距档位。默认 1.5,七档。
     static let defaultLineSpacingLevel: Double = 1.5
-    static let lineSpacingLevels: [Double] = [1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
+    static let lineSpacingLevels: [Double] = [1.05, 1.20, 1.35, 1.50, 1.65, 1.80, 1.95]
 
     /// 第 3 步:倍率与行高。
     static func lineHeightMultiplier(level: Double) -> CGFloat {
@@ -57,27 +57,37 @@ enum ReaderTypography {
     }
 
     static let defaultFontSize: CGFloat = 19
-    /// 12 档字号,19 是默认档。
-    static let fontSizeLevels: [CGFloat] = [12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 28]
+    /// 12 档字号,19 是默认档(第 4 档)。
+    static let fontSizeLevels: [CGFloat] = [16, 17, 18, 19, 20, 22, 24, 27, 30, 33, 36, 40]
 
     /// 七档边距,默认 28,每档 +4。
     static let defaultHorizontalPadding: CGFloat = 28
     static let horizontalPaddingLevels: [CGFloat] = [16, 20, 24, 28, 32, 36, 40]
 
-    /// 每行 19 字:19 号字在 346 点行宽里排不下 19 个全角字,
-    /// 用一点负字距把字身压到 346 / 19 = 18.21 点。
-    static let charactersPerLine: CGFloat = 19
-    static func characterSpacing(fontSize: CGFloat, textWidth: CGFloat) -> CGFloat {
+    /// 每行 18 字:346 点行宽、19 号字,放不下 19 个 19 点字(346 / 19 = 18.2)。
+    /// 系统中文实际字宽略小于字号,自然排版会挤进 19 个,所以只补一点点正字距,
+    /// 把每格归一到 346 / 18,不压字号、也不裁字。
+    static let charactersPerLine: CGFloat = 18
+    static func characterSpacing(
+        fontSize: CGFloat,
+        textWidth: CGFloat,
+        font: UIFont? = nil
+    ) -> CGFloat {
         guard charactersPerLine > 0 else { return 0 }
-        // 留 0.06 点余量,否则 19 字刚好顶满行宽时 TextKit 会把最后一字挤到下一行。
-        return textWidth / charactersPerLine - fontSize - 0.06
+        // 只在默认 19 号这一档把行宽归一到 18 格;换字号后按字体的自然字宽重排,
+        // 字越小一行越多,不做比例夸张的字距。
+        guard abs(fontSize - defaultFontSize) < 0.01 else { return 0 }
+        let font = font ?? UIFont.systemFont(ofSize: fontSize)
+        let advance = ("国" as NSString).size(withAttributes: [.font: font]).width
+        let targetAdvance = textWidth / charactersPerLine
+        // 留 0.06 点余量,保证第 18 字刚好收在行内,第 19 字被挤到下一行。
+        return max(0, targetAdvance - advance - 0.06)
     }
 
-    /// 首行缩进两个字身。
+    /// 首行缩进两个字身 = 38 点,不跟着字距走。
     static let firstLineIndentCharacters: CGFloat = 2
     static func firstLineIndent(fontSize: CGFloat, textWidth: CGFloat) -> CGFloat {
-        let advance = fontSize + characterSpacing(fontSize: fontSize, textWidth: textWidth)
-        return advance * firstLineIndentCharacters
+        fontSize * firstLineIndentCharacters
     }
 
     /// 段间距 28;设置里的「段间距」开关打开时再加 28。
@@ -107,11 +117,11 @@ enum ReaderTypography {
 
 @Observable
 class ReaderSettings {
-    private static let fontSizeRange: ClosedRange<CGFloat> = 12...28
-    private static let lineSpacingRange: ClosedRange<Double> = 1.2...1.8
+    private static let fontSizeRange: ClosedRange<CGFloat> = 16...40
+    private static let lineSpacingRange: ClosedRange<Double> = 1.05...1.95
     private static let paddingRange: ClosedRange<CGFloat> = 16...40
     private static let typographyVersionKey = "reader.typographyVersion"
-    private static let currentTypographyVersion = 9
+    private static let currentTypographyVersion = 10
     private static let pageModeKey = "reader.pageMode"
     private static let pageModeExplicitKey = "reader.pageMode.explicit"
     private static let defaultPageMode: PageMode = .horizontal
@@ -182,8 +192,8 @@ class ReaderSettings {
         let defaults = UserDefaults.standard
         let storedVersion = defaults.integer(forKey: Self.typographyVersionKey)
         if storedVersion < Self.currentTypographyVersion {
-            // 1.0.8(9) 起正文换成 19 号 / 行距档位 1.5 / 边距 28,
-            // 旧版本的 17 号、2.0 是另一套排版,升级时迁到新基准。
+            // 1.0.8(10) 起档位表换成 16…40 / 1.05…1.95 / 16…40,
+            // 三组默认都停在第 4 档(19 / 1.5 / 28),升级时迁到新基准。
             defaults.set(Double(ReaderTypography.defaultFontSize), forKey: "reader.fontSize")
             defaults.set(ReaderTypography.defaultLineSpacingLevel, forKey: "reader.lineSpacing")
             defaults.set(Double(ReaderTypography.defaultHorizontalPadding), forKey: "reader.horizontalPadding")

@@ -69,18 +69,64 @@ enum ReaderToolbarMetrics {
     static let iconTopInset: CGFloat = 16
 }
 
-/// 第五格:直径 22、线宽 2、62% 弧、缺口朝上的自绘圆环。
+/// 第五格:直径 22、线宽 2、18° 缺口朝上的自绘进度环,
+/// 末端一个 2 点实心圆点。缺口收到 20° 以内,不会读成「U」,也不是时钟。
 struct ReaderProgressRing: View {
     var color: Color
+
+    /// 圆环画 342°,只留 18° 缺口;旋转 -81° 让缺口中心落在正上方。
+    private let arcFraction: CGFloat = 0.95
+    private let rotationDegrees: Double = -81
+    /// 环中线半径 = (22 - 2) / 2。
+    private let ringRadius: CGFloat = 10
+
     var body: some View {
-        Circle()
-            .trim(from: 0, to: 0.62)
-            .stroke(
-                color,
-                style: StrokeStyle(lineWidth: 2, lineCap: .round)
-            )
-            .rotationEffect(.degrees(-21.6))
-            .frame(width: 22, height: 22)
+        ZStack {
+            Circle()
+                .trim(from: 0, to: arcFraction)
+                .stroke(
+                    color,
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                )
+                .rotationEffect(.degrees(rotationDegrees))
+
+            // 弧末点(参数 0.95 → 342°,再加 -81° = 261°),贴环中线放一颗 2 点圆点。
+            Circle()
+                .fill(color)
+                .frame(width: 2, height: 2)
+                .offset(
+                    x: ringRadius * cos(261 * .pi / 180),
+                    y: ringRadius * sin(261 * .pi / 180)
+                )
+        }
+        .frame(width: 22, height: 22)
+    }
+}
+
+/// 滑轨刻度:按档位等分,选中那档是短实线,其余档位一条淡线。
+private struct ReaderSliderTicks: View {
+    let count: Int
+    let selectedIndex: Int
+    let color: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let thumbInset: CGFloat = 14
+            let usableWidth = max(0, proxy.size.width - thumbInset * 2)
+            let step = count > 1 ? usableWidth / CGFloat(count - 1) : 0
+            ForEach(0..<count, id: \.self) { index in
+                let selected = index == selectedIndex
+                Capsule()
+                    .fill(color.opacity(selected ? 0.85 : 0.26))
+                    .frame(width: selected ? 2 : 1, height: selected ? 12 : 7)
+                    .position(
+                        x: thumbInset + CGFloat(index) * step,
+                        y: proxy.size.height / 2 + 12
+                    )
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -522,7 +568,7 @@ struct ReaderMenuOverlay: View {
     private func gridAlignedTop(naturalHeight: CGFloat, barTop: CGFloat) -> CGFloat {
         let raw = barTop - naturalHeight
         // 优先贴当前页真实行顶:段间距不是行高的整数倍,全局网格会压住半行。
-        if let lineTop = bodyLineTops.last(where: { $0 <= raw }) {
+        if bodyTopY > 0, let lineTop = bodyLineInkTops.last(where: { $0 <= raw }) {
             return lineTop
         }
         let bodyTop = bodyTopY > 0 ? bodyTopY : ReaderTypography.bodyTopInkY
@@ -604,14 +650,15 @@ struct ReaderMenuOverlay: View {
     }
 
     private var fontSizeRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
+            settingLabel("字号", width: 36)
             Button {
                 stepFontSize(-1)
             } label: {
-                Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: 15))
+                Text("A")
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.menuPrimary)
-                    .frame(width: 28, height: 32)
+                    .frame(width: 28, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -621,16 +668,24 @@ struct ReaderMenuOverlay: View {
                    in: 0...Double(ReaderTypography.fontSizeLevels.count - 1),
                    step: 1)
                 .tint(theme.menuSecondary)
+                .frame(height: 44)
+                .overlay {
+                    ReaderSliderTicks(
+                        count: ReaderTypography.fontSizeLevels.count,
+                        selectedIndex: settings.fontSizeLevelIndex,
+                        color: theme.menuSecondary
+                    )
+                }
                 .accessibilityLabel("字号")
                 .accessibilityValue("\(Int(settings.fontSize))")
 
             Button {
                 stepFontSize(1)
             } label: {
-                Image(systemName: "textformat.size.larger")
-                    .font(.system(size: 15))
+                Text("A")
+                    .font(.system(size: 20))
                     .foregroundStyle(theme.menuPrimary)
-                    .frame(width: 28, height: 32)
+                    .frame(width: 28, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -672,6 +727,14 @@ struct ReaderMenuOverlay: View {
                    in: 0...Double(ReaderTypography.lineSpacingLevels.count - 1),
                    step: 1)
                 .tint(theme.menuSecondary)
+                .frame(height: 44)
+                .overlay {
+                    ReaderSliderTicks(
+                        count: ReaderTypography.lineSpacingLevels.count,
+                        selectedIndex: settings.lineSpacingLevelIndex,
+                        color: theme.menuSecondary
+                    )
+                }
                 .accessibilityLabel("行距")
                 .accessibilityValue(String(format: "%.1f", settings.lineSpacing))
             Text(String(format: "%.1f", settings.lineSpacing))
@@ -702,6 +765,14 @@ struct ReaderMenuOverlay: View {
                    in: 0...Double(ReaderTypography.horizontalPaddingLevels.count - 1),
                    step: 1)
                 .tint(theme.menuSecondary)
+                .frame(height: 44)
+                .overlay {
+                    ReaderSliderTicks(
+                        count: ReaderTypography.horizontalPaddingLevels.count,
+                        selectedIndex: settings.horizontalPaddingLevelIndex,
+                        color: theme.menuSecondary
+                    )
+                }
                 .accessibilityLabel("边距")
                 .accessibilityValue("第 \(settings.horizontalPaddingLevelIndex + 1) 档")
             // 边距不显数字。
@@ -950,12 +1021,43 @@ struct ReaderMenuOverlay: View {
         return remainder < 0.5 ? 0 : bodyLineHeight - remainder
     }
 
+    /// bodyLineTops 是行框顶;正文实际字顶还要再往下 14 点多。
+    /// 面板顶边贴可见的字行边界,而不是行框顶,免得面板与第一行字之间空一截。
+    private var bodyLineInkTops: [CGFloat] {
+        guard let first = bodyLineTops.first else { return [] }
+        let inkOffset = bodyTopY > 0 ? bodyTopY - first : 0
+        return bodyLineTops.map { $0 + inkOffset }
+    }
+
+    /// 面板顶边必须落在正文行边界上:顶栏底边以下的第一条真实行顶。
+    /// 段间距会让行位偏离全局网格,所以用当前页量到的 bodyLineTops。
+    private var alignedPanelTop: CGFloat {
+        let minimum = max(topBarBottomY, Self.panelTop)
+        // bodyTopY 为 0 时量到的是行框顶(或空数组),不能当字行边界用;
+        // 这时退回规格的 116 字顶按行高铺网格。
+        let lineTops = bodyTopY > 0 ? bodyLineInkTops : []
+        if let lineTop = lineTops.first(where: { $0 >= minimum - 0.5 }) {
+            return lineTop
+        }
+        if let last = lineTops.last, bodyLineHeight > 1 {
+            let steps = ceil((minimum - last) / bodyLineHeight)
+            return last + max(0, steps) * bodyLineHeight
+        }
+        if bodyLineHeight > 1 {
+            // 滚动模式可能量不到 bodyTopY,退回规格的 116 字顶,仍然落在行网格上。
+            let origin = bodyTopY > 0 ? bodyTopY : ReaderTypography.bodyTopInkY
+            let steps = ceil((minimum - origin) / bodyLineHeight)
+            return origin + max(0, steps) * bodyLineHeight
+        }
+        return minimum
+    }
+
     /// 目录 / 书签面板:从底部升到状态栏下 8pt,左右贴边、只有上边两个 16pt 圆角,
     /// 界面上没有关闭按钮——出三条:拖动条轻点、往下拖、读屏的自定义动作「关闭」。
     private var panelOverlay: some View {
         // 用屏幕高度而不是 GeometryReader:盖层自己的坐标系从安全区开始,
         // 量出来会比屏幕短,面板顶边就落不到状态栏下 8pt。
-        let top = topBarBottomY > Self.panelTop ? topBarBottomY : Self.panelTop
+        let top = alignedPanelTop
         let height = max(UIScreen.main.bounds.height - top, 320)
         return ZStack(alignment: .top) {
             // 面板以外不压暗:透出来的就是阅读页本身,只负责接住点击收起。

@@ -730,7 +730,11 @@ struct ReaderView: View {
                 ?? UIFont.systemFont(ofSize: size)
         let lineHeight = settings.bodyLineHeight
         let textWidth = max(1, viewSize.width - settings.horizontalPadding * 2)
-        let spacing = ReaderTypography.characterSpacing(fontSize: size, textWidth: textWidth)
+        let spacing = ReaderTypography.characterSpacing(
+            fontSize: size,
+            textWidth: textWidth,
+            font: font
+        )
         let indent = ReaderTypography.firstLineIndent(fontSize: size, textWidth: textWidth)
 
         var tops: [CGFloat] = []
@@ -772,14 +776,30 @@ struct ReaderView: View {
         return body == (currentChapter?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 滚动模式正文首行字顶 116:SwiftUI Text 的行框顶到字墨顶约 1.5 点。
+    /// 滚动模式正文首行字顶 116:SwiftUI Text 的行框顶到字墨顶实测约 2.8 点。
     private var scrollBodyTopInset: CGFloat {
-        116 - 1.5
+        116 - 2.8
     }
 
-    /// 滚动模式章节名字顶 76:12 号字的行框顶到字墨顶约 1 点。
+    /// 滚动模式章节名字顶 76:12 号字的行框顶到字墨顶实测约 2 点。
     private var scrollChapterTitleTopInset: CGFloat {
-        76 - 1
+        76 - 2
+    }
+
+    /// 滚动模式也按默认 19 号的 18 字行宽补字距,和翻页模式同一套排版。
+    private var scrollCharacterSpacing: CGFloat {
+        let size = settings.fontSize
+        let font: UIFont = settings.fontFamily.isSystem
+            ? UIFont.systemFont(ofSize: size)
+            : UIFont(name: settings.fontFamily.rawValue, size: size)
+                ?? UIFont.systemFont(ofSize: size)
+        let width = viewSize.width > 0 ? viewSize.width : UIScreen.main.bounds.width
+        let textWidth = max(1, width - settings.horizontalPadding * 2)
+        return ReaderTypography.characterSpacing(
+            fontSize: size,
+            textWidth: textWidth,
+            font: font
+        )
     }
 
     private var scrollContent: some View {
@@ -802,6 +822,7 @@ struct ReaderView: View {
                             : .custom(settings.fontFamily.rawValue, size: settings.fontSize))
                         .foregroundStyle(settings.theme.textColor)
                         .lineSpacing(bodyLineGap)
+                        .kerning(scrollCharacterSpacing)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(alignment: .topLeading) {
                             if selection?.paragraphIndex == index,
@@ -2490,13 +2511,17 @@ struct ReaderView: View {
         let lineHeight = ReaderTypography.bodyLineHeight(fontSize: fontSize, level: input.lineSpacing)
         let pageHeight = lineHeight * ReaderTypography.bodyLineCount
         let paragraphGap = CGFloat(input.paragraphSpacing)
-        let characterSpacing = ReaderTypography.characterSpacing(fontSize: fontSize, textWidth: textWidth)
-        let indentWidth = ReaderTypography.firstLineIndent(fontSize: fontSize, textWidth: textWidth)
 
         let font: UIFont = input.usesSystemFont
             ? UIFont.systemFont(ofSize: fontSize)
             : UIFont(name: input.fontFamily, size: fontSize)
                 ?? UIFont.systemFont(ofSize: fontSize)
+        let characterSpacing = ReaderTypography.characterSpacing(
+            fontSize: fontSize,
+            textWidth: textWidth,
+            font: font
+        )
+        let indentWidth = ReaderTypography.firstLineIndent(fontSize: fontSize, textWidth: textWidth)
 
         func style(indent: Bool) -> NSParagraphStyle {
             let paraStyle = NSMutableParagraphStyle()
@@ -4182,7 +4207,8 @@ struct ReaderView: View {
         .foregroundStyle(color)
         .padding(.horizontal, settings.horizontalPadding)
         // 字底 55:字身底边到屏幕底的距离,行框底还留着 descender 的一点空。
-        .padding(.bottom, ReaderTypography.footerBottomInset - 3)
+        // 实测再往下 0.3 点正好让字墨底落进 55 点(3x 下 1 像素)。
+        .padding(.bottom, ReaderTypography.footerBottomInset - 2.7)
         .frame(maxWidth: .infinity, alignment: .bottom)
         .allowsHitTesting(false)
         // 读屏整行一句,时间不单独念。
