@@ -4333,6 +4333,28 @@ struct ReaderView: View {
         UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
     }
 
+    /// 本章总字符数;空白和分页硬换行都不算。
+    private var chapterCharacterTotal: Int {
+        cachedParagraphs.reduce(0) { $0 + ReaderCharacterCount.count($1) }
+    }
+
+    /// 本章已读字符数(当前页起点,1 起算),没有内容时为 0。
+    private var chapterPositionValue: Int {
+        let total = chapterCharacterTotal
+        guard total > 0 else { return 0 }
+        let consumed: Int
+        if settings.pageMode == .scroll {
+            let end = min(max(visibleParagraphIndex, 0), cachedParagraphs.count)
+            consumed = cachedParagraphs.prefix(end).reduce(0) { $0 + ReaderCharacterCount.count($1) }
+        } else {
+            let end = min(max(currentPageIndex, 0), cachedPages.count)
+            consumed = cachedPages.prefix(end).reduce(0) { partial, page in
+                partial + page.reduce(0) { $0 + ReaderCharacterCount.count($1.text) }
+            }
+        }
+        return min(max(consumed + 1, 1), total)
+    }
+
     /// 本章已读字符数(当前页起点,1 起算)与本篇总字符数;空白和分页硬换行都不算。
     private var chapterPositionText: String {
         let total = cachedParagraphs.reduce(0) { $0 + ReaderCharacterCount.count($1) }
@@ -4349,7 +4371,7 @@ struct ReaderView: View {
             }
         }
         let position = min(max(consumed + 1, 1), total)
-        return "\(position) / \(total)"
+        return "\(position)/\(total)"
     }
 
     /// 页脚:左书名(一行省略,不加书名号)、右本章已读/总字数。
@@ -4357,15 +4379,19 @@ struct ReaderView: View {
     private func readerFooter(currentPage: Int, totalPages: Int) -> some View {
         let color = settings.theme.statusBarColor
         let positionText = chapterPositionText
+        // 总字数还是 0(刚进页面、还没排版)时整块不显示,别让人看到 0/0。
+        let hasPosition = chapterCharacterTotal > 0
         return HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(bookTitle)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(positionText)
-                .monospacedDigit()
-                .fixedSize()
-                .frame(alignment: .trailing)
+            if hasPosition {
+                Text(positionText)
+                    .monospacedDigit()
+                    .fixedSize()
+                    .frame(alignment: .trailing)
+            }
         }
         .font(.system(size: 11))
         .foregroundStyle(color)
@@ -4377,7 +4403,7 @@ struct ReaderView: View {
         .allowsHitTesting(false)
         // 读屏整行一句。
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("《\(bookTitle)》,本章读到 \(positionText)")
+        .accessibilityLabel(hasPosition ? "《\(bookTitle)》,本章读到第 \(String(chapterPositionValue)) 字,共 \(String(chapterCharacterTotal)) 字" : "《\(bookTitle)》")
     }
 
     private var showsBatteryInFooter: Bool {
