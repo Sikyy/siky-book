@@ -23,6 +23,12 @@ struct ReaderView: View {
     /// nil means the reader follows the system brightness.
     @State private var selection: ReaderSelection?
     @State private var readerToast: String?
+    /// 提示条上的「撤销」,只在删除书签/笔记时挂上。
+    @State private var readerToastUndo: (() -> Void)?
+    /// 下拉加书签:已经跟手的距离(阻尼后的),0 表示没在拉。
+    @State private var pullOffset: CGFloat = 0
+    /// 这次触摸已经认领成下拉,后续不再当翻页/点按处理。
+    @State private var pullClaimed = false
     @State private var noteDraft: NoteDraft?
     @State private var pendingParagraphJump: Int?
     @State private var scrollParagraphFrames: [Int: ScrollParagraphFrame] = [:]
@@ -339,7 +345,8 @@ struct ReaderView: View {
                             markID: mark.id
                         )
                     },
-                    onAddBookmarkHere: { addBookmarkAtCurrentPage() },
+                    onAddBookmarkHere: { togglePageBookmark() },
+                    hasPageBookmark: pageBookmarkMark != nil,
                     onWriteNoteHere: { writeNoteAtCurrentPage() },
                     bottomTopInset: bottomMenuInset,
                     topBottomInset: menuTopInset
@@ -348,9 +355,23 @@ struct ReaderView: View {
 
             if let readerToast {
                 VStack {
-                    Text(readerToast)
-                        .font(.system(size: 13))
-                        .foregroundStyle(settings.theme.menuPrimary)
+                    HStack(spacing: 12) {
+                        Text(readerToast)
+                            .font(.system(size: 13))
+                            .foregroundStyle(settings.theme.menuPrimary)
+                        if let undo = readerToastUndo {
+                            Button {
+                                readerToastUndo = nil
+                                withAnimation(.easeInOut(duration: 0.15)) { self.readerToast = nil }
+                                undo()
+                            } label: {
+                                Text("撤销")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(settings.theme.accentColor)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                         .padding(.horizontal, 14)
                         .frame(height: 32)
                         .background(
@@ -360,7 +381,7 @@ struct ReaderView: View {
                         .padding(.top, showMenu ? 132 : 60)
                     Spacer()
                 }
-                .allowsHitTesting(false)
+                .allowsHitTesting(readerToastUndo != nil)
                 .transition(.opacity)
             }
 
@@ -603,7 +624,7 @@ struct ReaderView: View {
                 case .scroll:
                     scrollContent
                 case .horizontal, .tap:
-                    pagedContent
+                    pullablePage
                 }
             }
         }
@@ -741,6 +762,112 @@ struct ReaderView: View {
                 readerFooter(currentPage: currentPageIndex + 1, totalPages: max(cachedPages.count, 1))
             }
         }
+    }
+
+    // MARK: - 下拉加书签
+
+    /// 一页外面套一层:下拉时整页(正文 + 页脚)跟手下移,页顶露出提示带和丝带。
+    private var pullablePage: some View {
+        ZStack(alignment: .top) {
+            if pullOffset > 0 {
+                pullHintBand
+            }
+            pagedContent
+                .overlay(alignment: .topTrailing) { pullRibbon }
+                .offset(y: pullOffset)
+        }
+        .simultaneousGesture(pullGesture)
+    }
+
+    /// 下拉只在翻页模式下、菜单关着、没在选字时认领。
+    private var pullGestureEnabled: Bool {
+        settings.pageMode != .scroll && !showMenu && selection == nil && !isClosing
+    }
+
+    private var pullGesture: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                guard pullGestureEnabled else { return }
+                if !pullClaimed {
+                    let dy = value.translation.height
+                    let dx = value.translation.width
+                    // 只认屏幕上方 260pt 起手、向下且竖着的那一笔。
+                    guard value.startLocation.y <= 260, dy >= 18, abs(dy) > abs(dx) else { return }
+                    pullClaimed = true
+                }
+                let dy = value.translation.height
+                pullOffset = dy <= 120 ? max(0, dy) : 120 + (dy - 120) * 0.35
+            }
+            .onEnded { _ in
+                guard pullClaimed else { return }
+                let triggered = pullOffset >= 100
+                pullClaimed = false
+                withAnimation(.timingCurve(0.33, 0, 0.2, 1, duration: 0.25)) {
+                    pullOffset = 0
+                }
+                if triggered { togglePageBookmark() }
+            }
+    }
+
+    /// 当前页第一段上挂着的书签(笔记不算)。
+    private var pageBookmarkMark: ReadingMark? {
+        guard let anchor = currentPageAnchorParagraph() else { return nil }
+        return book.marks.first {
+            !$0.isNote
+                && $0.chapterIndex == currentChapterIndex
+                && $0.paragraphIndex == anchor.index
+        }
+    }
+
+    /// 松手会发生什么,决定提示文字和丝带的明暗。
+    private var pullWillDelete: Bool { pageBookmarkMark != nil }
+
+    private var pullHintBand: some View {
+        ZStack(alignment: .top) {
+            settings.theme.backgroundColor
+            Text(pullWillDelete ? "松手删除书签" : "松手添加书签")
+                .font(.system(size: 13))
+                .foregroundStyle(settings.theme.textColor.opacity(0.55))
+                .padding(.top, 30)
+        }
+        .frame(height: 88)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .allowsHitTesting(false)
+    }
+
+    /// 书签丝带:拉动时 26×62 在右上角预示松手结果,已有书签时 24×36 停在页角。
+    @ViewBuilder
+    private var pullRibbon: some View {
+        if pullOffset > 0 {
+            BookmarkRibbonShape(notch: 10)
+                .fill(settings.theme.accentColor)
+                .opacity(pullWillDelete ? 1 : 0.35)
+                .frame(width: 26, height: 62)
+                .padding(.trailing, 38)
+        } else if pageBookmarkMark != nil {
+            BookmarkRibbonShape(notch: 8)
+                .fill(settings.theme.accentColor)
+                .frame(width: 24, height: 36)
+                .padding(.trailing, 14)
+                .padding(.top, 51)
+        }
+    }
+
+    private func togglePageBookmark() {
+        guard let anchor = currentPageAnchorParagraph() else { return }
+        if let mark = pageBookmarkMark {
+            deleteMark(mark)
+            return
+        }
+        let mark = ReadingMark(
+            chapterIndex: currentChapterIndex,
+            paragraphIndex: anchor.index,
+            excerpt: anchor.text
+        )
+        mark.book = book
+        modelContext.insert(mark)
+        try? modelContext.save()
+        showReaderToast("已添加书签", seconds: 1.5)
     }
 
     // MARK: - Paged Mode
@@ -3630,12 +3757,14 @@ struct ReaderView: View {
         .accessibilityHint(hint)
     }
 
-    private func showReaderToast(_ text: String, seconds: Double = 2) {
+    private func showReaderToast(_ text: String, seconds: Double = 2, undo: (() -> Void)? = nil) {
+        readerToastUndo = undo
         withAnimation(.easeInOut(duration: 0.15)) { readerToast = text }
         Task {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.15)) { readerToast = nil }
+                readerToastUndo = nil
             }
         }
     }
@@ -3697,9 +3826,24 @@ struct ReaderView: View {
     }
 
     private func deleteMark(_ mark: ReadingMark) {
+        let chapterIndex = mark.chapterIndex
+        let paragraphIndex = mark.paragraphIndex
+        let excerpt = mark.excerpt
+        let note = mark.note
+        let wasNote = mark.isNote
         modelContext.delete(mark)
         try? modelContext.save()
-        showReaderToast("已删除")
+        showReaderToast(wasNote ? "已删除笔记" : "已删除书签", undo: {
+            let restored = ReadingMark(
+                chapterIndex: chapterIndex,
+                paragraphIndex: paragraphIndex,
+                excerpt: excerpt,
+                note: note
+            )
+            restored.book = book
+            modelContext.insert(restored)
+            try? modelContext.save()
+        })
     }
 
     /// Bookmarks the first paragraph visible on the current page.
@@ -4221,5 +4365,21 @@ enum ReaderScreenBrightness {
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive }
             ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+    }
+}
+
+/// 书签丝带:下端一个燕尾。拉动时是松手结果的预告,落定后是留在页角的那一枚。
+struct BookmarkRibbonShape: Shape {
+    var notch: CGFloat = 10
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - notch))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }

@@ -46,6 +46,16 @@ enum ReaderTheme: String, CaseIterable, Codable {
         }
     }
 
+    /// 强调色:当前章、书签丝带、选字手柄和选区底色都用它。
+    var accentHex: String {
+        switch self {
+        case .paper, .white: return "#9A4A30"
+        case .dark: return "#C67C58"
+        }
+    }
+
+    var accentColor: Color { Self.colorCache[accentHex] ?? Color(hex: accentHex) }
+
     /// Fully opaque: the page underneath must not show through the menu panels.
     var menuBackground: Color { Self.colorCache[menuBackgroundHex]! }
     var menuPrimary: Color { textColor }
@@ -61,7 +71,8 @@ enum ReaderTheme: String, CaseIterable, Codable {
             "#f5efe4", "#ffffff", "#121212",
             "#2b2017", "#1a1a1a", "#d4d4d4",
             "#6b6153", "#767676", "#808080",
-            "#1c1c1c"
+            "#1c1c1c",
+            "#9a4a30", "#c67c58"
         ]
         var cache: [String: Color] = [:]
         for hex in hexes {

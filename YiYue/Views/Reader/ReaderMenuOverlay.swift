@@ -47,6 +47,8 @@ struct ReaderMenuOverlay: View {
     var onJumpToMark: ((ReadingMark) -> Void)? = nil
     var onOpenNote: ((ReadingMark) -> Void)? = nil
     var onAddBookmarkHere: (() -> Void)? = nil
+    /// 当前这一页有没有书签:决定那颗按钮是「给这一页加书签」还是「移除书签」。
+    var hasPageBookmark: Bool = false
     /// 书签面板顶部「写笔记」:摘录取当前页第一段。
     var onWriteNoteHere: (() -> Void)? = nil
     /// 底部面板往上多长多少,让它的顶边落在正文的行边界上。
@@ -864,9 +866,9 @@ struct ReaderMenuOverlay: View {
             onAddBookmarkHere?()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "plus")
+                Image(systemName: hasPageBookmark ? "minus" : "plus")
                     .font(.system(size: 12, weight: .medium))
-                Text("加书签")
+                Text(hasPageBookmark ? "移除书签" : "给这一页加书签")
                     .font(.system(size: 14))
                 Spacer(minLength: 0)
             }
@@ -876,7 +878,7 @@ struct ReaderMenuOverlay: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("在当前这一段加书签")
+        .accessibilityLabel(hasPageBookmark ? "移除书签" : "给这一页加书签")
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(theme.menuPrimary.opacity(0.06))
