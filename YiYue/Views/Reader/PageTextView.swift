@@ -133,6 +133,7 @@ struct PageTextView: UIViewRepresentable {
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard let page = textView as? PageUITextView else { return }
             page.onSelectionChanged?(page.selectedRange)
+            page.watchSelectionEdge()
         }
     }
 }
@@ -149,50 +150,53 @@ final class PageUITextView: UITextView, UIGestureRecognizerDelegate {
 
     private let edgeZone: CGFloat = 24
     private let holdDuration: TimeInterval = 0.45
-    private var watch: UILongPressGestureRecognizer?
-    /// 手指按下去之前已经有选区:边缘停留才会翻页并接着选。
-    private var hadSelectionAtTouchStart = false
+    private var edgeTimer: Timer?
+    private var firedForThisDrag = false
 
     /// 尺寸完全交给外面的 SwiftUI frame 决定,不要按文字内容自己撑宽。
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
     }
 
-    override init(frame: CGRect, textContainer: NSTextContainer?) {
-        super.init(frame: frame, textContainer: textContainer)
-        setUpWatch()
-    }
+    deinit { edgeTimer?.invalidate() }
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setUpWatch()
-    }
-
-    /// 手指在页面上下 24 点内停住 0.45 秒:系统长按手势正好就是「停住」这件事。
-    private func setUpWatch() {
-        let press = UILongPressGestureRecognizer(target: self, action: #selector(handleWatch(_:)))
-        press.minimumPressDuration = holdDuration
-        press.allowableMovement = edgeZone
-        press.delegate = self
-        press.cancelsTouchesInView = false
-        addGestureRecognizer(press)
-        watch = press
-    }
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        hadSelectionAtTouchStart = selectedRange.length > 0
-        super.touchesBegan(touches, with: event)
-    }
-
-    @objc private func handleWatch(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
-        guard hadSelectionAtTouchStart else { return }
-        let point = gesture.location(in: self)
-        if point.y <= edgeZone {
-            onEdgeHold?(true)
-        } else if point.y >= bounds.height - edgeZone {
-            onEdgeHold?(false)
+    /// 不去抢文本视图自己的手势:盯选中变化。手柄拖到上下 24 点内停住 0.45 秒就翻页。
+    func watchSelectionEdge() {
+        guard selectedRange.length > 0 else {
+            cancelEdgeTimer()
+            return
         }
+        guard let side = edgeSideForSelection() else {
+            cancelEdgeTimer()
+            return
+        }
+        guard !firedForThisDrag else { return }
+        if edgeTimer == nil {
+            edgeTimer = Timer.scheduledTimer(withTimeInterval: holdDuration, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.edgeTimer = nil
+                guard self.edgeSideForSelection() != nil else { return }
+                self.firedForThisDrag = true
+                self.onEdgeHold?(side)
+            }
+        }
+    }
+
+    private func edgeSideForSelection() -> Bool? {
+        let end = selectedRange.location + selectedRange.length
+        guard end > 0 else { return nil }
+        guard let endPosition = position(from: beginningOfDocument, offset: end) else { return nil }
+        let caret = caretRect(for: endPosition)
+        let y = caret.minY
+        if y <= edgeZone { return true }
+        if y >= bounds.height - edgeZone { return false }
+        return nil
+    }
+
+    func cancelEdgeTimer() {
+        edgeTimer?.invalidate()
+        edgeTimer = nil
+        firedForThisDrag = false
     }
 
     func gestureRecognizer(
