@@ -865,8 +865,17 @@ struct ReaderView: View {
     }
 
     /// 滚动模式正文首行字顶 116:SwiftUI Text 的行框顶到字墨顶实测约 2.8 点。
+    /// 字越大,字墨顶离行框顶越远,按实测比例补回来,首行始终落在 116。
+    private var scrollInkTopCorrection: CGFloat {
+        max(0, (CGFloat(settings.fontSize) - 19) * 0.24)
+    }
+
     private var scrollBodyTopInset: CGFloat {
-        116 - 2.8
+        116 - 2.8 - scrollInkTopCorrection
+    }
+
+    private var scrollChapterTitleBottomInset: CGFloat {
+        25 - scrollInkTopCorrection
     }
 
     /// 滚动模式章节名字顶 76:12 号字的行框顶到字墨顶实测约 2 点。
@@ -895,8 +904,9 @@ struct ReaderView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(settings.theme.chapterTitleColor)
                         .padding(.top, scrollChapterTitleTopInset)
-                        // 章节名行高 14.3 + 25 让正文行框顶落在 116 的字墨线上。
-                        .padding(.bottom, 25)
+                        // 章节名行高 14.3 + 25 让正文行框顶落在 116 的字墨线上;
+                        // 大字时行框顶要往上收,收的量与 scrollBodyTopInset 同一笔。
+                        .padding(.bottom, scrollChapterTitleBottomInset)
                         // 菜单开着时左上角只有返回箭头,章节名不能和它挤在一起。
                         // 只藏不删,滚动内容的高度和位置保持不变。
                         .opacity(showMenu ? 0 : 1)

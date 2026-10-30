@@ -92,8 +92,8 @@ enum CoverURLResolver {
 }
 
 extension Color {
-    /// 书架「在读」角标:阅读器强调色 #9A4A30,不跟随系统蓝。
-    static let shelfReadingAccent = Color(hex: "#9A4A30")
+    /// 书架「在读」角标:阅读器强调色 #9A4A31,不跟随系统蓝。
+    static let shelfReadingAccent = Color(hex: "#9A4A31")
 }
 
 /// 书架角标:25×15,只圆左上角,贴在封面右上角。

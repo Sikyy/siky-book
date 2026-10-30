@@ -58,8 +58,9 @@ enum PageMode: String, CaseIterable, Codable {
 
     var displayName: String {
         switch self {
-        case .scroll: return "滚动"
-        case .horizontal, .tap: return "翻页"
+        case .scroll: return "上下滑动"
+        case .horizontal: return "左右翻页"
+        case .tap: return "点击翻页"
         }
     }
 
@@ -158,8 +159,7 @@ class ReaderSettings {
     private static let currentTypographyVersion = 10
     private static let pageModeKey = "reader.pageMode"
     private static let pageModeExplicitKey = "reader.pageMode.explicit"
-    private static let defaultPageMode: PageMode = .horizontal
-    private static let legacyDefaultPageMode: PageMode = .scroll
+    private static let defaultPageMode: PageMode = .scroll
 
     var fontSize: CGFloat {
         get { _fontSize }
@@ -270,12 +270,6 @@ class ReaderSettings {
               let savedMode = PageMode(rawValue: rawValue) else {
             return defaultPageMode
         }
-
-        let hasExplicitPageMode = defaults.bool(forKey: pageModeExplicitKey)
-        if savedMode == legacyDefaultPageMode && !hasExplicitPageMode {
-            return defaultPageMode
-        }
-
         return savedMode
     }
 }

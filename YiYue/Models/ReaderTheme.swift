@@ -3,88 +3,118 @@ import SwiftUI
 enum ReaderTheme: String, CaseIterable, Codable {
     case paper
     case white
+    case green
+    case blueGray
     case dark
+
+    // MARK: - 五套主题(名字与色值见 reader-chrome-replica-spec §7)
 
     var backgroundHex: String {
         switch self {
-        case .paper: return "#f5efe4"
-        case .white: return "#ffffff"
+        case .paper: return "#F6F0E4"
+        case .white: return "#FFFFFF"
+        case .green: return "#DEE8D5"
+        case .blueGray: return "#E7EDF1"
         case .dark: return "#121212"
         }
     }
 
     var textHex: String {
         switch self {
-        case .paper: return "#2b2017"
-        case .white: return "#1a1a1a"
-        case .dark: return "#d4d4d4"
+        case .paper: return "#2A2017"
+        case .white: return "#1B1B1D"
+        case .green: return "#23301F"
+        case .blueGray: return "#1F2A33"
+        case .dark: return "#D4D4D4"
         }
     }
 
-    var backgroundColor: Color { Self.colorCache[backgroundHex]! }
-    var textColor: Color { Self.colorCache[textHex]! }
-
-    /// Chapter title and footer share one secondary colour, at least 4.5:1 on this theme's background.
-    var chapterTitleColor: Color {
+    /// 页脚、标签、章节名共用这一档次要色。
+    var secondaryHex: String {
         switch self {
-        case .paper: return Self.colorCache["#6b6153"]!
-        case .white: return Self.colorCache["#767676"]!
-        case .dark: return Self.colorCache["#808080"]!
+        case .paper: return "#6B6153"
+        case .white: return "#6E6E73"
+        case .green: return "#55634E"
+        case .blueGray: return "#556571"
+        case .dark: return "#8A8A8A"
         }
     }
 
-    var statusBarColor: Color { chapterTitleColor }
+    /// 强调色:当前章、书签丝带、选字手柄、选中格和进度环都用它。
+    var accentHex: String {
+        switch self {
+        case .paper: return "#9A4A31"
+        case .white: return "#9A4A31"
+        case .green: return "#8A4B2A"
+        case .blueGray: return "#9A4A31"
+        case .dark: return "#C9825C"
+        }
+    }
+
+    /// 菜单分隔线 / 面板描边。
+    var separatorHex: String {
+        switch self {
+        case .paper: return "#E0D6C2"
+        case .white: return "#E5E5EA"
+        case .green: return "#CBD8C0"
+        case .blueGray: return "#D2DBE2"
+        case .dark: return "#2A2A2C"
+        }
+    }
+
+    var backgroundColor: Color { Self.color(backgroundHex) }
+    var textColor: Color { Self.color(textHex) }
+    var secondaryColor: Color { Self.color(secondaryHex) }
+    var accentColor: Color { Self.color(accentHex) }
+    var separatorColor: Color { Self.color(separatorHex) }
+
+    var chapterTitleColor: Color { secondaryColor }
+    var statusBarColor: Color { secondaryColor }
 
     // MARK: - Menu (reader overlay)
 
-    /// The menu is a solid theme-coloured panel, not a material, so it never turns grey over light themes.
+    /// 菜单是不透明面板,不用 material,浅色主题上也不会泛灰。
     var menuBackgroundHex: String {
-        switch self {
-        case .paper: return "#f5efe4"
-        case .white: return "#ffffff"
-        case .dark: return "#1c1c1c"
-        }
+        isDark ? "#1C1C1E" : backgroundHex
     }
-
-    /// 强调色:当前章、书签丝带、选字手柄和选区底色都用它。
-    var accentHex: String {
-        switch self {
-        case .paper, .white: return "#9A4A30"
-        case .dark: return "#C67C58"
-        }
-    }
-
-    var accentColor: Color { Self.colorCache[accentHex] ?? Color(hex: accentHex) }
 
     /// Fully opaque: the page underneath must not show through the menu panels.
-    var menuBackground: Color { Self.colorCache[menuBackgroundHex]! }
+    var menuBackground: Color { Self.color(menuBackgroundHex) }
     var menuPrimary: Color { textColor }
-    var menuSecondary: Color { textColor.opacity(0.55) }
+    var menuSecondary: Color { secondaryColor }
     var menuDisabled: Color { textColor.opacity(0.3) }
     var menuSelectedFill: Color { textColor.opacity(0.08) }
     var menuUnselectedFill: Color { Color.clear }
-    var menuSeparator: Color { isDark ? Color.white.opacity(0.1) : textColor.opacity(0.12) }
+    var menuSeparator: Color { separatorColor }
 
     // Pre-computed color cache — avoids hex parsing on every access
     private static let colorCache: [String: Color] = {
-        let hexes = [
-            "#f5efe4", "#ffffff", "#121212",
-            "#2b2017", "#1a1a1a", "#d4d4d4",
-            "#6b6153", "#767676", "#808080",
-            "#1c1c1c",
-            "#9a4a30", "#c67c58"
-        ]
         var cache: [String: Color] = [:]
-        for hex in hexes {
-            cache[hex] = Color(hex: hex)
+        for theme in ReaderTheme.allCases {
+            for hex in [
+                theme.backgroundHex,
+                theme.textHex,
+                theme.secondaryHex,
+                theme.accentHex,
+                theme.separatorHex,
+                theme.menuBackgroundHex
+            ] {
+                cache[hex.lowercased()] = Color(hex: hex)
+            }
         }
         return cache
     }()
 
+    private static func color(_ hex: String) -> Color {
+        colorCache[hex.lowercased()] ?? Color(hex: hex)
+    }
+
     var displayName: String {
         switch self {
-        case .paper: return "纸质"
-        case .white: return "白色"
+        case .paper: return "纸色"
+        case .white: return "纯白"
+        case .green: return "护眼绿"
+        case .blueGray: return "青灰"
         case .dark: return "夜间"
         }
     }

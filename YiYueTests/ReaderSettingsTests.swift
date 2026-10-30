@@ -26,12 +26,12 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertEqual(settings.fontFamily, .system)
         XCTAssertEqual(settings.theme, .paper)
         XCTAssertEqual(settings.horizontalPadding, 28)
-        XCTAssertEqual(settings.pageMode, .horizontal)
+        XCTAssertEqual(settings.pageMode, .scroll)
     }
 
-    func testLegacyScrollDefaultMigratesToHorizontal() {
+    func testStoredPageModePersists() {
         let defaults = UserDefaults.standard
-        defaults.set(PageMode.scroll.rawValue, forKey: "reader.pageMode")
+        defaults.set(PageMode.horizontal.rawValue, forKey: "reader.pageMode")
 
         let reloadedSettings = ReaderSettings()
 
@@ -48,12 +48,24 @@ final class ReaderSettingsTests: XCTestCase {
     }
 
     func testThemeColors() {
-        let dark = ReaderTheme.dark
-        XCTAssertEqual(dark.backgroundHex, "#121212")
-        XCTAssertEqual(dark.textHex, "#d4d4d4")
+        let night = ReaderTheme.dark
+        XCTAssertEqual(night.backgroundHex, "#121212")
+        XCTAssertEqual(night.textHex, "#D4D4D4")
+        XCTAssertEqual(night.secondaryHex, "#8A8A8A")
+        XCTAssertEqual(night.accentHex, "#C9825C")
+        XCTAssertEqual(night.separatorHex, "#2A2A2C")
 
         let paper = ReaderTheme.paper
-        XCTAssertEqual(paper.backgroundHex, "#f5efe4")
+        XCTAssertEqual(paper.backgroundHex, "#F6F0E4")
+        XCTAssertEqual(paper.textHex, "#2A2017")
+        XCTAssertEqual(paper.secondaryHex, "#6B6153")
+        XCTAssertEqual(paper.accentHex, "#9A4A31")
+        XCTAssertEqual(paper.separatorHex, "#E0D6C2")
+
+        XCTAssertEqual(ReaderTheme.allCases.map(\.displayName),
+                       ["纸色", "纯白", "护眼绿", "青灰", "夜间"])
+        XCTAssertEqual(ReaderTheme.allCases.map(\.backgroundHex),
+                       ["#F6F0E4", "#FFFFFF", "#DEE8D5", "#E7EDF1", "#121212"])
     }
 
     func testFontSizeClamping() {

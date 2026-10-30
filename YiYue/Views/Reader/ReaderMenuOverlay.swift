@@ -105,7 +105,7 @@ struct ReaderProgressRing: View {
 }
 
 /// 滑轨刻度:按档位等分,选中那档是短实线,其余档位一条淡线。
-private struct ReaderSliderTicks: View {
+struct ReaderSliderTicks: View {
     let count: Int
     let selectedIndex: Int
     let color: Color
@@ -205,6 +205,7 @@ struct ReaderMenuOverlay: View {
     @State private var undoToast: String?
     @State private var undoToastTask: Task<Void, Never>?
     @State private var showAutoPageSheet = false
+    @State private var showSettingsSheet = false
 
     var body: some View {
         GeometryReader { geo in
@@ -246,7 +247,7 @@ struct ReaderMenuOverlay: View {
                 if let panelTool = selectedTool {
                     switch panelTool {
                     case .text:
-                        textSettingsPanel(barTop: barTop)
+                        fontSizeFloatingPanel(barTop: barTop)
                     case .brightness:
                         brightnessFloatingPanel(barTop: barTop)
                     case .progress:
@@ -289,6 +290,9 @@ struct ReaderMenuOverlay: View {
             )
             .presentationDetents([.height(220)])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showSettingsSheet) {
+            ReaderSettingsSheet(settings: settings)
         }
     }
 
@@ -1260,50 +1264,174 @@ struct ReaderMenuOverlay: View {
         .frame(height: 56)
     }
 
-    // MARK: - 亮度 / 进度面板
+    // MARK: - 字号 / 亮度浮层
+
+    private let floatingCardSize = CGSize(width: 320, height: 96)
+
+    private func floatingCardTop(barTop: CGFloat) -> CGFloat {
+        max(0, barTop - 16 - floatingCardSize.height)
+    }
+
+    private func fontCard(barTop: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("A")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.menuPrimary)
+                    .frame(width: 20)
+
+                ReaderLevelSlider(
+                    normalizedValue: fontSizeIndexBinding,
+                    tint: theme.menuSecondary,
+                    label: "字号",
+                    spokenValue: levelAccessibilityString(
+                        index: settings.fontSizeLevelIndex,
+                        count: ReaderTypography.fontSizeLevels.count
+                    ),
+                    levelCount: ReaderTypography.fontSizeLevels.count
+                )
+                .frame(height: 44)
+                .overlay {
+                    ReaderSliderTicks(
+                        count: ReaderTypography.fontSizeLevels.count,
+                        selectedIndex: settings.fontSizeLevelIndex,
+                        color: theme.menuSecondary
+                    )
+                }
+
+                Text("A")
+                    .font(.system(size: 20))
+                    .foregroundStyle(theme.menuPrimary)
+                    .frame(width: 24)
+
+                Text("\(Int(settings.fontSize))")
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(theme.menuSecondary)
+                    .fixedSize()
+                    .frame(minWidth: 24, alignment: .trailing)
+            }
+            .padding(.horizontal, 18)
+        }
+        .frame(width: floatingCardSize.width, height: floatingCardSize.height)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(theme.menuBackground)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(theme.separatorColor, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 6)
+        .overlay(alignment: .topTrailing) {
+            settingsEntryButton
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture { }
+        .position(
+            x: UIScreen.main.bounds.width / 2,
+            y: floatingCardTop(barTop: barTop) + floatingCardSize.height / 2
+        )
+    }
+
+    private var settingsEntryButton: some View {
+        Button {
+            selectedTool = nil
+            showSettingsSheet = true
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 14))
+                .foregroundStyle(theme.menuSecondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 4)
+        .padding(.trailing, 6)
+        .accessibilityLabel("设置")
+        .accessibilityIdentifier("reader.settings.entry")
+    }
+
+    private func fontSizeFloatingPanel(barTop: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+                .onTapGesture { selectedTool = nil }
+
+            fontCard(barTop: barTop)
+        }
+    }
 
     private func brightnessFloatingPanel(barTop: CGFloat) -> some View {
-        let naturalHeight: CGFloat = 56
-        let top = gridAlignedTop(naturalHeight: naturalHeight, barTop: barTop)
-        return HStack(spacing: 12) {
-            Slider(
-                value: Binding(
-                    get: { brightnessValue },
-                    set: { newValue in
-                        brightnessValue = newValue
-                        onBrightnessChange?(newValue)
-                    }
-                ),
-                in: 0...1
-            )
-            .tint(theme.menuPrimary)
-            .accessibilityLabel("屏幕亮度")
-            .accessibilityValue("\(Int((brightnessValue * 100).rounded()))%")
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+                .onTapGesture { selectedTool = nil }
 
-            Button {
-                onFollowSystemBrightness?()
-                flashFollowSystem()
-            } label: {
-                Text("自动")
-                    .font(.system(size: 12, weight: isFollowingSystemBrightness ? .semibold : .regular))
-                    .foregroundStyle(
-                        isFollowingSystemBrightness || followSystemFlash
-                            ? theme.accentColor
-                            : theme.menuSecondary
-                    )
-                    .frame(width: 36, height: 26)
+            HStack(spacing: 10) {
+                Image(systemName: "sun.min")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.menuSecondary)
+                    .frame(width: 20)
+
+                Slider(
+                    value: Binding(
+                        get: { brightnessValue },
+                        set: { newValue in
+                            brightnessValue = newValue
+                            onBrightnessChange?(newValue)
+                        }
+                    ),
+                    in: 0...1
+                )
+                .tint(theme.menuPrimary)
+                .accessibilityLabel("屏幕亮度")
+                .accessibilityValue("\(Int((brightnessValue * 100).rounded()))%")
+
+                Image(systemName: "sun.max")
+                    .font(.system(size: 20))
+                    .foregroundStyle(theme.menuPrimary)
+                    .frame(width: 24)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("跟随系统亮度")
+            .padding(.horizontal, 18)
+            .frame(width: floatingCardSize.width, height: floatingCardSize.height)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.menuBackground)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(theme.separatorColor, lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 6)
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    onFollowSystemBrightness?()
+                    flashFollowSystem()
+                } label: {
+                    Text("自动")
+                        .font(.system(size: 11, weight: isFollowingSystemBrightness ? .semibold : .regular))
+                        .foregroundStyle(
+                            isFollowingSystemBrightness || followSystemFlash
+                                ? theme.accentColor
+                                : theme.menuSecondary
+                        )
+                        .frame(width: 36, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+                .padding(.trailing, 8)
+                .accessibilityLabel("跟随系统亮度")
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .onTapGesture { }
+            .position(
+                x: UIScreen.main.bounds.width / 2,
+                y: floatingCardTop(barTop: barTop) + floatingCardSize.height / 2
+            )
         }
-        .padding(.horizontal, 24)
-        .frame(maxWidth: .infinity)
-        .frame(height: max(0, barTop - top), alignment: .center)
-        .background(theme.menuBackground)
-        .overlay(alignment: .top) {
-            Rectangle().fill(theme.menuPrimary.opacity(0.12)).frame(height: 1)
-        }
-        .offset(y: top)
     }
 
     private func progressFloatingPanel(barTop: CGFloat) -> some View {
