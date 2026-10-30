@@ -55,6 +55,13 @@ struct ReaderMenuOverlay: View {
     var bottomTopInset: CGFloat = 0
     /// 顶部面板往下多长多少,让它的底边落在正文的行边界上。
     var topBottomInset: CGFloat = 0
+    /// 正文第一条线的屏幕 y 和一行的高度:目录/设置面板的顶边要落在行边界上。
+    var bodyTopY: CGFloat = 0
+    var bodyLineHeight: CGFloat = 0
+    /// 顶栏右侧的阅读进度,和页脚同一个算法。
+    var progressPercent: String = ""
+    /// 顶栏底边的屏幕 y:面板从这条线下面开始,不能盖住顶栏。
+    var topBarBottomY: CGFloat = 0
 
     private var theme: ReaderTheme { settings.theme }
 
@@ -74,6 +81,7 @@ struct ReaderMenuOverlay: View {
     @State private var followSystemFlash = false
     @State private var panelSegment: ReaderPanelSegment = .chapters
     @State private var panelDragOffset: CGFloat = 0
+    @State private var topBarHeight: CGFloat = 0
     @State private var isPanelSearchOpen = false
     @State private var pendingDeletionID: UUID?
     @State private var undoToast: String?
@@ -152,13 +160,30 @@ struct ReaderMenuOverlay: View {
                 .foregroundStyle(theme.menuPrimary)
                 .lineLimit(1)
             Spacer()
-            cacheTopBarControl
+            if progressPercent.isEmpty {
+                cacheTopBarControl
+            } else {
+                Text(progressPercent)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(theme.menuSecondary)
+                    .frame(minWidth: 56, alignment: .trailing)
+                    .accessibilityLabel("阅读进度 \(progressPercent)")
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 10)
-        .padding(.bottom, 10)
+        .padding(.bottom, 10 + topBarRowInset)
         .frame(maxWidth: .infinity)
-        .background(theme.menuBackground, ignoresSafeAreaEdges: .top)
+        .background(
+            GeometryReader { geo in
+                theme.menuBackground
+                    .ignoresSafeArea(edges: .top)
+                    .onAppear { topBarHeight = geo.size.height - topBarRowInset }
+                    .onChange(of: geo.size.height) { _, h in
+                        topBarHeight = h - topBarRowInset
+                    }
+            }
+        )
     }
 
     @ViewBuilder
@@ -421,6 +446,8 @@ struct ReaderMenuOverlay: View {
                 }
             }
             .tint(theme.menuSecondary)
+            .accessibilityLabel("章节")
+            .accessibilityValue("第 \(currentChapterIndex + 1) 章,共 \(totalChapters) 章")
 
             Button {
                 if currentChapterIndex < totalChapters - 1 {
@@ -453,6 +480,7 @@ struct ReaderMenuOverlay: View {
                         .background(theme.menuSelectedFill, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("缩小字号")
 
                 Slider(
                     value: Binding(
@@ -474,6 +502,8 @@ struct ReaderMenuOverlay: View {
                     settings.save()
                 }
                 .tint(theme.menuSecondary)
+                .accessibilityLabel("字号")
+                .accessibilityValue("\(Int(draggingFontSize ?? Double(settings.fontSize)))")
 
                 Button {
                     settings.fontSize = min(settings.fontSize + 1, 32)
@@ -486,6 +516,7 @@ struct ReaderMenuOverlay: View {
                         .background(theme.menuSelectedFill, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("放大字号")
 
                 Text("\(Int(draggingFontSize ?? Double(settings.fontSize)))")
                     .font(.system(size: 13, design: .monospaced))
@@ -521,10 +552,45 @@ struct ReaderMenuOverlay: View {
                     settings.save()
                 }
                 .tint(theme.menuSecondary)
+                .accessibilityLabel("行距")
+                .accessibilityValue(String(format: "%.1f", draggingLineSpacing ?? settings.lineSpacing))
                 Text(String(format: "%.1f", draggingLineSpacing ?? settings.lineSpacing))
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(theme.menuSecondary)
                     .frame(width: 26)
+            }
+            .frame(height: 56)
+            .padding(.horizontal, 20)
+
+            // 字体:三颗一个样子,选中的加一圈强调色描边和强调色文字。
+            HStack(spacing: 8) {
+                ForEach(FontFamily.allCases, id: \.self) { font in
+                    let selected = settings.fontFamily == font
+                    Button {
+                        settings.fontFamily = font
+                        settings.save()
+                    } label: {
+                        Text(font.displayName)
+                            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                            .foregroundStyle(selected ? theme.menuBackground : theme.menuSecondary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 34)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(selected ? theme.accentColor : theme.menuPrimary.opacity(0.05))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(
+                                        selected ? Color.clear : theme.menuPrimary.opacity(0.10),
+                                        lineWidth: 1
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(font.displayName)
+                    .accessibilityAddTraits(selected ? [.isSelected] : [])
+                }
             }
             .frame(height: 56)
             .padding(.horizontal, 20)
@@ -561,42 +627,11 @@ struct ReaderMenuOverlay: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(item.displayName)
+                    .accessibilityAddTraits(settings.theme == item ? [.isSelected] : [])
                 }
             }
-            .frame(height: 64)
-            .padding(.horizontal, 20)
-
-            // 亮度
-            brightnessBar
-
-            // 字体
-            HStack(spacing: 8) {
-                ForEach(FontFamily.allCases, id: \.self) { font in
-                    Button {
-                        settings.fontFamily = font
-                        settings.save()
-                    } label: {
-                        Text(font.displayName)
-                            .font(.system(size: 12))
-                            .foregroundStyle(settings.fontFamily == font ? theme.menuPrimary : theme.menuSecondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(settings.fontFamily == font ? theme.menuPrimary.opacity(0.12) : theme.menuUnselectedFill)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(
-                                        settings.fontFamily == font ? theme.menuPrimary.opacity(0.2) : Color.clear,
-                                        lineWidth: 1
-                                    )
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .frame(height: 40)
+            .frame(height: 56)
             .padding(.horizontal, 20)
 
             // 保持屏幕常亮
@@ -617,8 +652,12 @@ struct ReaderMenuOverlay: View {
                 .accessibilityLabel("保持屏幕常亮")
                 .accessibilityValue(settings.keepScreenAwake ? "已开启" : "已关闭")
             }
-            .frame(height: 44)
+            .frame(height: 56)
             .padding(.horizontal, 20)
+
+            // 亮度:最后一行,离底部四个图标最近。
+            brightnessBar
+
         }
     }
 
@@ -649,24 +688,24 @@ struct ReaderMenuOverlay: View {
                 onFollowSystemBrightness?()
                 flashFollowSystem()
             } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 12, weight: .medium))
+                Text("自动")
+                    .font(.system(size: 12, weight: isFollowingSystemBrightness ? .semibold : .regular))
                     .foregroundStyle(
                         isFollowingSystemBrightness || followSystemFlash
-                            ? theme.menuPrimary
+                            ? theme.accentColor
                             : theme.menuSecondary
                     )
-                    .frame(width: 28, height: 28)
+                    .frame(width: 36, height: 26)
                     .background(
-                        Circle()
-                            .fill(followSystemFlash ? theme.menuSelectedFill : Color.clear)
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(followSystemFlash ? theme.menuPrimary.opacity(0.08) : Color.clear)
                     )
             }
             .buttonStyle(.plain)
             .accessibilityLabel("跟随系统亮度")
         }
         .padding(.horizontal, 24)
-        .frame(height: 44)
+        .frame(height: 56)
     }
 
     private func flashFollowSystem() {
@@ -724,27 +763,41 @@ struct ReaderMenuOverlay: View {
 
     // MARK: - 目录 / 书签面板
 
-    /// 面板顶边:状态栏底(59pt)下面 8pt,高度因此是 807pt。
+    /// 面板顶边:状态栏底(59pt)下面 8pt,再按正文行网格往下取到行边界。
     static let panelTop: CGFloat = 67
+
+    /// 顶栏下面补多少,让面板内容区(目录首行、设置首行)正好从正文行边界开始。
+    private var topBarRowInset: CGFloat {
+        guard bodyTopY > 0, bodyLineHeight > 1, topBarHeight > 1 else { return 0 }
+        let distance = max(topBarBottomY, Self.panelTop + topBarHeight) - bodyTopY
+        guard distance > 0 else { return 0 }
+        let remainder = distance.truncatingRemainder(dividingBy: bodyLineHeight)
+        return remainder < 0.5 ? 0 : bodyLineHeight - remainder
+    }
 
     /// 目录 / 书签面板:从底部升到状态栏下 8pt,左右贴边、只有上边两个 16pt 圆角,
     /// 界面上没有关闭按钮——出三条:拖动条轻点、往下拖、读屏的自定义动作「关闭」。
     private var panelOverlay: some View {
         // 用屏幕高度而不是 GeometryReader:盖层自己的坐标系从安全区开始,
         // 量出来会比屏幕短,面板顶边就落不到状态栏下 8pt。
-        let height = max(UIScreen.main.bounds.height - Self.panelTop, 320)
+        let top = topBarBottomY > Self.panelTop ? topBarBottomY : Self.panelTop
+        let height = max(UIScreen.main.bounds.height - top, 320)
         return ZStack(alignment: .top) {
-            Color.black.opacity(theme.isDark ? 0.5 : 0.3)
-                .ignoresSafeArea()
+            // 面板以外不压暗:透出来的就是阅读页本身,只负责接住点击收起。
+            Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { closePanel() }
-                .transition(.opacity)
 
             panelSheet
                 .frame(height: height, alignment: .top)
                 .background(theme.menuBackground)
                 .clipShape(TopRoundedRectangle(radius: 16))
-                .offset(y: Self.panelTop + max(0, panelDragOffset))
+                .overlay(alignment: .top) {
+                    TopRoundedRectangle(radius: 16)
+                        .stroke(theme.menuPrimary.opacity(0.12), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.10), radius: 12, x: 0, y: 12)
+                .offset(y: top + max(0, panelDragOffset))
                 .transition(.move(edge: .bottom))
         }
         .ignoresSafeArea()

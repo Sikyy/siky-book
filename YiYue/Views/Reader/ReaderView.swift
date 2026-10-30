@@ -351,7 +351,11 @@ struct ReaderView: View {
                     hasPageBookmark: pageBookmarkMark != nil,
                     onWriteNoteHere: { writeNoteAtCurrentPage() },
                     bottomTopInset: bottomMenuInset,
-                    topBottomInset: menuTopInset
+                    topBottomInset: menuTopInset,
+                    bodyTopY: bodyTopY,
+                    bodyLineHeight: bodyLineHeight,
+                    progressPercent: menuProgressText,
+                    topBarBottomY: menuTopEdgeY
                 )
             }
 
@@ -653,6 +657,17 @@ struct ReaderView: View {
         guard distance > 0 else { return 0 }
         let remainder = distance.truncatingRemainder(dividingBy: line)
         return remainder < 0.5 ? 0 : remainder
+    }
+
+    /// 菜单顶栏的进度,和页脚同一个算法。
+    private var menuProgressText: String {
+        let pageCount = max(cachedPages.count, 1)
+        let currentPage = min(max(currentPageIndex + 1, 1), pageCount)
+        let chapterFraction = pageCount > 1
+            ? Double(currentPage - 1) / Double(pageCount - 1)
+            : 0
+        let overall = (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
+        return "\(Int((overall * 100).rounded()))%"
     }
 
     /// 正文一行的高度(字号 + 行距),和排版用的是同一个算法。
