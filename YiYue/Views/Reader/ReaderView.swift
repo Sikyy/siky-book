@@ -805,6 +805,20 @@ struct ReaderView: View {
         return max(0, bodyLineHeight - font.lineHeight)
     }
 
+    /// 一页能排的行数:从正文行框顶到页脚上沿,按行高取整。
+    /// 底边因此总是贴着页脚,余量永远小于一行。
+    private var bodyLineCapacity: Double {
+        let screenHeight = viewSize.height > 0
+            ? Double(viewSize.height)
+            : Double(currentWindowSize.height)
+        let footerTop = screenHeight - Double(ReaderTypography.footerBottomInset) - 16
+        let lineHeight = Double(settings.bodyLineHeight)
+        guard lineHeight > 0 else { return 1 }
+        let available = footerTop - Double(bodyContainerTopY)
+        guard available > 0 else { return 1 }
+        return max(1, (available / lineHeight).rounded(.down))
+    }
+
     /// 正文容器顶(屏幕坐标):首行字顶 116 减去行内字墨偏移。
     private var bodyContainerTopY: CGFloat {
         let size = CGFloat(settings.fontSize)
@@ -1891,7 +1905,7 @@ struct ReaderView: View {
         let footerTop = screenSize.height - ReaderTypography.footerBottomInset - 16
         let contentTop = min(bodyContainerTopY, footerTop)
         let contentBottom = min(
-            bodyContainerTopY + bodyLineHeight * ReaderTypography.bodyLineCount,
+            bodyContainerTopY + bodyLineHeight * CGFloat(max(1, bodyLineCapacity)),
             footerTop
         )
         guard location.y >= contentTop - 0.5, location.y <= contentBottom + 0.5 else {
@@ -2129,7 +2143,8 @@ struct ReaderView: View {
             horizontalPadding: Double(settings.horizontalPadding),
             bottomReserve: Double(pageBottomReserve),
             paragraphSpacing: Double(settings.paragraphSpacing),
-            firstLineIndent: settings.firstLineIndentEnabled
+            firstLineIndent: settings.firstLineIndentEnabled,
+            lineCount: bodyLineCapacity
         )
     }
 
@@ -2145,7 +2160,8 @@ struct ReaderView: View {
             horizontalPadding: Double(settings.horizontalPadding),
             bottomReserve: Double(pageBottomReserve),
             paragraphSpacing: Double(settings.paragraphSpacing),
-            firstLineIndent: settings.firstLineIndentEnabled
+            firstLineIndent: settings.firstLineIndentEnabled,
+            lineCount: bodyLineCapacity
         )
     }
 
@@ -2711,9 +2727,9 @@ struct ReaderView: View {
 
         let textWidth = CGFloat(input.width - input.horizontalPadding * 2)
         let fontSize = CGFloat(input.fontSize)
-        // 一页正文固定 18 行的容量:行高 = 字号 × 倍率。
+        // 一页的容量由正文行框顶到页脚上沿算出来,行高 = 字号 × 倍率。
         let lineHeight = ReaderTypography.bodyLineHeight(fontSize: fontSize, level: input.lineSpacing)
-        let pageHeight = lineHeight * ReaderTypography.bodyLineCount
+        let pageHeight = lineHeight * CGFloat(max(1, input.lineCount))
         let paragraphGap = CGFloat(input.paragraphSpacing)
 
         let font = FontFamily.uiFont(
@@ -4490,6 +4506,7 @@ struct ReaderChapterLayoutKey: Hashable, Sendable {
     let bottomReserve: Double
     let paragraphSpacing: Double
     let firstLineIndent: Bool
+    let lineCount: Double
 }
 
 struct ReaderPreparedChapterWindow: Sendable {
@@ -4636,6 +4653,7 @@ private struct PaginationInput: Sendable {
     let bottomReserve: Double
     let paragraphSpacing: Double
     let firstLineIndent: Bool
+    let lineCount: Double
 }
 
 private struct PaginationOutput: Sendable {

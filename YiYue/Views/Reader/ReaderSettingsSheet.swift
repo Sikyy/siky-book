@@ -83,7 +83,7 @@ struct ReaderSettingsSheet: View {
             ReaderLevelSlider(
                 normalizedValue: levelBinding(
                     levels: ReaderTypography.lineSpacingLevels,
-                    current: settings.lineSpacing,
+                    current: { Double(settings.lineSpacing) },
                     commit: { settings.lineSpacing = $0; settings.save() }
                 ),
                 tint: theme.menuSecondary,
@@ -117,7 +117,7 @@ struct ReaderSettingsSheet: View {
             ReaderLevelSlider(
                 normalizedValue: levelBinding(
                     levels: ReaderTypography.horizontalPaddingLevels,
-                    current: settings.horizontalPadding,
+                    current: { Double(settings.horizontalPadding) },
                     commit: { settings.horizontalPadding = $0; settings.save() }
                 ),
                 tint: theme.menuSecondary,
@@ -296,14 +296,17 @@ struct ReaderSettingsSheet: View {
 
     private func levelBinding<T: BinaryFloatingPoint>(
         levels: [T],
-        current: T,
+        current: @escaping () -> Double,
         commit: @escaping (T) -> Void
     ) -> Binding<Double> {
+        // 每次读都现场取值:设置第一次打开时可能还没加载完,
+        // 早先按快照取数会让数字和滑块错开一档。
         Binding(
             get: {
                 guard levels.count > 1 else { return 0 }
+                let live = current()
                 let index = levels.enumerated()
-                    .min { abs(Double($0.element) - Double(current)) < abs(Double($1.element) - Double(current)) }?
+                    .min { abs(Double($0.element) - live) < abs(Double($1.element) - live) }?
                     .offset ?? 0
                 return Double(index) / Double(levels.count - 1)
             },
@@ -311,7 +314,7 @@ struct ReaderSettingsSheet: View {
                 guard levels.count > 1 else { return }
                 let index = min(max(Int((value * Double(levels.count - 1)).rounded()), 0), levels.count - 1)
                 let level = levels[index]
-                guard abs(Double(level) - Double(current)) > 0.0001 else { return }
+                guard abs(Double(level) - current()) > 0.0001 else { return }
                 commit(level)
             }
         )

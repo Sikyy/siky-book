@@ -134,8 +134,8 @@ enum ReaderTypography {
     static let chapterTitleTopInkY: CGFloat = 76
     static let footerBottomInset: CGFloat = 55
 
-    /// 一页正文固定 18 行的容量(默认字号)。
-    static let bodyLineCount: CGFloat = 18
+    /// 默认字号下的一页行数,只作为兜底;真实行数由首行框顶到页脚上沿算出。
+    static let bodyLineCount: CGFloat = 20
 
     /// 文本容器顶到首行字墨顶的实测差值(19 号 / 34.2 行高)。
     /// 规格要字顶 116,容器因此再往下补 6.7。
