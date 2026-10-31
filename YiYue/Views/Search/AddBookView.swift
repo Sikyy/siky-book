@@ -475,7 +475,7 @@ struct AddBookView: View {
                 }
                 return String(format: "%.1f万字", wan)
             }
-            return "\(num)字"
+            return "\(num) 字"
         }
         if raw.contains("万") { return raw }
         return raw + "字"

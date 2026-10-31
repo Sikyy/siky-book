@@ -1735,7 +1735,7 @@ struct ReaderMenuOverlay: View {
                 markList(
                     marks: bookmarks,
                     emptyTitle: "还没有书签",
-                    emptyBody: "从页面顶部下拉,松手就能加书签"
+                    emptyBody: "从页面顶部下拉，松手即可添加书签"
                 )
             }
         case .notes:

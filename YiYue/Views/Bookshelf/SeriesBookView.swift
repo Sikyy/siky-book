@@ -111,7 +111,7 @@ struct SeriesBookView: View {
             )
         } else {
             ShelfCornerBadge(
-                text: "\(books.count)部",
+                text: "\(books.count) 部",
                 background: Color.black.opacity(0.45)
             )
         }

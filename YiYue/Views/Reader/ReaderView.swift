@@ -254,7 +254,7 @@ struct ReaderView: View {
         VStack(spacing: 12) {
             Text("数据暂时没读回来")
                 .font(.subheadline.weight(.medium))
-            Text("回书架重进这本书就能接着读,阅读位置不会丢。")
+            Text("回书架重进这本书就能接着读，阅读位置不会丢。")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .opacity(0.7)
@@ -4458,7 +4458,7 @@ struct ReaderView: View {
         .allowsHitTesting(false)
         // 读屏整行一句。
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(hasPosition ? "《\(bookTitle)》,本章读到第 \(String(chapterPositionValue)) 字,共 \(String(chapterCharacterTotal)) 字" : "《\(bookTitle)》")
+        .accessibilityLabel(hasPosition ? "《\(bookTitle)》，本章读到第 \(String(chapterPositionValue)) 字，共 \(String(chapterCharacterTotal)) 字" : "《\(bookTitle)》")
     }
 
     private var showsBatteryInFooter: Bool {

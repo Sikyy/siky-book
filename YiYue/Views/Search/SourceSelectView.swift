@@ -31,7 +31,7 @@ struct SourceSelectView: View {
                     .padding(.vertical, 4)
                 }
 
-                Section("选择来源（\(result.sources.count)个）") {
+                Section("选择来源（\(result.sources.count) 个）") {
                     ForEach(result.sources) { source in
                         NavigationLink {
                             AddBookView(

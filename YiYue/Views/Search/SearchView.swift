@@ -232,7 +232,7 @@ struct SearchView: View {
                 }
             }
             Spacer(minLength: 4)
-            Text("\(result.sources.count)源")
+            Text("\(result.sources.count) 个来源")
                 .font(.caption2)
                 .foregroundStyle(.blue)
                 .padding(.horizontal, 6)

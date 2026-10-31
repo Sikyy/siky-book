@@ -175,7 +175,7 @@ struct ChangeSourceView: View {
     private var pinnedSourcesSection: some View {
         let pinned = book.pinnedSources
         if !pinned.isEmpty {
-            Section("收藏来源（\(pinned.count)个）") {
+            Section("收藏来源（\(pinned.count) 个）") {
                 ForEach(pinned) { source in
                     pinnedRow(source)
                 }
@@ -192,7 +192,7 @@ struct ChangeSourceView: View {
                     .foregroundStyle(.primary)
                 Spacer()
                 if let count = source.chapterCount, count > 0 {
-                    Text("\(count)章")
+                    Text("\(count) 章")
                         .font(.caption)
                         .foregroundStyle(.green)
                 }
@@ -272,7 +272,7 @@ struct ChangeSourceView: View {
     private var searchResultsSection: some View {
         let results = searchResults
         if !results.isEmpty {
-            Section("搜索结果（\(results.count)个）") {
+            Section("搜索结果（\(results.count) 个）") {
                 ForEach(results) { source in
                     searchResultRow(source)
                 }
@@ -302,7 +302,7 @@ struct ChangeSourceView: View {
                     .foregroundStyle(.primary)
                 Spacer()
                 if source.chapterCount > 0 {
-                    Text("\(source.chapterCount)章")
+                    Text("\(source.chapterCount) 章")
                         .font(.caption)
                         .foregroundStyle(.green)
                 } else {
@@ -341,7 +341,7 @@ struct ChangeSourceView: View {
     private var blockedSourcesSection: some View {
         if blockedCount > 0 {
             Section {
-                DisclosureGroup("已屏蔽（\(blockedCount)个）") {
+                DisclosureGroup("已屏蔽（\(blockedCount) 个）") {
                     // Match blocked IDs against search results to show names
                     let blockedFound = foundSources.filter { blockedIds.contains($0.sourceId.uuidString) }
                     if !blockedFound.isEmpty {
