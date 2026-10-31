@@ -290,6 +290,8 @@ struct ReaderView: View {
         bookTitle = book.title
         bookChapterCount = max(book.totalChapters, chapters.count)
         chapterTitles = chapters.map(\.title)
+        // 目录行右边的百分比是固定值,书一打开就把表算好,开目录时只读表。
+        TocPercentTable.shared.refresh(bookID: book.id, chapters: chapters)
         let index = currentChapterIndex
         currentChapterID = (index >= 0 && index < chapters.count) ? chapters[index].id : nil
     }
@@ -328,8 +330,7 @@ struct ReaderView: View {
     }
 
     var body: some View {
-        ReaderFrameProbe.shared.noteBodyEvaluation()
-        return ZStack {
+        ZStack {
             readerBackground
                 .ignoresSafeArea()
 
@@ -484,16 +485,11 @@ struct ReaderView: View {
         .onPreferenceChange(ReaderMenuBottomTopPreference.self) { y in
             if bottomMenuInset == 0 { menuBottomTopY = y }
         }
-        .overlay(alignment: .topLeading) {
-            ReaderPerfHUD(probe: ReaderFrameProbe.shared)
-                .padding(.top, 60)
-        }
         .statusBarHidden(!showMenu)
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
         .preferredColorScheme(settings.isDarkAppearance ? .dark : .light)
         .onAppear {
             onAppearanceChange?(settings.isDarkAppearance)
-            ReaderFrameProbe.shared.start()
         }
         .onChange(of: settings.theme) { _, _ in
             onAppearanceChange?(settings.isDarkAppearance)
@@ -502,7 +498,6 @@ struct ReaderView: View {
             onAppearanceChange?(settings.isDarkAppearance)
         }
         .onChange(of: showMenu) { _, open in
-            ReaderFrameProbe.shared.reset()
             // 菜单开着就不该同时有选中段,toolbar 和菜单会叠在一起。
             if open { selection = nil }
             onMenuVisibilityChange?(open)
@@ -548,7 +543,17 @@ struct ReaderView: View {
             let position: PaginationPosition = skipPageReset ? .last : .first
             skipPageReset = false
             let manager = BookManager(modelContext: modelContext)
-            manager.updateProgress(book: book, chapterIndex: newValue, position: 0)
+            manager.updateProgress(
+                book: book,
+                chapterIndex: newValue,
+                position: 0,
+                overallProgress: TocPercentTable.shared.fraction(
+                    bookID: book.id,
+                    chapters: chapters,
+                    chapterIndex: newValue,
+                    pageFraction: 0
+                )
+            )
 
             let retainedAdjacentPreparation = cancelCurrentChapterRendering(
                 preservingAdjacentFor: currentChapter?.id
@@ -777,14 +782,23 @@ struct ReaderView: View {
         return remainder < 0.5 ? 0 : remainder
     }
 
-    /// 全书进度(0…1),和进度格同一个算法。
+    /// 全书进度(0…1),和目录行、滑轨读同一张百分比表:
+    /// 这一章起点 + 章内进度 × 本章占比。
     private var overallProgressFraction: Double {
         let pageCount = max(cachedPages.count, 1)
         let currentPage = min(max(currentPageIndex + 1, 1), pageCount)
         let chapterFraction = pageCount > 1
             ? Double(currentPage - 1) / Double(pageCount - 1)
             : 0
-        return (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
+        guard !chapters.isEmpty else {
+            return (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
+        }
+        return TocPercentTable.shared.fraction(
+            bookID: book.id,
+            chapters: chapters,
+            chapterIndex: currentChapterIndex,
+            pageFraction: chapterFraction
+        )
     }
 
     /// 菜单进度,和进度格同一个算法。
@@ -4439,7 +4453,12 @@ struct ReaderView: View {
 
     private func persistReadingPosition() {
         let manager = BookManager(modelContext: modelContext)
-        manager.updateProgress(book: book, chapterIndex: currentChapterIndex, position: chapterPositionFraction)
+        manager.updateProgress(
+            book: book,
+            chapterIndex: currentChapterIndex,
+            position: chapterPositionFraction,
+            overallProgress: overallProgressFraction
+        )
     }
 
     private func applyKeepScreenAwake() {

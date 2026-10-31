@@ -1746,9 +1746,13 @@ struct ReaderMenuOverlay: View {
                 sliderValue = fraction * Double(maxIndex)
             }
             .onEnded { _ in
-                // 进度数字是全书进度(章序号/总章数),按同一比例反推落在哪一章。
+                // 进度数字是全书位置(章前累计字数 ÷ 全书字数),按同一张表反推落在哪一章。
                 let fraction = min(max(sliderDragFraction ?? 0, 0), 1)
-                let index = Int(floor(fraction * Double(max(totalChapters, 1))))
+                let index = TocPercentTable.shared.chapterIndex(
+                    bookID: book.id,
+                    chapters: chapters,
+                    forFraction: fraction
+                )
                 jumpChapter(to: index)
                 sliderDragFraction = nil
             }
@@ -2296,7 +2300,17 @@ struct ReaderMenuOverlay: View {
                 openPanel(.bookmarks)
             }
         case .text, .brightness, .progress:
-            if selectedTool == tool {
+            if showChapterList {
+                // 目录页/书签页开着时点别的格:先把那一页收起来,再开这一格的面板。
+                // 不走 closePanel()——它会在淡出之后把 selectedTool 清掉,
+                // 刚点开的字号面板就跟着没了。
+                withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.22)) {
+                    panelDragOffset = 0
+                    showChapterList = false
+                }
+                selectedTool = tool
+                brightnessValue = brightness
+            } else if selectedTool == tool {
                 selectedTool = nil
             } else {
                 selectedTool = tool
@@ -2849,18 +2863,10 @@ struct ReaderMenuOverlay: View {
         )
     }
 
-    /// 目录行:章名 + 这一章在全书的位置百分比(章序号 / 总章数),和进度面板同一个算法。
+    /// 目录行:章名 + 这一章在全书的位置百分比(章前累计字数 ÷ 全书字数),
+    /// 书打开时算好存表,这里只读表,不现算。
     private var tocEntries: [ReaderTocEntry] {
-        let total = max(chapters.count, 1)
-        return chapters
-            .sorted { $0.index < $1.index }
-            .map { chapter in
-                ReaderTocEntry(
-                    index: chapter.index,
-                    title: chapter.title,
-                    percent: Int((Double(chapter.index) / Double(total) * 100).rounded())
-                )
-            }
+        TocPercentTable.shared.entries(bookID: book.id, chapters: chapters)
     }
 
     private var bookmarkEntries: [ReaderBookmarkEntry] {
@@ -2973,14 +2979,12 @@ struct ReaderMenuOverlay: View {
     private func openPanel(_ segment: ReaderPanelSegment) {
         panelSegment = segment
         panelDragOffset = 0
-        ReaderFrameProbe.shared.reset()
         withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.26)) {
             showChapterList = true
         }
     }
 
     private func closePanel() {
-        ReaderFrameProbe.shared.reset()
         withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.22)) {
             panelDragOffset = 0
             showChapterList = false

@@ -44,6 +44,9 @@ final class Book {
     /// Counting whole chapters only made the shelf badge read 0% while the
     /// reader said 17%.
     var progress: Double {
+        // 读到哪儿就存下那一刻的全书位置(按字数算的那张表),
+        // 书架角标读这个数,和阅读器里的进度数字是同一个。
+        if let stored = ReaderProgressStore.stored(id: id) { return stored }
         guard totalChapters > 0 else { return 0 }
         let chapterFraction = min(max(lastReadPosition, 0), 1)
         let overall = (Double(lastReadChapterIndex) + chapterFraction) / Double(totalChapters)
@@ -105,5 +108,29 @@ final class Book {
         self.lastReadPosition = 0
         self.totalChapters = totalChapters
         self.addedDate = Date()
+    }
+}
+
+
+/// 书架角标要显示的全书位置:阅读器算好(按章前累计字数 ÷ 全书字数)存这里,
+/// 角标只读,不自己按章序号再算一套。不新增 SwiftData 字段。
+enum ReaderProgressStore {
+    private static let keyPrefix = "reader.overallProgress."
+
+    static func store(_ value: Double?, for bookID: UUID) {
+        let defaults = UserDefaults.standard
+        let key = keyPrefix + bookID.uuidString
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    static func stored(id bookID: UUID) -> Double? {
+        let defaults = UserDefaults.standard
+        let key = keyPrefix + bookID.uuidString
+        guard defaults.object(forKey: key) != nil else { return nil }
+        return defaults.double(forKey: key)
     }
 }

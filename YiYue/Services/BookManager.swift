@@ -40,10 +40,13 @@ final class BookManager {
         }
     }
 
-    func updateProgress(book: Book, chapterIndex: Int, position: Double) {
+    func updateProgress(book: Book, chapterIndex: Int, position: Double, overallProgress: Double? = nil) {
         book.lastReadChapterIndex = chapterIndex
         book.lastReadPosition = position
         book.lastReadDate = Date()
+        if let overallProgress {
+            ReaderProgressStore.store(overallProgress, for: book.id)
+        }
 
         // Chapter indices are 0-based, so the last chapter is totalChapters - 1.
         let onLastChapter = book.totalChapters > 0 && chapterIndex >= book.totalChapters - 1

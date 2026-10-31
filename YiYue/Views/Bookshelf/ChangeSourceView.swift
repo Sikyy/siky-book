@@ -935,6 +935,7 @@ struct ChangeSourceView: View {
         if currentBook.lastReadChapterIndex >= chapters.count {
             currentBook.lastReadChapterIndex = max(0, chapters.count - 1)
             currentBook.lastReadPosition = 0
+            ReaderProgressStore.store(nil, for: currentBook.id)
         }
 
         do {

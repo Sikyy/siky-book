@@ -40,6 +40,13 @@ struct ReaderTocEntry: Identifiable, Equatable {
     var id: Int { index }
 }
 
+private struct TocLastRowBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
+    }
+}
+
 struct ReaderTocPage: View {
     let style: ReaderPageStyle
     let entries: [ReaderTocEntry]
@@ -54,8 +61,11 @@ struct ReaderTocPage: View {
 
     @State private var searchText = ""
     @State private var isSearching = false
-    /// 最后一行在不在视野里:不在才浮出「最后一章」。
-    @State private var lastChapterVisible = false
+    /// 最后一行的底边在屏幕上的位置(全局坐标);量不到时是极大值,
+    /// 表示还没建出来或已经滚出列表,也就是不在视野里。
+    @State private var lastRowBottom: CGFloat = .greatestFiniteMagnitude
+    /// 点「最后一章」时递增,由 ScrollViewReader 接住去滚。
+    @State private var jumpToLastTick = 0
     @FocusState private var searchFocused: Bool
 
     private var filteredEntries: [ReaderTocEntry] {
@@ -77,6 +87,18 @@ struct ReaderTocPage: View {
             list
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .bottom) {
+            if showLastChapterPill {
+                lastChapterPill { jumpToLastTick += 1 }
+                    .padding(.bottom, 101.3)
+            }
+        }
+    }
+
+    /// 最后一章不在视野里(或者列表还没建到最后一行)时才浮出来;章数不足一屏不浮。
+    private var showLastChapterPill: Bool {
+        guard !filteredEntries.isEmpty, filteredEntries.count > 6 else { return false }
+        return lastRowBottom > 800
     }
 
     // MARK: 顶部胶囊
@@ -204,32 +226,42 @@ struct ReaderTocPage: View {
                             }
                         }
                         .id(entry.index)
-                        .onAppear {
-                            if entry.index == entries.last?.index { lastChapterVisible = true }
-                        }
-                        .onDisappear {
-                            if entry.index == entries.last?.index { lastChapterVisible = false }
+                        .background {
+                            if entry.index == entries.last?.index {
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: TocLastRowBottomKey.self,
+                                        value: proxy.frame(in: .global).maxY
+                                    )
+                                }
+                            }
                         }
                     }
                 }
                 .padding(.top, 13)
                 .padding(.bottom, 120)
+                .overlay {
+                    if filteredEntries.isEmpty, isSearching {
+                        Text("没有找到章节")
+                            .font(.system(size: 13))
+                            .foregroundStyle(style.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .padding(.top, 60)
+                    }
+                }
             }
             .scrollIndicators(.hidden)
             .onAppear {
                 guard !isSearching else { return }
                 proxy.scrollTo(currentIndex, anchor: .center)
             }
-            .overlay(alignment: .bottom) {
-                if !lastChapterVisible, !filteredEntries.isEmpty, filteredEntries.count > 6 {
-                    lastChapterPill {
-                        if let last = entries.last {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                proxy.scrollTo(last.index, anchor: .bottom)
-                            }
-                        }
-                    }
-                    .padding(.bottom, 101.3)
+            .onPreferenceChange(TocLastRowBottomKey.self) { value in
+                lastRowBottom = value
+            }
+            .onChange(of: jumpToLastTick) { _, _ in
+                guard let last = entries.last else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(last.index, anchor: .bottom)
                 }
             }
         }
@@ -434,11 +466,7 @@ struct ReaderBookmarkPage: View {
             .padding(.bottom, 120)
         }
         .scrollIndicators(.hidden)
-        .confirmationDialog(
-            "删除全部书签?",
-            isPresented: $showDeleteConfirm,
-            titleVisibility: .visible
-        ) {
+        .alert("删除全部书签?", isPresented: $showDeleteConfirm) {
             Button("删除全部", role: .destructive) { onDeleteAll() }
             Button("取消", role: .cancel) {}
         } message: {
@@ -769,4 +797,149 @@ struct BookmarkShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - 全书百分比表
+
+/// 全书位置只跟每章字数有关:第 N 章起点 = 第 N 章之前的累计字数 ÷ 全书字数。
+/// 它是固定值,和读到哪无关,所以一本书只算一次、存成表;
+/// 目录页、进度面板、滑轨都读同一张表 —— 大目录下不能每次开面板都把整本算一遍,
+/// 也不能让目录行和进度数字各算一套。
+@MainActor
+final class TocPercentTable {
+    static let shared = TocPercentTable()
+
+    private struct Cached {
+        /// 章数 + 首尾章名:目录变了就重算,没变就直接用。
+        let signature: String
+        /// 按章序排好的章号。
+        let indices: [Int]
+        /// 每章字数;整本都有正文才有,远端书没下载完是 nil,退回按章序号算。
+        let lengths: [Int]?
+        /// 各章起点之前的累计字数,只算一次。
+        let cumulative: [Int]
+        let totalWords: Int
+        let entries: [ReaderTocEntry]
+    }
+
+    private var cache: [UUID: Cached] = [:]
+
+    private func signature(of chapters: [Chapter]) -> String {
+        "\(chapters.count)|\(chapters.first?.title ?? "")|\(chapters.last?.title ?? "")"
+    }
+
+    /// 书打开、目录刷新之后调一次,把表算好存起来。
+    func refresh(bookID: UUID, chapters: [Chapter]) {
+        _ = table(bookID: bookID, chapters: chapters)
+    }
+
+    /// 目录行:章名 + 这一章起点在全书的位置。
+    func entries(bookID: UUID, chapters: [Chapter]) -> [ReaderTocEntry] {
+        table(bookID: bookID, chapters: chapters).entries
+    }
+
+    /// 读到某一章某一页时的全书位置(0…1):这一章起点 + 章内进度 × 本章占比。
+    func fraction(bookID: UUID, chapters: [Chapter], chapterIndex: Int, pageFraction: Double) -> Double {
+        let table = table(bookID: bookID, chapters: chapters)
+        guard !table.indices.isEmpty else { return 0 }
+        let position = table.indices.firstIndex(of: chapterIndex) ?? min(max(chapterIndex, 0), table.indices.count - 1)
+        let inChapter = min(max(pageFraction, 0), 1)
+        if let lengths = table.lengths, table.totalWords > 0 {
+            let walked = Double(table.cumulative[position]) + inChapter * Double(lengths[position])
+            return walked / Double(table.totalWords)
+        }
+        return (Double(position) + inChapter) / Double(table.indices.count)
+    }
+
+    /// 反推:全书位置 0…1 落在哪一章(滑轨松手时用,和上面的算法是同一张表)。
+    func chapterIndex(bookID: UUID, chapters: [Chapter], forFraction fraction: Double) -> Int {
+        let table = table(bookID: bookID, chapters: chapters)
+        guard !table.indices.isEmpty else { return 0 }
+        let clamped = min(max(fraction, 0), 1)
+        guard let lengths = table.lengths, table.totalWords > 0 else {
+            let position = Int(floor(clamped * Double(table.indices.count)))
+            return table.indices[min(max(position, 0), table.indices.count - 1)]
+        }
+        let target = Int((clamped * Double(table.totalWords)).rounded())
+        // cumulative 是升序的,二分找最后一个起点不超过目标的章。
+        var low = 0
+        var high = table.cumulative.count - 1
+        var found = 0
+        while low <= high {
+            let mid = (low + high) / 2
+            if table.cumulative[mid] <= target {
+                found = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        _ = lengths
+        return table.indices[found]
+    }
+
+    private func table(bookID: UUID, chapters: [Chapter]) -> Cached {
+        let signature = signature(of: chapters)
+        if let cached = cache[bookID], cached.signature == signature {
+            return cached
+        }
+        let built = build(chapters)
+        cache[bookID] = built
+        return built
+    }
+
+    private func build(_ chapters: [Chapter]) -> Cached {
+        let sorted = chapters.sorted { $0.index < $1.index }
+        let indices = sorted.map(\.index)
+
+        // 每章字数:整本都有正文才算得出字数占比,缺一章就整本退回按章序号。
+        var lengths: [Int] = []
+        lengths.reserveCapacity(sorted.count)
+        for chapter in sorted {
+            guard let content = chapter.content, !content.isEmpty else {
+                lengths.removeAll(keepingCapacity: false)
+                break
+            }
+            lengths.append(content.count)
+        }
+
+        let hasWords = lengths.count == sorted.count
+        let totalWords = hasWords ? lengths.reduce(0, +) : 0
+        var cumulative: [Int] = []
+        cumulative.reserveCapacity(sorted.count)
+        var walked = 0
+        for (offset, _) in sorted.enumerated() {
+            cumulative.append(walked)
+            if hasWords, totalWords > 0 { walked += lengths[offset] }
+        }
+
+        let entries: [ReaderTocEntry]
+        if hasWords, totalWords > 0 {
+            entries = sorted.enumerated().map { offset, chapter in
+                ReaderTocEntry(
+                    index: chapter.index,
+                    title: chapter.title,
+                    percent: Int((Double(cumulative[offset]) / Double(totalWords) * 100).rounded())
+                )
+            }
+        } else {
+            let total = max(sorted.count, 1)
+            entries = sorted.enumerated().map { offset, chapter in
+                ReaderTocEntry(
+                    index: chapter.index,
+                    title: chapter.title,
+                    percent: Int((Double(offset) / Double(total) * 100).rounded())
+                )
+            }
+        }
+
+        return Cached(
+            signature: signature(of: chapters),
+            indices: indices,
+            lengths: hasWords && totalWords > 0 ? lengths : nil,
+            cumulative: cumulative,
+            totalWords: totalWords,
+            entries: entries
+        )
+    }
 }
