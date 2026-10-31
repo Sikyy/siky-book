@@ -58,7 +58,7 @@ struct ReaderView: View {
     @State private var autoPageTask: Task<Void, Never>?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @State private var settings = ReaderSettings()
+    @State private var settings: ReaderSettings
     /// Values the page layout draws with. They are plain copies so a layout pass
     /// never reaches into SwiftData: after a context reset that traps.
     @State private var bookTitle: String
@@ -194,6 +194,8 @@ struct ReaderView: View {
         self._bookChapterCount = State(initialValue: book.totalChapters)
         self._currentChapterIndex = State(initialValue: startChapterIndex)
         self._restorePositionFraction = State(initialValue: startPosition > 0 ? startPosition : nil)
+        // 设置实例带着书 id:字号「仅应用到当前书籍」的覆盖按书存。
+        self._settings = State(initialValue: ReaderSettings(bookID: book.id))
     }
 
     /// Whether the reader is allowed to draw and read its models. Panels that

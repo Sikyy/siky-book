@@ -159,24 +159,91 @@ class ReaderSettings {
     private static let currentTypographyVersion = 10
     private static let pageModeKey = "reader.pageMode"
     private static let pageModeExplicitKey = "reader.pageMode.explicit"
+    /// 每本书的字号覆盖:键是书 id 的字符串,值是字号。
+    /// 「仅应用到当前书籍」开着时,字号只写这里,不碰全局默认。
+    private static let perBookFontSizesKey = "reader.fontSize.perBook"
+    private static let perBookLineSpacingsKey = "reader.lineSpacing.perBook"
+    private static let perBookHorizontalPaddingsKey = "reader.horizontalPadding.perBook"
+    /// 「仅应用到当前书籍」开关本身也记住;规格默认开。
+    private static let fontScopeKey = "reader.fontSize.onlyCurrentBook"
     /// 背景只存这一个键:颜色写 "color:paper",照片写 "photo:bg-sea:paper"
     /// (照片后面的颜色是上次选的颜色,照片摘掉时回到它)。
     private static let backgroundKey = "reader.background"
     private static let defaultPageMode: PageMode = .scroll
 
+    /// 当前这本书的 id:字号覆盖按它存取。由阅读页创建设置时传入。
+    private(set) var activeBookID: UUID?
+    /// 标题行「仅应用到当前书籍」:开 = 字号只改这本书;关 = 改全局默认。
+    /// 默认开,和参照图一致。
+    var onlyCurrentBookFontSize: Bool {
+        didSet {
+            UserDefaults.standard.set(onlyCurrentBookFontSize, forKey: Self.fontScopeKey)
+        }
+    }
+    /// 每本书自己的字号 / 行距 / 边距。只有开关开着、且这本书改过时才生效;
+    /// 没改过的书仍然跟着全局默认走。
+    private var perBookFontSizes: [String: Double]
+    private var perBookLineSpacings: [String: Double]
+    private var perBookHorizontalPaddings: [String: Double]
+
     var fontSize: CGFloat {
-        get { _fontSize }
-        set { _fontSize = newValue.clamped(to: Self.fontSizeRange) }
+        get {
+            if onlyCurrentBookFontSize, let key = activeBookKey, let value = perBookFontSizes[key] {
+                return CGFloat(value).clamped(to: Self.fontSizeRange)
+            }
+            return _fontSize
+        }
+        set {
+            let value = newValue.clamped(to: Self.fontSizeRange)
+            if onlyCurrentBookFontSize, let key = activeBookKey {
+                perBookFontSizes[key] = Double(value)
+                savePerBookOverrides()
+            } else {
+                _fontSize = value
+                // 关掉开关后再动字号就是「应用到所有书」:各书的旧覆盖要清掉,
+                // 否则有的书还停在旧值,这次改动就没真的落到所有书上。
+                if !onlyCurrentBookFontSize { clearPerBookOverrides() }
+            }
+        }
     }
 
     var lineSpacing: Double {
-        get { _lineSpacing }
-        set { _lineSpacing = newValue.clamped(to: Self.lineSpacingRange) }
+        get {
+            if onlyCurrentBookFontSize, let key = activeBookKey, let value = perBookLineSpacings[key] {
+                return value.clamped(to: Self.lineSpacingRange)
+            }
+            return _lineSpacing
+        }
+        set {
+            let value = newValue.clamped(to: Self.lineSpacingRange)
+            if onlyCurrentBookFontSize, let key = activeBookKey {
+                perBookLineSpacings[key] = value
+                savePerBookOverrides()
+            } else {
+                _lineSpacing = value
+                if !onlyCurrentBookFontSize { clearPerBookOverrides() }
+            }
+        }
     }
 
     var horizontalPadding: CGFloat {
-        get { _horizontalPadding }
-        set { _horizontalPadding = newValue.clamped(to: Self.paddingRange) }
+        get {
+            if onlyCurrentBookFontSize, let key = activeBookKey,
+               let value = perBookHorizontalPaddings[key] {
+                return CGFloat(value).clamped(to: Self.paddingRange)
+            }
+            return _horizontalPadding
+        }
+        set {
+            let value = newValue.clamped(to: Self.paddingRange)
+            if onlyCurrentBookFontSize, let key = activeBookKey {
+                perBookHorizontalPaddings[key] = Double(value)
+                savePerBookOverrides()
+            } else {
+                _horizontalPadding = value
+                if !onlyCurrentBookFontSize { clearPerBookOverrides() }
+            }
+        }
     }
 
     private var _fontSize: CGFloat = ReaderTypography.defaultFontSize
@@ -265,8 +332,37 @@ class ReaderSettings {
             .offset ?? 0
     }
 
-    init() {
+    private var activeBookKey: String? { activeBookID?.uuidString }
+
+    /// 切换「仅应用到当前书籍」。关掉时把当前看到的字号 / 行距 / 边距
+    /// 升为全局默认,并清掉所有书的覆盖——这才真的是「应用到所有书」。
+    func setOnlyCurrentBookFontSize(_ enabled: Bool) {
+        guard enabled != onlyCurrentBookFontSize else { return }
+        if !enabled {
+            let effectiveFontSize = fontSize
+            let effectiveLineSpacing = lineSpacing
+            let effectivePadding = horizontalPadding
+            onlyCurrentBookFontSize = enabled
+            _fontSize = effectiveFontSize
+            _lineSpacing = effectiveLineSpacing
+            _horizontalPadding = effectivePadding
+            clearPerBookOverrides()
+            save()
+        } else {
+            onlyCurrentBookFontSize = enabled
+        }
+    }
+
+    init(bookID: UUID? = nil) {
+        self.activeBookID = bookID
         let defaults = UserDefaults.standard
+        self.onlyCurrentBookFontSize = defaults.object(forKey: Self.fontScopeKey) as? Bool ?? true
+        self.perBookFontSizes = Self.loadPerBookValues(from: defaults, key: Self.perBookFontSizesKey)
+        self.perBookLineSpacings = Self.loadPerBookValues(from: defaults, key: Self.perBookLineSpacingsKey)
+        self.perBookHorizontalPaddings = Self.loadPerBookValues(
+            from: defaults,
+            key: Self.perBookHorizontalPaddingsKey
+        )
         let storedVersion = defaults.integer(forKey: Self.typographyVersionKey)
         if storedVersion < Self.currentTypographyVersion {
             // 1.0.8(10) 起档位表换成 16…40 / 1.05…1.95 / 16…40,
@@ -295,9 +391,11 @@ class ReaderSettings {
 
     func save(markPageModeExplicit: Bool = false) {
         let defaults = UserDefaults.standard
-        defaults.set(Double(fontSize), forKey: "reader.fontSize")
-        defaults.set(lineSpacing, forKey: "reader.lineSpacing")
-        defaults.set(Double(horizontalPadding), forKey: "reader.horizontalPadding")
+        // 全局默认永远写 _fontSize,不写当前这本书的覆盖值;
+        // 否则开着「仅应用到当前书籍」时,一次拖动会把别的书也改掉。
+        defaults.set(Double(_fontSize), forKey: "reader.fontSize")
+        defaults.set(_lineSpacing, forKey: "reader.lineSpacing")
+        defaults.set(Double(_horizontalPadding), forKey: "reader.horizontalPadding")
         defaults.set(fontFamily.rawValue, forKey: "reader.fontFamily")
         // 「当前背景」只写 reader.background 一处;reader.theme 是旧存档,不再写。
         if let photo = backgroundPhoto {
@@ -311,6 +409,8 @@ class ReaderSettings {
         defaults.set(keepScreenAwake, forKey: "reader.keepScreenAwake")
         defaults.set(firstLineIndentEnabled, forKey: "reader.firstLineIndent")
         defaults.set(paragraphSpacingEnabled, forKey: "reader.paragraphSpacing")
+        defaults.set(onlyCurrentBookFontSize, forKey: Self.fontScopeKey)
+        savePerBookOverrides()
         defaults.set(Self.currentTypographyVersion, forKey: Self.typographyVersionKey)
         if markPageModeExplicit {
             defaults.set(true, forKey: Self.pageModeExplicitKey)
@@ -353,6 +453,34 @@ class ReaderSettings {
         default:
             return (legacy, nil)
         }
+    }
+
+    private static func loadPerBookValues(from defaults: UserDefaults, key: String) -> [String: Double] {
+        guard let raw = defaults.dictionary(forKey: key) else { return [:] }
+        var result: [String: Double] = [:]
+        for (bookID, value) in raw {
+            if let number = value as? NSNumber {
+                result[bookID] = number.doubleValue
+            }
+        }
+        return result
+    }
+
+    private func savePerBookOverrides() {
+        let defaults = UserDefaults.standard
+        defaults.set(perBookFontSizes, forKey: Self.perBookFontSizesKey)
+        defaults.set(perBookLineSpacings, forKey: Self.perBookLineSpacingsKey)
+        defaults.set(perBookHorizontalPaddings, forKey: Self.perBookHorizontalPaddingsKey)
+    }
+
+    private func clearPerBookOverrides() {
+        guard !perBookFontSizes.isEmpty
+            || !perBookLineSpacings.isEmpty
+            || !perBookHorizontalPaddings.isEmpty else { return }
+        perBookFontSizes.removeAll()
+        perBookLineSpacings.removeAll()
+        perBookHorizontalPaddings.removeAll()
+        savePerBookOverrides()
     }
 
     private static func loadPageMode(from defaults: UserDefaults) -> PageMode {

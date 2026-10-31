@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// 独立设置页:字体 / 行距 / 边距 / 翻页方式 / 背景。
-/// 从字号浮层右上角的齿轮进入;字号本身留在浮层里,不占这一页的行。
+/// 从阅读页「更多」进入;字号本身在阅读页底部面板里,不占这一页的行。
+/// 字体 / 翻页方式 / 首行缩进三行推入 `ReaderSettingsDetailView`,
+/// 和字号面板底部三颗按钮共用同一套详情页。
 struct ReaderSettingsSheet: View {
     let settings: ReaderSettings
 
@@ -33,6 +35,10 @@ struct ReaderSettingsSheet: View {
             .background(theme.menuBackground.ignoresSafeArea())
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: ReaderSettingsDestination.self) { destination in
+                // 和字号面板底部三颗按钮同一个详情页,不另写一套。
+                ReaderSettingsDetailView(destination: destination, settings: settings)
+            }
             .toolbarBackground(theme.menuBackground, for: .navigationBar)
             .toolbarColorScheme(theme.isDark ? .dark : .light, for: .navigationBar)
             .toolbar {
@@ -48,33 +54,11 @@ struct ReaderSettingsSheet: View {
     // MARK: - Rows
 
     private var fontRow: some View {
-        HStack(spacing: 12) {
-            rowLabel("字体")
-            Spacer(minLength: 8)
-            HStack(spacing: 8) {
-                ForEach(FontFamily.allCases, id: \.self) { font in
-                    let selected = settings.fontFamily == font
-                    Button {
-                        settings.fontFamily = font
-                        settings.save()
-                    } label: {
-                        Text(font.displayName)
-                            .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                            .foregroundStyle(selected ? theme.menuBackground : theme.menuPrimary)
-                            .frame(width: 64, height: 32)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(selected ? theme.accentColor : theme.menuPrimary.opacity(0.05))
-                            )
-                            .contentShape(Capsule(style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(font.displayName)
-                    .accessibilityAddTraits(selected ? [.isSelected] : [])
-                }
-            }
-        }
-        .frame(height: 64)
+        settingsEntryRow(
+            title: "字体",
+            value: settings.fontFamily.displayName,
+            destination: .fontStyle
+        )
     }
 
     private var lineSpacingRow: some View {
@@ -146,35 +130,11 @@ struct ReaderSettingsSheet: View {
     }
 
     private var pageModeRow: some View {
-        HStack(spacing: 12) {
-            rowLabel("翻页方式")
-            Spacer(minLength: 4)
-            HStack(spacing: 6) {
-                ForEach(PageMode.allCases, id: \.self) { mode in
-                    let selected = settings.pageMode == mode
-                    Button {
-                        settings.pageMode = mode
-                        settings.save(markPageModeExplicit: true)
-                    } label: {
-                        Text(mode.displayName)
-                            .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                            .foregroundStyle(selected ? theme.menuBackground : theme.menuSecondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                            .frame(width: 66, height: 32)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(selected ? theme.accentColor : theme.menuPrimary.opacity(0.05))
-                            )
-                            .contentShape(Capsule(style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(mode.displayName)
-                    .accessibilityAddTraits(selected ? [.isSelected] : [])
-                }
-            }
-        }
-        .frame(height: 64)
+        settingsEntryRow(
+            title: "翻页方式",
+            value: settings.pageMode.displayName,
+            destination: .pageMode
+        )
     }
 
     private var backgroundRow: some View {
@@ -222,7 +182,7 @@ struct ReaderSettingsSheet: View {
         .padding(.vertical, 14)
     }
 
-    /// 字号已经挪到独立浮层;其余原有功能行收在默认折叠的「更多设置」里,不丢。
+    /// 字号在阅读页底部面板里;其余原有功能行收在默认折叠的「更多设置」里,不丢。
     @ViewBuilder
     private var moreSettings: some View {
         VStack(spacing: 0) {
@@ -247,10 +207,12 @@ struct ReaderSettingsSheet: View {
             .accessibilityValue(showMore ? "已展开" : "已收起")
 
             if showMore {
-                toggleRow("首行缩进", isOn: settings.firstLineIndentEnabled) { value in
-                    settings.firstLineIndentEnabled = value
-                    settings.save()
-                }
+                settingsEntryRow(
+                    title: "首行缩进",
+                    value: settings.firstLineIndentEnabled ? "开" : "关",
+                    destination: .firstLineIndent,
+                    height: 52
+                )
                 toggleRow("段间距", isOn: settings.paragraphSpacingEnabled) { value in
                     settings.paragraphSpacingEnabled = value
                     settings.save()
@@ -280,6 +242,32 @@ struct ReaderSettingsSheet: View {
     }
 
     // MARK: - Components
+
+    /// 设置页里通往共用详情页的一行:左标签、右当前值 + 雪佛龙。
+    private func settingsEntryRow(
+        title: String,
+        value: String,
+        destination: ReaderSettingsDestination,
+        height: CGFloat = 64
+    ) -> some View {
+        NavigationLink(value: destination) {
+            HStack(spacing: 12) {
+                rowLabel(title)
+                Spacer(minLength: 8)
+                Text(value)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.menuSecondary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.menuSecondary.opacity(0.7))
+            }
+            .frame(height: height)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title)，当前\(value)")
+    }
 
     private func rowLabel(_ text: String) -> some View {
         Text(text)

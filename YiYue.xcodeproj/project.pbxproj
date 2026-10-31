@@ -63,6 +63,7 @@
 		CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */; };
 		D14EAD000000000000000002 /* ReaderReadingDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14EAD000000000000000001 /* ReaderReadingDetailsView.swift */; };
 		D14EAD000000000000000012 /* ReaderSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14EAD000000000000000011 /* ReaderSettingsSheet.swift */; };
+		D14EAD000000000000000022 /* ReaderSettingsDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14EAD000000000000000021 /* ReaderSettingsDestination.swift */; };
 		D14EAD000000000000000004 /* ReaderChromeStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14EAD000000000000000003 /* ReaderChromeStatsTests.swift */; };
 		A1B2C3D4E5F6001122334466 /* PageTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6001122334455 /* PageTextView.swift */; };
 		CE0CE03ED62DA066D58AABDF /* AddBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68860057A126AE3AAB1F3EB /* AddBookView.swift */; };
@@ -120,6 +121,7 @@
 		3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderMenuOverlay.swift; sourceTree = "<group>"; };
 		D14EAD000000000000000001 /* ReaderReadingDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderReadingDetailsView.swift; sourceTree = "<group>"; };
 		D14EAD000000000000000011 /* ReaderSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsSheet.swift; sourceTree = "<group>"; };
+		D14EAD000000000000000021 /* ReaderSettingsDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsDestination.swift; sourceTree = "<group>"; };
 		D14EAD000000000000000003 /* ReaderChromeStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderChromeStatsTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6001122334455 /* PageTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageTextView.swift; sourceTree = "<group>"; };
 		52D15EC2268B99A237102047 /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enums.swift; sourceTree = "<group>"; };
@@ -293,6 +295,7 @@
 				3FFB9C16E26C169BBC1B3F22 /* ReaderMenuOverlay.swift */,
 				D14EAD000000000000000001 /* ReaderReadingDetailsView.swift */,
 				D14EAD000000000000000011 /* ReaderSettingsSheet.swift */,
+				D14EAD000000000000000021 /* ReaderSettingsDestination.swift */,
 				A1B2C3D4E5F6001122334455 /* PageTextView.swift */,
 				D075DEF90BF070FBED77D143 /* ReaderView.swift */,
 			);
@@ -532,6 +535,7 @@
 				CDB476B785FC242E4C0652CF /* ReaderMenuOverlay.swift in Sources */,
 				D14EAD000000000000000002 /* ReaderReadingDetailsView.swift in Sources */,
 				D14EAD000000000000000012 /* ReaderSettingsSheet.swift in Sources */,
+				D14EAD000000000000000022 /* ReaderSettingsDestination.swift in Sources */,
 				A1B2C3D4E5F6001122334466 /* PageTextView.swift in Sources */,
 				C0DEC0A50000000000000001 /* ReaderCachePresentationState.swift in Sources */,
 				36F42549D8E8A6330F6E3BD5 /* ReaderSettings.swift in Sources */,

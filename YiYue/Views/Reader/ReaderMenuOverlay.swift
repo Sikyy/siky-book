@@ -83,11 +83,19 @@ enum ReaderToolbarMetrics {
     static let backOpticalOffset: CGFloat = 2
     /// 402 点屏上的图标中心 x。右侧三个从屏右缘往回量,换屏宽也不跑位。
     static let backCenterX: CGFloat = 13.8
-    /// 参考墨心:排版 294.5、分享 338.7、更多 380.5。
-    /// 三颗都是绝对落点,AA 的墨宽再大也不会把分享挤到 344.2;分享跟着回到 338.7。
-    static let textCenterFromTrailing: CGFloat = 402 - 294.5   // 107.5
-    static let shareCenterFromTrailing: CGFloat = 402 - 338.7  // 63.3
-    static let moreCenterFromTrailing: CGFloat = 402 - 380.5   // 21.5
+    /// 参考墨心:排版 294.35、分享 338.3、更多 380.15。
+    /// 三颗都是绝对落点,图形墨宽再大也不会把分享挤走。
+    static let textCenterFromTrailing: CGFloat = 402 - 294.35  // 107.65
+    static let shareCenterFromTrailing: CGFloat = 402 - 338.3  // 63.7
+    static let moreCenterFromTrailing: CGFloat = 402 - 380.15  // 21.85
+    /// 分享改成「方框 + 右上斜箭头」,20 点字的墨迹约 18 × 18。
+    static let shareGlyphSize: CGFloat = 20
+    /// 「排版」自绘:两条圆头横线(上短下长)+ 右下角小勾,墨盒 22 × 19。
+    static let typesettingGlyphWidth: CGFloat = 22
+    static let typesettingGlyphHeight: CGFloat = 19
+    /// 「更多」自绘:竖三点,墨盒 3.7 × 16.3。
+    static let moreGlyphWidth: CGFloat = 3.7
+    static let moreGlyphHeight: CGFloat = 16.3
     /// 图标按钮的点击框:32 宽、40 高,相邻两颗不叠。
     static let buttonBoxWidth: CGFloat = 32
 
@@ -117,6 +125,12 @@ enum ReaderToolbarMetrics {
 struct ReaderProgressGlyph: View {
     var color: Color
     var isFilled: Bool = false
+    /// 圆直径。选中格按参照放大到 15.3,未选中维持 14。
+    var circleDiameter: CGFloat = 14
+    /// 右侧短线。选中格收成 2.7,和左 4 + 两个 1 点缝凑成 24 宽。
+    var trailingBarWidth: CGFloat = 3
+    /// 整颗字形的落点宽度。选中格 24,未选中 23。
+    var glyphWidth: CGFloat = 23
 
     var body: some View {
         HStack(spacing: 1) {
@@ -130,12 +144,80 @@ struct ReaderProgressGlyph: View {
                     Circle().stroke(color, lineWidth: 1.5)
                 }
             }
-            .frame(width: 14, height: 14)
+            .frame(width: circleDiameter, height: circleDiameter)
             Capsule()
                 .fill(color)
-                .frame(width: 3, height: 2)
+                .frame(width: trailingBarWidth, height: 2)
         }
-        .frame(width: 23, height: 23)
+        .frame(width: glyphWidth, height: 23)
+    }
+}
+
+/// 「排版」图标:两条圆头横线,上短下长,像标题压正文;右下角一个小勾。
+/// 墨盒 22 × 19,全部用 Path 画,不依赖 SF Symbol,也不引图片。
+struct ReaderTypesettingGlyph: View {
+    var color: Color
+
+    var body: some View {
+        Canvas { context, size in
+            let width = size.width
+            let height = size.height
+            let lineHeight = height * 0.135
+            let radius = lineHeight / 2
+
+            func line(y: CGFloat, length: CGFloat) {
+                let rect = CGRect(x: 0, y: y, width: length, height: lineHeight)
+                context.fill(
+                    Path(roundedRect: rect, cornerRadius: radius),
+                    with: .color(color)
+                )
+            }
+
+            // 上横线短(标题),下横线长(正文);两线都在墨盒上半部。
+            line(y: 0, length: width * 0.55)
+            line(y: height * 0.35, length: width * 0.80)
+
+            // 右下角小勾:笔画宽约 2.4,圆头圆角;勾的顶端落在下横线以下。
+            var check = Path()
+            check.move(to: CGPoint(x: width * 0.55, y: height * 0.72))
+            check.addLine(to: CGPoint(x: width * 0.70, y: height * 0.93))
+            check.addLine(to: CGPoint(x: width * 0.94, y: height * 0.55))
+            context.stroke(
+                check,
+                with: .color(color),
+                style: StrokeStyle(
+                    lineWidth: width * 0.11,
+                    lineCap: .round,
+                    lineJoin: .round
+                )
+            )
+        }
+        .frame(
+            width: ReaderToolbarMetrics.typesettingGlyphWidth,
+            height: ReaderToolbarMetrics.typesettingGlyphHeight
+        )
+
+    }
+}
+
+/// 「更多」自绘:竖排三个圆点,墨盒 3.7 × 16.3(参照量到的高度)。
+struct ReaderMoreGlyph: View {
+    var color: Color
+
+    var body: some View {
+        Canvas { context, size in
+            let diameter = size.width
+            let step = (size.height - diameter) / 2
+            for index in 0..<3 {
+                let y = diameter / 2 + CGFloat(index) * step
+                let rect = CGRect(x: 0, y: y - diameter / 2, width: diameter, height: diameter)
+                context.fill(Path(ellipseIn: rect), with: .color(color))
+            }
+        }
+        .frame(
+            width: ReaderToolbarMetrics.moreGlyphWidth,
+            height: ReaderToolbarMetrics.moreGlyphHeight
+        )
     }
 }
 
@@ -290,6 +372,8 @@ struct ReaderMenuOverlay: View {
     @State private var undoToastTask: Task<Void, Never>?
     @State private var showAutoPageSheet = false
     @State private var showSettingsSheet = false
+    /// 字号面板三颗按钮的目的地:和设置页对应的三行走同一个详情页。
+    @State private var settingsDestination: ReaderSettingsDestination?
     @State private var showMoreMenu = false
     @State private var pendingMoreAction: MoreAction?
     @State private var showDeleteBookConfirmation = false
@@ -302,6 +386,7 @@ struct ReaderMenuOverlay: View {
     private enum MoreAction {
         case changeSource
         case editCover
+        case settings
         case delete
     }
 
@@ -356,7 +441,9 @@ struct ReaderMenuOverlay: View {
                 if let panelTool = selectedTool {
                     switch panelTool {
                     case .text:
-                        fontSizeFloatingPanel(barTop: barTop)
+                        // 字号面板也画在底部 chrome 里:顶边 542,内容从 558 往下排。
+                        // 以前那层浮动卡片已撤掉,不再用屏幕绝对坐标定位。
+                        EmptyView()
                     case .brightness:
                         // 亮度面板也是底部这块 chrome 自己:滑杆、颜色、背景
                         // 都画在 bottomChrome 里,顶边跟进度面板同一套内容链。
@@ -408,6 +495,10 @@ struct ReaderMenuOverlay: View {
         .sheet(isPresented: $showSettingsSheet) {
             ReaderSettingsSheet(settings: settings)
         }
+        .sheet(item: $settingsDestination) { destination in
+            // 面板按钮和设置页三行共用一个详情视图,不各写一套。
+            ReaderSettingsDetailSheet(destination: destination, settings: settings)
+        }
         .sheet(isPresented: $showMoreMenu, onDismiss: performPendingMoreAction) {
             moreSheet
                 .presentationDetents([.height(moreSheetHeight)])
@@ -450,9 +541,9 @@ struct ReaderMenuOverlay: View {
         }
     }
 
-    /// 「更多」的动作表:只有换源(限书源书) / 修改封面 / 删除 / 取消 四行。
+    /// 「更多」的动作表:设置 / 换源(限书源书) / 修改封面 / 删除 / 取消。
     private var moreSheetHeight: CGFloat {
-        let actionRowCount = book.sourceType == .bookSource ? 3 : 2
+        let actionRowCount = (book.sourceType == .bookSource ? 4 : 3)
         return CGFloat(actionRowCount + 1) * 50 + 8 + 32
     }
 
@@ -468,6 +559,12 @@ struct ReaderMenuOverlay: View {
                 }
                 moreSheetRow("修改封面") {
                     pendingMoreAction = .editCover
+                    showMoreMenu = false
+                }
+                moreSheetDivider
+                // 字号浮层撤掉后,设置页从「更多」进:三颗按钮和设置页仍共用同一套详情页。
+                moreSheetRow("设置") {
+                    pendingMoreAction = .settings
                     showMoreMenu = false
                 }
                 moreSheetDivider
@@ -529,6 +626,8 @@ struct ReaderMenuOverlay: View {
             changeSourceBook = book
         case .editCover:
             coverPickerBook = book
+        case .settings:
+            showSettingsSheet = true
         case .delete:
             showDeleteBookConfirmation = true
         }
@@ -607,14 +706,20 @@ struct ReaderMenuOverlay: View {
         /// 否则 552–556 那 4 点压字带会在 556 处露出一条色缝。
         static let panelTopDarkHex = "#141416"
         static let panelBottomDarkHex = "#1C1C1E"
-        /// 面板上沿渐隐:从面板顶 −25 起,−20 处到 45% 实色(字只剩 ≤55%),
-        /// 这一段保持到 −10,再在 −4 处到全实色;最后 4 点把正文压住,
-        /// 保证面板顶 −4 以下没有字,同时还能露出约 6–7 点的淡片。
-        static let fadeHeight: CGFloat = 25
-        static let fadeReachLocation: CGFloat = 5 / fadeHeight        // 0.2 = 面板顶 −20
-        static let fadeHoldLocation: CGFloat = 15 / fadeHeight        // 0.6 = 面板顶 −10
-        static let fadeOpaqueLocation: CGFloat = 21 / fadeHeight      // 0.84 = 面板顶 −4
-        static let fadeReachOpacity: Double = 0.45
+        /// 面板上沿渐隐:只从面板顶 −20 到 −5 走 15 点渐变,
+        /// 文字在 536 只剩 30%(遮色 70%),到 551 恢复到全实(遮色 0);
+        /// 551 到面板顶是 5 点实色硬裁,正文一个字也不再往下画。
+        /// 方向和旧版相反:旧版是上实下虚,参照是上虚下实。
+        static let fadeHeight: CGFloat = 15
+        /// 渐变顶端遮色 70% = 文字剩 30%。
+        static let fadeTopOpacity: Double = 0.70
+        /// 渐变底端遮色 42% = 文字剩 58%:裁切线前的最后一点墨不做到全实,
+        /// 参照那半截字整行是一个浓度。
+        static let fadeBottomOpacity: Double = 0.42
+        /// 面板顶 −5 到面板顶的硬裁带。
+        static let fadeClipHeight: CGFloat = 5
+        /// 整块渐隐 + 硬裁的高度:15 + 5 = 20(从面板顶 −20 起)。
+        static let fadeTotalHeight = fadeHeight + fadeClipHeight
 
         /// 24 点数字的行框顶比墨顶高 6 点。
         static let numberInkTopOffset: CGFloat = 6
@@ -710,18 +815,110 @@ struct ReaderMenuOverlay: View {
         static let ringPadding: CGFloat = 3
     }
 
-    /// 菜单块:进度面板(统计行 / 滑轨 / 胶囊)或亮度面板(滑杆 / 颜色 / 背景)。
-    /// 背景从算出的顶边起,面板里从顶往下就是一个竖直栈,
-    /// 不再用屏幕绝对 y 偏移——面板顶变了,里面的东西跟着面板走。
-    /// 两块面板的顶边都是 556、高度都是 318,贴屏底,不写死 334。
-    /// 上面那行用 22 点渐隐收尾,不做半行硬切。
+    /// 字号面板的竖直链(规格 spec-字号面板.md)。面板顶 542,贴底到 874,
+    /// 高度 332;里面从上到下四段,段间用实测硬数,全部从上一段底边加间距,
+    /// 不写屏幕绝对 y 偏移。
+    private enum FontSizePanelMetrics {
+        static let panelTop: CGFloat = 542
+        static let panelHeight = BottomChromeMetrics.screenBottom - panelTop // 332
+
+        /// 面板顶 → 标题行顶 16。
+        static let titleTopGap: CGFloat = 558 - panelTop // 16
+        /// 标题行 558.0–575.7,高 17.7。
+        static let titleRowHeight: CGFloat = 17.7
+        /// 标题墨顶 561.0 = 行框顶 558 + 3;13 点行框在 17.7 行里居中,
+        /// 墨高 11.7,正好落在 561.0–572.7。
+        static let titleInkTopOffset: CGFloat = 3
+        static let titleInkHeight: CGFloat = 11.7
+        static let titleLeading: CGFloat = 24.7
+        static let titleFontSize: CGFloat = 13
+
+        /// 右侧「仅应用到当前书籍」12 点,墨右 336.3、墨高 10.7。
+        static let scopeLabelFontSize: CGFloat = 12
+        /// 标签字框右缘到开关左缘:墨右 336.3 + 约 1.2 字框留白 → 337.5,
+        /// 开关左缘 344.0,所以缝 6.5。
+        static let scopeLabelToggleGap: CGFloat = 6.5
+        /// 开关 34 × 17.7,右缘 377.7(离屏边 24.3)。
+        static let switchWidth: CGFloat = 34
+        static let switchHeight: CGFloat = 17.7
+        static let switchTrailingInset: CGFloat = 402 - 377.7 // 24.3
+        /// 按参照 34 × 17.7 自绘一颗原生手感的开关:蓝底、白圆钮,
+        /// 旋钮保持正圆(15.7),不会被非等比缩放拉成椭圆。
+        static let switchKnobDiameter: CGFloat = 15.7
+        static let switchKnobInset: CGFloat = 1
+        static let switchOffTrackOpacity: Double = 0.22
+
+        /// 标题墨底 572.7 → 滑杆顶 588.0 = 15.3(规格里的这段);
+        /// 标题行框底 575.7 → 滑杆顶只有 12.3,两者差一个 3 点的墨顶偏移。
+        static let titleInkBottomToSlider: CGFloat = 15.3
+        static let titleRowToSlider = titleInkBottomToSlider
+            - (titleRowHeight - titleInkTopOffset - titleInkHeight) // 12.3
+
+        /// 滑杆轨道 x 22.0–379.7、高 35.7、全圆角。
+        static let sliderLeft: CGFloat = 22
+        static let sliderRightInset: CGFloat = 402 - 379.7 // 22.3
+        static let sliderHeight: CGFloat = 35.7
+        static let sliderKnobSize: CGFloat = 36
+        /// 参考 19 号时旋钮中心 126.85。左端圆心 40(= 22 + 18),
+        /// 19 是 12 档里的第 4 档(3 / 11),所以行程
+        /// (126.85 − 40) ÷ (3 / 11) = 318.5;右端圆心 358.5。
+        static let knobTravel: CGFloat = 318.5
+        /// 左「A」11 点、字心 41.8;右「A」15 点、字心 359.85。
+        static let leftACenter: CGFloat = 41.8
+        static let leftAFontSize: CGFloat = 11
+        static let rightACenterFromTrailing: CGFloat = 402 - 359.85 // 42.15
+        static let rightAFontSize: CGFloat = 15
+        /// 旋钮里的字号 13 点。
+        static let knobNumberFontSize: CGFloat = 13
+        /// 轨道比面板亮约 10% 墨,和亮度面板同一档。
+        static let trackOpacity: CGFloat = 0.10
+        /// 夜间旋钮参照实测是 #8C8C90;浅色用白。
+        static let knobDarkHex = "#8C8C90"
+
+        /// 滑杆底 623.7 → 分段组顶 660.0 = 36.3。
+        static let sliderToSegments: CGFloat = 36.3
+        /// 两组轨道:左起 22.0,各宽 168.3,缝 21.4,右缘 380.0。
+        static let segmentLeading: CGFloat = 22
+        static let segmentTrailing: CGFloat = 402 - 380.0 // 22
+        static let segmentGap: CGFloat = 21.4
+        static let segmentHeight: CGFloat = 35.7
+        /// 「小 / 紧」字心距组左 19.8,「大 / 松」字心距组右 19.8。
+        static let segmentLabelInset: CGFloat = 19.8
+        static let segmentLabelFontSize: CGFloat = 13
+        /// 组内旋钮 36,中心在组正中(默认档 3 / 6 = 0.5 → 22 + 84.15 = 106.15)。
+        static let segmentKnobSize: CGFloat = 36
+
+        /// 分段组底 695.7 → 按钮顶 730.0 = 34.3。
+        static let segmentsToButtons: CGFloat = 34.3
+        /// 三颗按钮 112.3 × 37.7,缝 10.4,x 22.0 / 144.7 / 267.3,右缘 379.7。
+        static let buttonHeight: CGFloat = 37.7
+        static let buttonWidth: CGFloat = 112.3
+        static let buttonGap: CGFloat = 10.4
+        static let buttonLeading: CGFloat = 22
+        static let buttonTrailingInset: CGFloat = 402 - 379.7 // 22.3
+        static let buttonFontSize: CGFloat = 13
+        /// 文字与「›」之间 4.3,整组在按钮里水平居中。
+        static let buttonArrowGap: CGFloat = 4.3
+        /// 按钮底色比面板亮一档,沿用设置页那颗 6% 墨。
+        static let buttonFillOpacity: CGFloat = 0.06
+
+        /// 按钮底 767.7 → 五格顶 802.3 = 34.6。五格由 bottomToolbar 画,
+        /// 这里只留出这段空,不改图标行自己的位置。
+        static let buttonsToIconRow: CGFloat = 34.6
+    }
+
+    /// 菜单块:进度面板(统计行 / 滑轨 / 胶囊)、亮度面板(滑杆 / 颜色 / 背景)
+    /// 或字号面板(标题 / 滑杆 / 两组 / 三颗按钮)。背景从算出的顶边起,
+    /// 面板里从顶往下就是一个竖直栈,不再用屏幕绝对 y 偏移。
+    /// 进度 / 亮度顶边 556、高 318;字号顶边 542、高 332,都贴屏底。
+    /// 上沿渐隐按 20 点收尾,面板顶 −5 以下硬裁。
     private var resolvedPanelTop: CGFloat {
-        BottomChromeMetrics.panelTop
+        selectedTool == .text ? FontSizePanelMetrics.panelTop : BottomChromeMetrics.panelTop
     }
 
     /// 菜单块上沿的渐隐带:让压在边上的那行字淡出去,而不是被切一半。
     /// 实色端要和正文底色一致(纸色 / 夜间 #121212),不能用面板色:
-    /// 面板色铺到 556 上方会把面板顶糊成一条 25 点渐变带,分层就量不准了。
+    /// 面板色铺到面板顶上方会把面板顶糊成一条渐变带,分层就量不准了。
     /// 照片背景没有单一底色,才退回面板色。
     private var panelFadeColor: Color {
         if settings.isPhotoBackground {
@@ -735,41 +932,45 @@ struct ReaderMenuOverlay: View {
         return theme.backgroundColor
     }
 
-    /// 渐隐从面板顶 −25 起:−20 处已是 45% 实色(字只剩 ≤55%),
-    /// 保持到 −10,再在 −4 处到全实色;最后 4 点实到面板顶,
-    /// 相当于把正文裁在面板顶 −4。
+    /// 面板顶 −20 到 −5 走渐变:顶端文字剩 30%,到底边恢复到 100%;
+    /// 再往下的 5 点用实色压死,等于把正文硬裁在面板顶 −5。
+    /// 方向和旧版相反:字在靠近面板的一侧最实,往上淡掉。
     private var panelTopFade: some View {
-        LinearGradient(
-            stops: [
-                .init(color: panelFadeColor.opacity(0), location: 0),
-                .init(
-                    color: panelFadeColor.opacity(BottomChromeMetrics.fadeReachOpacity),
-                    location: BottomChromeMetrics.fadeReachLocation
-                ),
-                .init(
-                    color: panelFadeColor.opacity(BottomChromeMetrics.fadeReachOpacity),
-                    location: BottomChromeMetrics.fadeHoldLocation
-                ),
-                .init(color: panelFadeColor, location: BottomChromeMetrics.fadeOpaqueLocation),
-                .init(color: panelFadeColor, location: 1)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: BottomChromeMetrics.fadeHeight)
+        VStack(spacing: 0) {
+            LinearGradient(
+                stops: [
+                    .init(color: panelFadeColor.opacity(BottomChromeMetrics.fadeTopOpacity), location: 0),
+                    .init(color: panelFadeColor.opacity(BottomChromeMetrics.fadeBottomOpacity), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: BottomChromeMetrics.fadeHeight)
+
+            panelFadeColor
+                .frame(height: BottomChromeMetrics.fadeClipHeight)
+        }
+        .frame(height: BottomChromeMetrics.fadeTotalHeight)
         .allowsHitTesting(false)
-        .offset(y: resolvedPanelTop - BottomChromeMetrics.fadeHeight)
+        .offset(y: resolvedPanelTop - BottomChromeMetrics.fadeTotalHeight)
     }
 
     private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
         let panelTop = resolvedPanelTop
         let contentHeight = max(0, height - panelTop)
-        // 面板高度按内容链算好(318),内部从上往下排:数字行 → 标签 → 槽 → 胶囊。
+        // 面板高度按内容链算好:进度/亮度 318,字号 332。
         // 图标那一格由 bottomToolbar 画在面板底色上,所以链尾还留 35.7 + 22.3 + 49。
-        let panelHeight = min(BottomChromeMetrics.panelHeight, contentHeight)
+        let showingFont = selectedTool == .text
         let showingBrightness = selectedTool == .brightness
+        let basePanelHeight = showingFont
+            ? FontSizePanelMetrics.panelHeight
+            : BottomChromeMetrics.panelHeight
+        let panelHeight = min(basePanelHeight, contentHeight)
         return VStack(spacing: 0) {
-            if showingBrightness {
+            if showingFont {
+                // 字号面板:标题行 → 滑杆 → 边距/行距 → 三颗按钮,顶边 542。
+                fontPanelContent(width: width)
+            } else if showingBrightness {
                 // 亮度面板:整块按内容链从上往下排,顶边同样是 556。
                 brightnessPanelContent(width: width)
             } else {
@@ -789,7 +990,7 @@ struct ReaderMenuOverlay: View {
                     .padding(.top, BottomChromeMetrics.pillSliderGap)
             }
         }
-        .padding(.top, showingBrightness ? 0 : BottomChromeMetrics.numberFrameTopPadding)
+        .padding(.top, showingFont || showingBrightness ? 0 : BottomChromeMetrics.numberFrameTopPadding)
         .frame(width: width, height: panelHeight, alignment: .top)
         .background {
             if showingBrightness, theme.isDark {
@@ -1008,6 +1209,340 @@ struct ReaderMenuOverlay: View {
         .frame(width: width, height: BrightnessPanelMetrics.photoHeight, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("背景")
+    }
+
+    // MARK: - 字号面板
+
+    /// 字号面板的整条竖直栈:标题行 → 字号滑杆 → 边距/行距 → 三颗按钮。
+    /// 面板顶 542、高 332;段间硬数从上一段底边加,不写屏幕绝对 y。
+    private func fontPanelContent(width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            fontSizeTitleRow(width: width)
+                .frame(width: width, height: FontSizePanelMetrics.titleRowHeight)
+                .padding(.top, FontSizePanelMetrics.titleTopGap)
+
+            fontSizeSlider(width: width)
+                .frame(width: width, height: FontSizePanelMetrics.sliderHeight)
+                .padding(.top, FontSizePanelMetrics.titleRowToSlider)
+
+            fontSizeSegmentRow(width: width)
+                .frame(width: width, height: FontSizePanelMetrics.segmentHeight)
+                .padding(.top, FontSizePanelMetrics.sliderToSegments)
+
+            fontSizeButtonRow(width: width)
+                .frame(width: width, height: FontSizePanelMetrics.buttonHeight)
+                .padding(.top, FontSizePanelMetrics.segmentsToButtons)
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: width, height: FontSizePanelMetrics.panelHeight, alignment: .top)
+    }
+
+    /// 标题行 558.0–575.7:左「字体大小」13 点半粗,右「仅应用到当前书籍」12 点 + 34 × 17.7 开关。
+    /// 开关不是摆设:它真的切换字号写全局还是只写当前这本书。
+    private func fontSizeTitleRow(width: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Text("字体大小")
+                .font(.system(size: FontSizePanelMetrics.titleFontSize, weight: .semibold))
+                .foregroundStyle(theme.menuPrimary)
+                .padding(.leading, FontSizePanelMetrics.titleLeading)
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: FontSizePanelMetrics.scopeLabelToggleGap) {
+                Text("仅应用到当前书籍")
+                    .font(.system(size: FontSizePanelMetrics.scopeLabelFontSize))
+                    .foregroundStyle(theme.menuSecondary)
+                    .fixedSize()
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        settings.setOnlyCurrentBookFontSize(!settings.onlyCurrentBookFontSize)
+                    }
+                } label: {
+                    ZStack(alignment: .leading) {
+                        Capsule(style: .continuous)
+                            .fill(settings.onlyCurrentBookFontSize
+                                ? ReaderToolbarMetrics.selectedFill
+                                : theme.menuPrimary.opacity(FontSizePanelMetrics.switchOffTrackOpacity))
+                        Circle()
+                            .fill(Color.white)
+                            .frame(
+                                width: FontSizePanelMetrics.switchKnobDiameter,
+                                height: FontSizePanelMetrics.switchKnobDiameter
+                            )
+                            .shadow(color: .black.opacity(0.18), radius: 1, x: 0, y: 1)
+                            .padding(.leading, FontSizePanelMetrics.switchKnobInset)
+                            .offset(x: settings.onlyCurrentBookFontSize
+                                ? FontSizePanelMetrics.switchWidth
+                                    - FontSizePanelMetrics.switchKnobDiameter
+                                    - FontSizePanelMetrics.switchKnobInset * 2
+                                : 0)
+                    }
+                    .frame(width: FontSizePanelMetrics.switchWidth,
+                           height: FontSizePanelMetrics.switchHeight)
+                    .contentShape(Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("仅应用到当前书籍")
+                .accessibilityValue(settings.onlyCurrentBookFontSize ? "已开启" : "已关闭")
+                .accessibilityAddTraits(settings.onlyCurrentBookFontSize ? [.isSelected] : [])
+            }
+            .padding(.trailing, FontSizePanelMetrics.switchTrailingInset)
+        }
+        .frame(width: width, height: FontSizePanelMetrics.titleRowHeight)
+    }
+
+    /// 字号滑杆 588.0–623.7:整条 22.0–379.7、高 35.7、全圆角;
+    /// 左 A 11 点(字心 41.8)、右 A 15 点(字心 359.85),36 点旋钮里写当前字号。
+    private func fontSizeSlider(width: CGFloat) -> some View {
+        let left = FontSizePanelMetrics.sliderLeft
+        let trackWidth = max(0, width - left - FontSizePanelMetrics.sliderRightInset)
+        let knob = FontSizePanelMetrics.sliderKnobSize
+        let levels = ReaderTypography.fontSizeLevels
+        let count = levels.count
+        let index = settings.fontSizeLevelIndex
+        let fraction = count > 1 ? CGFloat(index) / CGFloat(count - 1) : 0
+        let knobX = left + knob / 2 + fraction * FontSizePanelMetrics.knobTravel
+        let centerY = FontSizePanelMetrics.sliderHeight / 2
+        return ZStack(alignment: .topLeading) {
+            Capsule(style: .continuous)
+                .fill(theme.menuPrimary.opacity(FontSizePanelMetrics.trackOpacity))
+                .frame(width: trackWidth, height: FontSizePanelMetrics.sliderHeight)
+                .position(x: left + trackWidth / 2, y: centerY)
+
+            Text("A")
+                .font(.system(size: FontSizePanelMetrics.leftAFontSize))
+                .foregroundStyle(theme.menuPrimary)
+                .position(x: FontSizePanelMetrics.leftACenter, y: centerY)
+                .allowsHitTesting(false)
+
+            Text("A")
+                .font(.system(size: FontSizePanelMetrics.rightAFontSize))
+                .foregroundStyle(theme.menuPrimary)
+                .position(x: width - FontSizePanelMetrics.rightACenterFromTrailing, y: centerY)
+                .allowsHitTesting(false)
+
+            fontSizeKnob(
+                label: "\(Int(settings.fontSize))",
+                diameter: knob,
+                fontSize: FontSizePanelMetrics.knobNumberFontSize
+            )
+            .position(x: knobX, y: centerY)
+        }
+        .frame(width: width, height: FontSizePanelMetrics.sliderHeight)
+        .contentShape(Rectangle())
+        .coordinateSpace(name: "fontSizeSlider")
+        .gesture(fontSizeSliderGesture(width: width))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("字体大小")
+        .accessibilityValue("\(Int(settings.fontSize))")
+        .accessibilityAdjustableAction { direction in
+            let levels = ReaderTypography.fontSizeLevels
+            let index = min(max(settings.fontSizeLevelIndex
+                + (direction == .increment ? 1 : -1), 0), levels.count - 1)
+            guard levels[index] != settings.fontSize else { return }
+            settings.fontSize = levels[index]
+            settings.save()
+        }
+    }
+
+    private func fontSizeSliderGesture(width: CGFloat) -> some Gesture {
+        let left = FontSizePanelMetrics.sliderLeft
+        let knob = FontSizePanelMetrics.sliderKnobSize
+        let travel = FontSizePanelMetrics.knobTravel
+        return DragGesture(minimumDistance: 0, coordinateSpace: .named("fontSizeSlider"))
+            .onChanged { value in
+                let x = min(max(value.location.x - left - knob / 2, 0), travel)
+                let fraction = x / travel
+                let levels = ReaderTypography.fontSizeLevels
+                let count = levels.count
+                guard count > 1 else { return }
+                let index = min(max(Int((fraction * CGFloat(count - 1)).rounded()), 0), count - 1)
+                guard levels[index] != settings.fontSize else { return }
+                // 拖动时实时改字号,阅读页照旧跟着重新分页。
+                settings.fontSize = levels[index]
+                settings.save()
+            }
+    }
+
+    /// 36 点圆旋钮,里面写当前值。夜间参照实测是 #8C8C90,浅色用白。
+    private func fontSizeKnob(label: String, diameter: CGFloat, fontSize: CGFloat) -> some View {
+        ZStack {
+            Circle()
+                .fill(theme.isDark
+                    ? Color(hex: FontSizePanelMetrics.knobDarkHex)
+                    : Color.white)
+                .shadow(color: .black.opacity(theme.isDark ? 0 : 0.18), radius: 3, x: 0, y: 1)
+            Text(label)
+                .font(.system(size: fontSize))
+                .foregroundStyle(theme.isDark ? Color.white : theme.menuPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(width: diameter, height: diameter)
+    }
+
+    /// 边距 / 行距两组:各 168.3 宽、35.7 高、全圆角;左起 22.0,第二组 211.7。
+    private func fontSizeSegmentRow(width: CGFloat) -> some View {
+        let leading = FontSizePanelMetrics.segmentLeading
+        let trailing = FontSizePanelMetrics.segmentTrailing
+        let gap = FontSizePanelMetrics.segmentGap
+        let segmentWidth = max(0, (width - leading - trailing - gap) / 2)
+        return HStack(spacing: gap) {
+            fontSizeSegment(
+                width: segmentWidth,
+                knobLabel: "边距",
+                leadingLabel: "小",
+                trailingLabel: "大",
+                levels: ReaderTypography.horizontalPaddingLevels,
+                current: settings.horizontalPadding,
+                coordinateName: "fontSizeMarginSegment",
+                commit: { value in
+                    settings.horizontalPadding = value
+                    settings.save()
+                }
+            )
+
+            fontSizeSegment(
+                width: segmentWidth,
+                knobLabel: "行距",
+                leadingLabel: "紧",
+                trailingLabel: "松",
+                levels: ReaderTypography.lineSpacingLevels,
+                current: settings.lineSpacing,
+                coordinateName: "fontSizeLineSpacingSegment",
+                commit: { value in
+                    settings.lineSpacing = value
+                    settings.save()
+                }
+            )
+        }
+        .padding(.leading, leading)
+        .padding(.trailing, trailing)
+        .frame(width: width, height: FontSizePanelMetrics.segmentHeight)
+    }
+
+    /// 单组轨道:小/紧在左 19.8,大/松在右 19.8,旋钮中心按档位在组内走。
+    private func fontSizeSegment<T: BinaryFloatingPoint>(
+        width: CGFloat,
+        knobLabel: String,
+        leadingLabel: String,
+        trailingLabel: String,
+        levels: [T],
+        current: T,
+        coordinateName: String,
+        commit: @escaping (T) -> Void
+    ) -> some View {
+        let knob = FontSizePanelMetrics.segmentKnobSize
+        let count = levels.count
+        let index = levels.enumerated().min {
+            abs(Double($0.element) - Double(current)) < abs(Double($1.element) - Double(current))
+        }?.offset ?? 0
+        let fraction = count > 1 ? CGFloat(index) / CGFloat(count - 1) : 0
+        let knobX = knob / 2 + fraction * max(0, width - knob)
+        let centerY = FontSizePanelMetrics.segmentHeight / 2
+        return ZStack(alignment: .topLeading) {
+            Capsule(style: .continuous)
+                .fill(theme.menuPrimary.opacity(FontSizePanelMetrics.trackOpacity))
+                .frame(width: width, height: FontSizePanelMetrics.segmentHeight)
+
+            Text(leadingLabel)
+                .font(.system(size: FontSizePanelMetrics.segmentLabelFontSize))
+                .foregroundStyle(theme.menuPrimary)
+                .position(x: FontSizePanelMetrics.segmentLabelInset, y: centerY)
+                .allowsHitTesting(false)
+
+            Text(trailingLabel)
+                .font(.system(size: FontSizePanelMetrics.segmentLabelFontSize))
+                .foregroundStyle(theme.menuPrimary)
+                .position(x: width - FontSizePanelMetrics.segmentLabelInset, y: centerY)
+                .allowsHitTesting(false)
+
+            fontSizeKnob(
+                label: knobLabel,
+                diameter: knob,
+                fontSize: FontSizePanelMetrics.segmentLabelFontSize
+            )
+            .position(x: knobX, y: centerY)
+        }
+        .frame(width: width, height: FontSizePanelMetrics.segmentHeight)
+        .contentShape(Rectangle())
+        .coordinateSpace(name: coordinateName)
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(coordinateName))
+                .onChanged { value in
+                    let travel = max(1, width - knob)
+                    let x = min(max(value.location.x - knob / 2, 0), travel)
+                    let fraction = x / travel
+                    guard count > 1 else { return }
+                    let index = min(max(Int((fraction * CGFloat(count - 1)).rounded()), 0), count - 1)
+                    let level = levels[index]
+                    guard abs(Double(level) - Double(current)) > 0.0001 else { return }
+                    commit(level)
+                }
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(knobLabel)
+        .accessibilityValue(levelValueDescription(index: index, count: count))
+        .accessibilityAdjustableAction { direction in
+            let next = min(max(index + (direction == .increment ? 1 : -1), 0), count - 1)
+            guard next != index else { return }
+            commit(levels[next])
+        }
+    }
+
+    private func levelValueDescription(index: Int, count: Int) -> String {
+        let total = max(count, 1)
+        let clamped = min(max(index, 0), total - 1)
+        return "第 \(clamped + 1) 档，共 \(total) 档"
+    }
+
+    /// 三颗按钮 730.0–767.7:112.3 × 37.7、缝 10.4,整组 22.0–379.7。
+    /// 每颗都开到和设置页对应行同一个详情页。
+    private func fontSizeButtonRow(width: CGFloat) -> some View {
+        let buttonWidth = FontSizePanelMetrics.buttonWidth
+        let gap = FontSizePanelMetrics.buttonGap
+        let leading = FontSizePanelMetrics.buttonLeading
+        let trailing = max(0, width - leading - buttonWidth * 3 - gap * 2)
+        return HStack(spacing: gap) {
+            fontSizeActionButton("字体样式", width: buttonWidth) {
+                settingsDestination = .fontStyle
+            }
+            fontSizeActionButton("首行缩进", width: buttonWidth) {
+                settingsDestination = .firstLineIndent
+            }
+            fontSizeActionButton("翻页方式", width: buttonWidth) {
+                settingsDestination = .pageMode
+            }
+        }
+        .padding(.leading, leading)
+        .padding(.trailing, trailing)
+        .frame(width: width, height: FontSizePanelMetrics.buttonHeight)
+    }
+
+    private func fontSizeActionButton(
+        _ title: String,
+        width: CGFloat,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: FontSizePanelMetrics.buttonArrowGap) {
+                Text(title)
+                    .font(.system(size: FontSizePanelMetrics.buttonFontSize))
+                Text("›")
+                    .font(.system(size: FontSizePanelMetrics.buttonFontSize))
+            }
+            .foregroundStyle(theme.menuPrimary)
+            .frame(width: width, height: FontSizePanelMetrics.buttonHeight)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(theme.menuPrimary.opacity(FontSizePanelMetrics.buttonFillOpacity))
+            )
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     private func progressStatsRow(width: CGFloat) -> some View {
@@ -1355,8 +1890,7 @@ struct ReaderMenuOverlay: View {
                     .accessibilityLabel(chapterTitle.isEmpty ? "" : "当前章节 \(chapterTitle)")
             } else {
                 // 两态只换内容:图标态四颗按参考图的墨心落点排,
-                // 返回 13.8、排版 294.5、分享 338.7、更多 380.5(402 点宽)。
-                // 排版这一颗字号 26、横向 ×0.88,墨宽约 25.3,不再把分享推走。
+                // 返回 13.8、排版 294.35、分享 338.3、更多 380.15(402 点宽)。
                 GeometryReader { proxy in
                     let width = proxy.size.width
                     topBarIconButton(
@@ -1368,20 +1902,28 @@ struct ReaderMenuOverlay: View {
                         action: { onBack() }
                     )
 
-                    topBarIconButton(
-                        systemName: ReaderTool.text.icon,
-                        label: "排版",
-                        glyphSize: ReaderToolbarMetrics.textGlyphSize,
-                        centerX: width - ReaderToolbarMetrics.textCenterFromTrailing,
-                        glyphHorizontalScale: ReaderToolbarMetrics.textGlyphScaleX,
-                        action: { handleToolTap(.text) }
+                    // 「排版」自绘:两条圆头横线 + 右下小勾,墨盒 22 × 19。
+                    Button { handleToolTap(.text) } label: {
+                        ReaderTypesettingGlyph(color: theme.menuPrimary)
+                            .frame(
+                                width: ReaderToolbarMetrics.buttonBoxWidth,
+                                height: ReaderToolbarMetrics.topBarHeight
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("排版")
+                    .position(
+                        x: width - ReaderToolbarMetrics.textCenterFromTrailing,
+                        y: ReaderToolbarMetrics.topBarHeight / 2
                     )
 
                     // 分享只发一句字,不放链接;系统分享面板由 ShareLink 拉起。
+                    // 图形用「方框 + 右上斜箭头」,墨迹约 18 × 18,不再顶出行高。
                     ShareLink(item: "我在『今日已阅』读《\(book.title)》。") {
                         topBarIconLabel(
-                            systemName: "square.and.arrow.up",
-                            glyphSize: ReaderToolbarMetrics.topBarGlyphSize
+                            systemName: "arrow.up.right.square",
+                            glyphSize: ReaderToolbarMetrics.shareGlyphSize
                         )
                     }
                     .buttonStyle(.plain)
@@ -1391,12 +1933,20 @@ struct ReaderMenuOverlay: View {
                         y: ReaderToolbarMetrics.topBarHeight / 2
                     )
 
-                    topBarIconButton(
-                        systemName: "ellipsis",
-                        label: "更多",
-                        glyphSize: ReaderToolbarMetrics.topBarGlyphSize,
-                        centerX: width - ReaderToolbarMetrics.moreCenterFromTrailing,
-                        action: { showMoreMenu = true }
+                    // 「更多」自绘:竖三点,墨盒 3.7 × 16.3;系统里没有等价的竖向省略号。
+                    Button { showMoreMenu = true } label: {
+                        ReaderMoreGlyph(color: theme.menuPrimary)
+                            .frame(
+                                width: ReaderToolbarMetrics.buttonBoxWidth,
+                                height: ReaderToolbarMetrics.topBarHeight
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("更多")
+                    .position(
+                        x: width - ReaderToolbarMetrics.moreCenterFromTrailing,
+                        y: ReaderToolbarMetrics.topBarHeight / 2
                     )
                 }
                 .frame(height: ReaderToolbarMetrics.topBarHeight)
@@ -1654,12 +2204,18 @@ struct ReaderMenuOverlay: View {
         let iconSide = ReaderToolbarMetrics.iconBoxHeight
         switch tool {
         case .progress:
-            // 选中格:圆填实成蓝 #2493EE,两侧短线也跟着变蓝(参考图)。
+            // 选中格:参照实测蓝块 24 × 15.3、中心 x 201.2、y 813.8。
+            // 形状仍是「圆 + 两侧短线」,只把圆和右侧短线放大,不改形状。
             ReaderProgressGlyph(
                 color: selected ? ReaderToolbarMetrics.selectedFill : tint,
-                isFilled: selected
+                isFilled: selected,
+                circleDiameter: selected ? 15.3 : 14,
+                trailingBarWidth: selected ? 2.7 : 3,
+                glyphWidth: selected ? 24 : 23
             )
             .frame(width: iconSide, height: iconSide)
+            // 五格列心在 201.0,参照蓝块中心 201.2,选中态右移 0.2。
+            .offset(x: selected ? 0.2 : 0)
         case .text:
             Text("A")
                 .font(.system(size: 26, weight: .regular))
@@ -1672,40 +2228,19 @@ struct ReaderMenuOverlay: View {
                 .foregroundStyle(selected ? ReaderToolbarMetrics.selectedFill : tint)
                 .frame(width: iconSide, height: iconSide)
         case .chapters:
-            // 选中格是实心蓝圆 + 白色图形:图形要缩到圆内。
-            ZStack {
-                if selected {
-                    Circle()
-                        .fill(ReaderToolbarMetrics.selectedFill)
-                        .frame(width: iconSide, height: iconSide)
-                }
-                Image(systemName: bookmarkSymbol(for: tool))
-                    .font(.system(
-                        size: selected
-                            ? ReaderToolbarMetrics.selectedGlyphSize
-                            : ReaderToolbarMetrics.iconGlyphSize,
-                        weight: .regular
-                    ))
-                    .foregroundStyle(selected ? Color.white : tint)
-            }
-            .frame(width: iconSide, height: iconSide)
+            // 选中态照参照:图形整个转蓝,不铺底、不加圆。
+            Image(systemName: bookmarkSymbol(for: tool))
+                .font(.system(size: ReaderToolbarMetrics.iconGlyphSize, weight: .regular))
+                .foregroundStyle(selected ? ReaderToolbarMetrics.selectedFill : tint)
+                .frame(width: iconSide, height: iconSide)
         case .bookmarks:
             // 第二格:墨宽按参考加到 22(原来是 13.7),形状和描边不变。
-            // 选中态仍然是实心蓝圆 + 白色小图形,行为和以前一致。
-            ZStack {
-                if selected {
-                    Circle()
-                        .fill(ReaderToolbarMetrics.selectedFill)
-                        .frame(width: iconSide, height: iconSide)
-                    Image(systemName: bookmarkSymbol(for: tool))
-                        .font(.system(
-                            size: ReaderToolbarMetrics.selectedGlyphSize,
-                            weight: .regular
-                        ))
-                        .foregroundStyle(Color.white)
-                } else if hasPageBookmark {
+            // 选中态照参照:图形整个转蓝,不铺底、不加圆。
+            let markTint = selected ? ReaderToolbarMetrics.selectedFill : tint
+            Group {
+                if hasPageBookmark {
                     ReaderBookmarkGlyph()
-                        .fill(tint)
+                        .fill(markTint)
                         .frame(
                             width: ReaderToolbarMetrics.bookmarkGlyphWidth,
                             height: ReaderToolbarMetrics.bookmarkGlyphHeight
@@ -1713,7 +2248,7 @@ struct ReaderMenuOverlay: View {
                 } else {
                     ReaderBookmarkGlyph()
                         .stroke(
-                            tint,
+                            markTint,
                             style: StrokeStyle(
                                 lineWidth: ReaderToolbarMetrics.bookmarkStrokeWidth,
                                 lineJoin: .round
@@ -2168,104 +2703,6 @@ struct ReaderMenuOverlay: View {
             .accessibilityValue(settings.keepScreenAwake ? "已开启" : "已关闭")
         }
         .frame(height: 56)
-    }
-
-    // MARK: - 字号 / 亮度浮层
-
-    private let floatingCardSize = CGSize(width: 320, height: 96)
-
-    private func floatingCardTop(barTop: CGFloat) -> CGFloat {
-        max(0, barTop - 16 - floatingCardSize.height)
-    }
-
-    private func fontCard(barTop: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Text("A")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.menuPrimary)
-                    .frame(width: 20)
-
-                ReaderLevelSlider(
-                    normalizedValue: fontSizeIndexBinding,
-                    tint: theme.menuSecondary,
-                    label: "字号",
-                    spokenValue: levelAccessibilityString(
-                        index: settings.fontSizeLevelIndex,
-                        count: ReaderTypography.fontSizeLevels.count
-                    ),
-                    levelCount: ReaderTypography.fontSizeLevels.count
-                )
-                .frame(height: 44)
-                .overlay {
-                    ReaderSliderTicks(
-                        count: ReaderTypography.fontSizeLevels.count,
-                        selectedIndex: settings.fontSizeLevelIndex,
-                        color: theme.menuSecondary
-                    )
-                }
-
-                Text("A")
-                    .font(.system(size: 20))
-                    .foregroundStyle(theme.menuPrimary)
-                    .frame(width: 24)
-
-                Text("\(Int(settings.fontSize))")
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(theme.menuSecondary)
-                    .fixedSize()
-                    .frame(minWidth: 24, alignment: .trailing)
-            }
-            .padding(.horizontal, 18)
-        }
-        .frame(width: floatingCardSize.width, height: floatingCardSize.height)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(theme.menuBackground)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(theme.separatorColor, lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 6)
-        .overlay(alignment: .topTrailing) {
-            settingsEntryButton
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .onTapGesture { }
-        .position(
-            x: UIScreen.main.bounds.width / 2,
-            y: floatingCardTop(barTop: barTop) + floatingCardSize.height / 2
-        )
-    }
-
-    private var settingsEntryButton: some View {
-        Button {
-            selectedTool = nil
-            showSettingsSheet = true
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.system(size: 14))
-                .foregroundStyle(theme.menuSecondary)
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 4)
-        .padding(.trailing, 6)
-        .accessibilityLabel("设置")
-        .accessibilityIdentifier("reader.settings.entry")
-    }
-
-    private func fontSizeFloatingPanel(barTop: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .ignoresSafeArea()
-                .onTapGesture { selectedTool = nil }
-
-            fontCard(barTop: barTop)
-        }
     }
 
     // MARK: - 目录 / 书签面板
