@@ -27,7 +27,7 @@ struct ReaderMenuBottomTopPreference: PreferenceKey {
     }
 }
 
-/// 底部五格:目录 / 书签 / 文字 / 亮度 / 进度。
+/// 底部五格:目录 / 书签 / 排版 / 亮度 / 进度。
 enum ReaderTool: String, CaseIterable, Identifiable {
     case chapters
     case bookmarks
@@ -41,7 +41,7 @@ enum ReaderTool: String, CaseIterable, Identifiable {
         switch self {
         case .chapters: return "目录"
         case .bookmarks: return "书签"
-        case .text: return "文字"
+        case .text: return "排版"
         case .brightness: return "亮度"
         case .progress: return "进度"
         }
@@ -179,6 +179,8 @@ struct ReaderMenuOverlay: View {
     var onShowReadingDetails: (() -> Void)? = nil
     var onSetAutoPageEnabled: ((Bool) -> Void)? = nil
     var onSetAutoPageInterval: ((Int) -> Void)? = nil
+    /// 从「更多」里删除成功后,阅读页应立即退出,不能继续显示已删掉的书。
+    var onBookDeleted: (() -> Void)? = nil
 
     private var theme: ReaderTheme { settings.theme }
 
@@ -206,6 +208,19 @@ struct ReaderMenuOverlay: View {
     @State private var undoToastTask: Task<Void, Never>?
     @State private var showAutoPageSheet = false
     @State private var showSettingsSheet = false
+    @State private var showMoreMenu = false
+    @State private var pendingMoreAction: MoreAction?
+    @State private var changeSourceBook: Book?
+    @State private var coverPickerBook: Book?
+    @State private var isDeletingBook = false
+    @State private var deleteBookError: String?
+    @State private var showDeleteBookError = false
+
+    private enum MoreAction {
+        case changeSource
+        case editCover
+        case delete
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -295,6 +310,153 @@ struct ReaderMenuOverlay: View {
         }
         .sheet(isPresented: $showSettingsSheet) {
             ReaderSettingsSheet(settings: settings)
+        }
+        .sheet(isPresented: $showMoreMenu, onDismiss: performPendingMoreAction) {
+            moreSheet
+                .presentationDetents([.height(moreSheetHeight)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(16)
+                .presentationBackground(theme.menuBackground)
+        }
+        .sheet(item: $changeSourceBook) { book in
+            ChangeSourceView(book: book)
+        }
+        .sheet(item: $coverPickerBook) { book in
+            CoverPickerView(book: book) { localPath in
+                let previousCover = book.coverURL
+                book.coverURL = localPath
+                try? modelContext.save()
+                if let previousCover, previousCover != localPath {
+                    CoverSearchService.discardDownloadedCover(previousCover)
+                }
+            }
+        }
+        .alert(
+            "删除失败",
+            isPresented: Binding(
+                get: { showDeleteBookError },
+                set: { showDeleteBookError = $0 }
+            )
+        ) {
+            Button("确定") { showDeleteBookError = false }
+        } message: {
+            Text(deleteBookError ?? "")
+        }
+    }
+
+    /// 「更多」的动作表:只有换源(限书源书) / 修改封面 / 删除 / 取消 四行。
+    private var moreSheetHeight: CGFloat {
+        let actionRowCount = book.sourceType == .bookSource ? 3 : 2
+        return CGFloat(actionRowCount + 1) * 50 + 8 + 32
+    }
+
+    private var moreSheet: some View {
+        VStack(spacing: 8) {
+            VStack(spacing: 0) {
+                if book.sourceType == .bookSource {
+                    moreSheetRow("换源") {
+                        pendingMoreAction = .changeSource
+                        showMoreMenu = false
+                    }
+                    moreSheetDivider
+                }
+                moreSheetRow("修改封面") {
+                    pendingMoreAction = .editCover
+                    showMoreMenu = false
+                }
+                moreSheetDivider
+                moreSheetRow("删除", destructive: true) {
+                    pendingMoreAction = .delete
+                    showMoreMenu = false
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(theme.menuPrimary.opacity(0.05))
+            )
+
+            moreSheetRow("取消") {
+                pendingMoreAction = nil
+                showMoreMenu = false
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(theme.menuPrimary.opacity(0.05))
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(theme.menuBackground)
+    }
+
+    private func moreSheetRow(
+        _ title: String,
+        destructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 16))
+                .foregroundStyle(destructive ? Color.red.opacity(0.9) : theme.menuPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
+    private var moreSheetDivider: some View {
+        Rectangle()
+            .fill(theme.menuPrimary.opacity(0.10))
+            .frame(height: 1)
+            .padding(.leading, 16)
+    }
+
+    /// 动作表收起后再弹下一层,避免系统在 dismissing 期间丢掉新的 sheet。
+    private func performPendingMoreAction() {
+        guard let action = pendingMoreAction else { return }
+        pendingMoreAction = nil
+        switch action {
+        case .changeSource:
+            changeSourceBook = book
+        case .editCover:
+            coverPickerBook = book
+        case .delete:
+            deleteBookFromReader()
+        }
+    }
+
+    /// 和书架右键菜单同一条删除路径:清缓存、删模型、示例书标记、清封面,
+    /// 成功后立即退出阅读页,不能留在已删除的书上。
+    private func deleteBookFromReader() {
+        guard !isDeletingBook else { return }
+        isDeletingBook = true
+        let bookTitle = book.title
+        let coverURL = book.coverURL
+        let wasSample = SampleBookService.isSample(book)
+        Task { @MainActor in
+            defer { isDeletingBook = false }
+            let manager = BookManager(modelContext: modelContext)
+            do {
+                try await manager.deleteBook(book)
+            } catch {
+                deleteBookError = "无法删除《\(bookTitle)》：\(error.localizedDescription)"
+                showDeleteBookError = true
+                return
+            }
+            if wasSample {
+                SampleBookService.markUserDeleted()
+            }
+            if let coverURL {
+                CoverSearchService.discardDownloadedCover(coverURL)
+            }
+            if let onBookDeleted {
+                onBookDeleted()
+            } else {
+                onBack()
+            }
         }
     }
 
@@ -550,44 +712,61 @@ struct ReaderMenuOverlay: View {
 
     private var topBar: some View {
         ZStack {
-            // 中间:菜单打开时显示当前章节名。12 点、正文色 55%,和返回同一中线。
-            Text(chapterTitle)
-                .font(.system(size: 12))
-                .foregroundStyle(theme.textColor.opacity(0.55))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 62)
-                .frame(maxWidth: .infinity)
-                .frame(height: ReaderToolbarMetrics.topBarHeight)
-                .accessibilityLabel(chapterTitle.isEmpty ? "" : "当前章节 \(chapterTitle)")
+            if selectedTool != nil {
+                // 面板开着:左侧只留章节名,从 x=24 开始;返回和右侧两个入口都收起。
+                Text(chapterTitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.textColor.opacity(0.55))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 24)
+                    .frame(height: ReaderToolbarMetrics.topBarHeight)
+                    .accessibilityLabel(chapterTitle.isEmpty ? "" : "当前章节 \(chapterTitle)")
+            } else {
+                HStack(spacing: 0) {
+                    Button(action: { onBack() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 24, weight: .regular))
+                            .foregroundStyle(theme.menuPrimary)
+                            .frame(width: 30, height: ReaderToolbarMetrics.topBarHeight)
+                            // 雪佛龙字形本身偏左,补 2.8 让字墨中心落在 x=16。
+                            .offset(x: 2.8)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("返回")
 
-            HStack(spacing: 0) {
-                Button(action: { onBack() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 24, weight: .regular))
-                        .foregroundStyle(theme.menuPrimary)
-                        .frame(width: 30, height: ReaderToolbarMetrics.topBarHeight)
-                        // 雪佛龙字形本身偏左,补 2.8 让字墨中心落在 x=16。
-                        .offset(x: 2.8)
-                        .contentShape(Rectangle())
+                    Spacer(minLength: 0)
+
+                    // 右侧两个入口:排版居中 x=335、更多居中 x=379(402 点宽屏)。
+                    HStack(spacing: 12) {
+                        Button {
+                            handleToolTap(.text)
+                        } label: {
+                            Image(systemName: ReaderTool.text.icon)
+                                .font(.system(size: 24, weight: .regular))
+                                .foregroundStyle(theme.menuPrimary)
+                                .frame(width: 32, height: ReaderToolbarMetrics.topBarHeight)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("排版")
+
+                        Button {
+                            showMoreMenu = true
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 24, weight: .regular))
+                                .foregroundStyle(theme.menuPrimary)
+                                .frame(width: 32, height: ReaderToolbarMetrics.topBarHeight)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("更多")
+                    }
+                    .padding(.trailing, 7)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("返回")
-
-                Spacer(minLength: 0)
-
-                // 右侧只有目录一个入口,等价于底部第一格。
-                Button {
-                    handleToolTap(.chapters)
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 24, weight: .regular))
-                        .foregroundStyle(theme.menuPrimary)
-                        .frame(width: 32, height: ReaderToolbarMetrics.topBarHeight)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("目录")
             }
         }
         .frame(maxWidth: .infinity)

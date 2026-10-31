@@ -393,6 +393,14 @@ struct ReaderView: View {
                     onSetAutoPageInterval: { seconds in
                         autoPageInterval = seconds
                         restartAutoPage()
+                    },
+                    onBookDeleted: {
+                        // 书已经从模型里删掉:直接退出,不再淡出期间读已销毁的模型。
+                        if let onClose {
+                            onClose()
+                        } else {
+                            dismiss()
+                        }
                     }
                 )
             }
