@@ -304,6 +304,12 @@ struct ReaderMenuOverlay: View {
     let totalChapters: Int
     let chapterTitle: String
     let settings: ReaderSettings
+    /// 菜单是否在显示。浮层常驻(收起时只是透明+不吃点击),
+    /// 这样每次打开不必从零建这棵树——收起再开原来要 35–56 毫秒。
+    let isPresented: Bool
+    /// 第一页画完之后把浮层在背景里画一遍(0.4% 不透明度,肉眼看不出来),
+    /// 这样用户第一次点屏幕时不用再付第一次建层的钱。
+    var isWarming: Bool = false
     let onDismiss: () -> Void
     let onBack: () -> Void
     let chapters: [Chapter]
@@ -377,6 +383,7 @@ struct ReaderMenuOverlay: View {
     @State private var panelDragOffset: CGFloat = 0
     @State private var topBarHeight: CGFloat = 0
     @State private var pendingDeletionID: UUID?
+    @State private var presentEpoch = 0
     @State private var undoToast: String?
     @State private var undoToastTask: Task<Void, Never>?
     @State private var showAutoPageSheet = false
@@ -400,6 +407,7 @@ struct ReaderMenuOverlay: View {
     }
 
     var body: some View {
+        let _ = PerfProbe.shared.noteOverlayBodyEval()
         GeometryReader { geo in
             let screenWidth = geo.size.width
             let screenHeight = geo.size.height
@@ -480,6 +488,28 @@ struct ReaderMenuOverlay: View {
             .frame(width: screenWidth, height: screenHeight, alignment: .topLeading)
         }
         .ignoresSafeArea()
+        .opacity(isPresented ? 1 : (isWarming ? 0.004 : 0))
+        .allowsHitTesting(isPresented)
+        .accessibilityHidden(!isPresented)
+        .onChange(of: isPresented) { _, presented in
+            presentEpoch += 1
+            if presented {
+                // 每次打开都按当前章节/亮度重新落位;收起期间这些值可能已经变了。
+                sliderValue = Double(currentChapterIndex)
+                brightnessValue = brightness
+            } else {
+                // 收起后把面板收掉,下次打开是干净的图标态。
+                // 用 epoch 挡住「收起又立刻打开」时把新开的面板清掉。
+                let epoch = presentEpoch
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+                    guard presentEpoch == epoch, !isPresented else { return }
+                    showChapterList = false
+                    selectedTool = nil
+                    panelDragOffset = 0
+                    showMoreMenu = false
+                }
+            }
+        }
         .onAppear {
             sliderValue = Double(currentChapterIndex)
             brightnessValue = brightness
@@ -1202,7 +1232,7 @@ struct ReaderMenuOverlay: View {
                 Button {
                     settings.selectPhoto(photo)
                 } label: {
-                    Image(photo.assetName)
+                    Image(photo.thumbAssetName)
                         .resizable()
                         .scaledToFill()
                         .frame(maxWidth: .infinity)
@@ -2306,6 +2336,7 @@ struct ReaderMenuOverlay: View {
     }
 
     private func handleToolTap(_ tool: ReaderTool) {
+        PerfProbe.shared.mark(tool.title)
         switch tool {
         case .chapters:
             if selectedTool == .chapters, showChapterList {
@@ -3650,5 +3681,138 @@ struct ReaderAutoPageSettingsSheet: View {
                 .frame(height: 40)
         }
         .padding(20)
+    }
+}
+
+// MARK: - 临时:全动作性能探针(量完删)
+
+@MainActor
+final class PerfProbe: ObservableObject {
+    static let shared = PerfProbe()
+    struct Record: Identifiable {
+        let id = UUID()
+        let name: String
+        let worst: Double
+        let drops: Int
+        let frames: Int
+    }
+    @Published private(set) var records: [Record] = []
+
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var name: String?
+    private var worst: Double = 0
+    private var drops = 0
+    private var frames = 0
+    private var deadline: CFTimeInterval = 0
+
+    // 开栏的前置状态:哪一次开、离上次关多久、这之间有没有翻页/滚动。
+    var menuOpenCount = 0
+    var lastMenuCloseAt: CFTimeInterval = 0
+    var lastPageChangeAt: CFTimeInterval = 0
+    var lastScrollAt: CFTimeInterval = 0
+
+    func markMenuOpen() {
+        menuOpenCount += 1
+        let now = CACurrentMediaTime()
+        var tags = "\(menuOpenCount)"
+        if menuOpenCount == 1 { tags += "首" }
+        if lastMenuCloseAt > 0, now - lastMenuCloseAt < 1.5 { tags += "近关" }
+        if lastPageChangeAt > 0, now - lastPageChangeAt < 2 { tags += "刚翻" }
+        if lastScrollAt > 0, now - lastScrollAt < 2 { tags += "刚滚" }
+        mark("开栏" + tags)
+    }
+
+    func mark(_ name: String) {
+        closeWindow()
+        self.name = name
+        worst = 0; drops = 0; frames = 0
+        last = 0
+        deadline = CACurrentMediaTime() + 0.9
+        if link == nil {
+            let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
+            l.add(to: .main, forMode: .common)
+            link = l
+        }
+        ensureHUD()
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        let now = link.timestamp
+        defer { last = now }
+        guard name != nil else { return }
+        if last > 0 {
+            let d = (now - last) * 1000
+            frames += 1
+            if d > worst { worst = d }
+            if d > 20 { drops += 1 }
+        }
+        if CACurrentMediaTime() > deadline { closeWindow() }
+    }
+
+    private func closeWindow() {
+        guard let n = name else { return }
+        records.append(Record(name: n, worst: worst, drops: drops, frames: frames))
+        if records.count > 12 { records.removeFirst(records.count - 12) }
+        name = nil
+    }
+
+    private var hudWindow: UIWindow?
+
+    /// 探针面板挂在独立的窗口上:退出阅读页以后还要能读出「退出」那一笔。
+    private func ensureHUD() {
+        guard hudWindow == nil else { return }
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first else { return }
+        let host = UIHostingController(rootView: PerfHUD())
+        host.view.backgroundColor = .clear
+        let w = UIWindow(windowScene: scene)
+        w.rootViewController = host
+        w.windowLevel = UIWindow.Level.alert + 1
+        w.isUserInteractionEnabled = false
+        w.isHidden = false
+        hostHUDReady()
+        hudWindow = w
+    }
+
+    private func hostHUDReady() {}
+
+    /// 浮层 body 被求值的次数:收起状态下等三十秒,这个数不该动。
+    private(set) var overlayBodyEvals = 0
+
+    func noteOverlayBodyEval() {
+        overlayBodyEvals += 1
+    }
+
+    var footprintMB: Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return kr == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+    }
+}
+
+struct PerfHUD: View {
+    @ObservedObject var probe = PerfProbe.shared
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(probe.records) { r in
+                Text(String(format: "%@ w%.0f d%d/%d", r.name, r.worst, r.drops, r.frames))
+            }
+            Text(String(format: "mem %.1fMB B%d", probe.footprintMB, probe.overlayBodyEvals))
+        }
+        .font(.system(size: 9, design: .monospaced))
+        .foregroundStyle(.red)
+        .padding(3)
+        .background(.white.opacity(0.85))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.top, 110)
+        .padding(.leading, 4)
+        .allowsHitTesting(false)
     }
 }

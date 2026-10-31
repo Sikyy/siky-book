@@ -150,6 +150,10 @@ enum ReaderBackgroundPhoto: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
     var assetName: String { rawValue }
 
+    /// 亮度面板那排 64×38 的预览只解这份缩略图(198×114,3 KB);
+    /// 整幅 1200×2608 解出来一张十二三兆,四张一起解,第一次开面板要 190 毫秒。
+    var thumbAssetName: String { rawValue + "-thumb" }
+
     /// 只做读屏名,缩略图上不写字。
     var displayName: String {
         switch self {

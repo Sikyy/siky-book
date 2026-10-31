@@ -23,6 +23,11 @@ struct ReaderView: View {
     @State private var chapters: [Chapter] = []
     @State private var currentChapterIndex: Int
     @State private var showMenu = false
+    /// 菜单收起期间浮层常驻,但不该每秒重算:用收起那一刻的时长冻住。
+    @State private var frozenReadingSeconds: TimeInterval = 0
+    /// 第一页画完后在背景里把浮层画一遍,让第一次开菜单是暖的。
+    @State private var menuWarmup = false
+    @State private var menuWarmupTask: Task<Void, Never>?
     /// 正文第一行顶边、菜单顶部面板底边的屏幕位置(菜单开着时用来对齐行边界)。
     @State private var bodyTopY: CGFloat = 0
     @State private var menuTopEdgeY: CGFloat = 0
@@ -209,8 +214,23 @@ struct ReaderView: View {
     /// destroyed and any property access traps in SwiftData. Re-fetch them by
     /// their plain ids the moment the scene is active again.
     /// 关闭阅读页:正文淡出后再退出,交给书架接上去。
+    /// 第一页画完后 0.7 秒在背景里把浮层画一遍;这 0.35 秒里用户点菜单就让路。
+    private func scheduleMenuWarmup() {
+        menuWarmupTask?.cancel()
+        menuWarmupTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, !showMenu else { return }
+            PerfProbe.shared.mark("预热")
+            menuWarmup = true
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            menuWarmup = false
+        }
+    }
+
     private func closeReader() {
         guard !isClosing else { return }
+        PerfProbe.shared.mark("退出")
         withAnimation(.easeOut(duration: 0.28)) { isClosing = true }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(280))
@@ -336,6 +356,11 @@ struct ReaderView: View {
 
             readingContent
                 .allowsHitTesting(!storeUnavailable)
+                .onAppear {
+                    PerfProbe.shared.mark("开书")
+                    scheduleMenuWarmup()
+                }
+
 
             if storeUnavailable {
                 storeUnavailableNotice
@@ -345,14 +370,18 @@ struct ReaderView: View {
                 selectionToolbar(for: selection)
             }
 
-            if sceneIsActive, showMenu {
+            if sceneIsActive {
                 ReaderMenuOverlay(
                     book: book,
                     currentChapterIndex: $currentChapterIndex,
                     totalChapters: book.totalChapters,
                     chapterTitle: currentChapter?.title ?? "",
                     settings: settings,
+                    isPresented: showMenu,
+                    isWarming: menuWarmup,
                     onDismiss: {
+                        PerfProbe.shared.lastMenuCloseAt = CACurrentMediaTime()
+                        PerfProbe.shared.mark("收栏")
                         // 记下浮层背景关菜单的时刻:同一次点击的另一份投递可能稍后
                         // 才到页面手势,短暂忽略,避免菜单刚关又被开回来。
                         lastMenuDismissAt = CFAbsoluteTimeGetCurrent()
@@ -394,7 +423,7 @@ struct ReaderView: View {
                     bodyLineHeight: bodyLineHeight,
                     progressPercent: menuProgressText,
                     progressFraction: overallProgressFraction,
-                    readingSeconds: timeSession.total(bookID: bookID),
+                    readingSeconds: showMenu ? timeSession.total(bookID: bookID) : frozenReadingSeconds,
                     bodyLineTops: currentPageLineTops,
                     topBarBottomY: menuTopEdgeY,
                     readChapterCount: readChapterCount,
@@ -411,6 +440,7 @@ struct ReaderView: View {
                     },
                     onBookDeleted: {
                         // 书已经从模型里删掉:直接退出,不再淡出期间读已销毁的模型。
+                        PerfProbe.shared.mark("退出")
                         if let onClose {
                             onClose()
                         } else {
@@ -458,6 +488,15 @@ struct ReaderView: View {
                 .opacity(isClosing ? 1 : 0)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+
+        }
+        .onChange(of: showMenu) { _, shown in
+            if !shown { frozenReadingSeconds = timeSession.total(bookID: bookID) }
+            if shown {
+                menuWarmupTask?.cancel()
+                menuWarmupTask = nil
+                menuWarmup = false
+            }
         }
         .sheet(item: $noteDraft) { draft in
             NoteEditorView(
@@ -1922,6 +1961,12 @@ struct ReaderView: View {
             let centerXRange = (screenWidth / 3)...(screenWidth * 2 / 3)
             let centerYRange = (screenHeight / 3)...(screenHeight * 2 / 3)
             if centerXRange.contains(location.x) && centerYRange.contains(location.y) {
+                if showMenu {
+                    PerfProbe.shared.lastMenuCloseAt = CACurrentMediaTime()
+                    PerfProbe.shared.mark("收栏")
+                } else {
+                    PerfProbe.shared.markMenuOpen()
+                }
                 withAnimation(ReaderMenuMotion.toggle) {
                     showMenu.toggle()
                 }
@@ -2004,10 +2049,20 @@ struct ReaderView: View {
     private func performReaderTap(location: CGPoint, screenSize: CGSize, totalPages: Int) {
         switch readerTapAction(location: location, screenSize: screenSize) {
         case .previousPage:
+            PerfProbe.shared.lastPageChangeAt = CACurrentMediaTime()
+            PerfProbe.shared.mark("翻页")
             performPageTurn(direction: .previous, totalPages: totalPages)
         case .nextPage:
+            PerfProbe.shared.lastPageChangeAt = CACurrentMediaTime()
+            PerfProbe.shared.mark("翻页")
             performPageTurn(direction: .next, totalPages: totalPages)
         case .toggleMenu:
+            if showMenu {
+                PerfProbe.shared.lastMenuCloseAt = CACurrentMediaTime()
+                PerfProbe.shared.mark("收栏")
+            } else {
+                PerfProbe.shared.markMenuOpen()
+            }
             withAnimation(ReaderMenuMotion.toggle) {
                 showMenu.toggle()
             }
@@ -2736,6 +2791,7 @@ struct ReaderView: View {
             } onCancel: {
                 worker.cancel()
             }
+            PerfProbe.shared.mark("分页算完")
 
             guard !Task.isCancelled, let output else {
                 finishPaginationIfCurrent(generation: generation)
@@ -2748,6 +2804,7 @@ struct ReaderView: View {
                 return
             }
 
+            PerfProbe.shared.mark("排版完")
             cachedParagraphs = output.paragraphs
             cachedPages = output.pages
             if let chapterID, let chapterSourceIdentity, !content.isEmpty {
@@ -3032,6 +3089,7 @@ struct ReaderView: View {
                     return
                 }
                 currentChapterContent = content
+                PerfProbe.shared.mark("取正文")
                 preparedChapterWindow.storeContent(
                     content,
                     chapterID: chapterID,
@@ -4813,7 +4871,11 @@ private struct ScrollPhaseObserver: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.onScrollPhaseChange { _, phase in
+            content.onScrollPhaseChange { old, phase in
+                if old == .idle, phase != .idle {
+                    PerfProbe.shared.lastScrollAt = CACurrentMediaTime()
+                    PerfProbe.shared.mark("滚动")
+                }
                 onChange(phase != .idle)
             }
         } else {
