@@ -320,7 +320,7 @@ struct ReaderTocPage: View {
                     Text("当前读到")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(style.blue)
-                    Text(hasPageBookmark ? "移除书签" : "添加书签")
+                    Text(hasPageBookmark ? "删除书签" : "添加书签")
                         .font(.system(size: 12))
                         .foregroundStyle(style.secondary)
                 }
@@ -348,7 +348,7 @@ struct ReaderTocPage: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "\(hasPageBookmark ? "移除书签" : "添加书签")，第 \(currentIndex + 1) 章，全书 \(currentPercentText)"
+            "\(hasPageBookmark ? "删除书签" : "添加书签")，第 \(currentIndex + 1) 章，全书 \(currentPercentText)"
         )
         .accessibilityAddTraits(.isButton)
     }
@@ -505,8 +505,11 @@ struct ReaderBookmarkPage: View {
 
             Spacer(minLength: 0)
 
-            actionRow
-                .padding(.bottom, 17)
+            // 空态不画那排按钮:四个按不动的东西摆在那儿,人第一眼就是「坏了」。
+            if !entries.isEmpty {
+                actionRow
+                    .padding(.bottom, 17)
+            }
         }
         .padding(.horizontal, 16)
         .frame(width: 366, height: 188)
@@ -517,7 +520,7 @@ struct ReaderBookmarkPage: View {
     private var readingTimeRow: some View {
         HStack(spacing: 3) {
             if readingSeconds >= 60 {
-                Text("时长 \(ReadingTimeFormat.spoken(readingSeconds))")
+                Text("阅读时长 \(ReadingTimeFormat.spoken(readingSeconds))")
                     .foregroundStyle(style.secondary)
                 Text("·")
                     .foregroundStyle(style.secondary)
