@@ -80,7 +80,8 @@ enum ReaderTypography {
 
     /// 第 2 步:行距档位。默认 1.5,七档。
     static let defaultLineSpacingLevel: Double = 1.5
-    static let lineSpacingLevels: [Double] = [1.05, 1.20, 1.35, 1.50, 1.65, 1.80, 1.95]
+    /// 七档,两端 1.30 / 1.70(逆向文档 4.5:相邻两档差要小到看不出台阶)。
+    static let lineSpacingLevels: [Double] = [1.30, 1.3667, 1.4333, 1.50, 1.5667, 1.6333, 1.70]
 
     /// 第 3 步:倍率与行高。
     static func lineHeightMultiplier(level: Double) -> CGFloat {
@@ -153,7 +154,7 @@ enum ReaderTypography {
 @Observable
 class ReaderSettings {
     private static let fontSizeRange: ClosedRange<CGFloat> = 16...40
-    private static let lineSpacingRange: ClosedRange<Double> = 1.05...1.95
+    private static let lineSpacingRange: ClosedRange<Double> = 1.30...1.70
     private static let paddingRange: ClosedRange<CGFloat> = 16...40
     private static let typographyVersionKey = "reader.typographyVersion"
     private static let currentTypographyVersion = 10

@@ -121,7 +121,7 @@ enum EPUBParser {
                 let first = text.components(separatedBy: "\n").first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
                 chTitle = first.count <= 30 ? first : nil
             }
-            chapters.append(.init(title: chTitle ?? "第\(chapters.count + 1)节", text: text))
+            chapters.append(.init(title: chTitle ?? "第 \(chapters.count + 1) 节", text: text))
         }
         guard !chapters.isEmpty else { throw EPUBError.noContent }
         return ParsedEPUB(

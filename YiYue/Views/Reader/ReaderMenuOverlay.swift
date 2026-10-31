@@ -431,7 +431,7 @@ struct ReaderMenuOverlay: View {
 
                 // 面板上沿的渐隐先画:面板和它的阴影再压上来,
                 // 这样 552–556 的压字带不会把面板阴影的上半截抹掉。
-                if selectedTool != nil {
+                if selectedTool != nil, selectedTool != .chapters, selectedTool != .bookmarks {
                     panelTopFade
                 }
 
@@ -544,7 +544,7 @@ struct ReaderMenuOverlay: View {
             Text(deleteBookError ?? "")
         }
         .alert(
-            "删除《\(book.title)》?",
+            "删除《\(book.title)》？",
             isPresented: $showDeleteBookConfirmation
         ) {
             Button("删除", role: .destructive) { deleteBookFromReader() }
@@ -809,9 +809,11 @@ struct ReaderMenuOverlay: View {
         /// 右边缘保持 378.7 不变,所以左边缘从 23 改成 20.7
         /// (20.7 + 358 + 23.3 = 402),四块自然算出来就是 82 宽。
         /// 外圈还是 2 点蓝环 + 2 点留白。
-        static let colourLeft: CGFloat = 20.7
-        static let colourRightInset: CGFloat = 402 - 378.7                 // 23.3
+        static let colourLeft: CGFloat = 22
+        static let colourRightInset: CGFloat = 402 - 380                   // 22:四块 82 + 三缝 10
         static let colourGap: CGFloat = 10
+        /// 每块固定 82 宽:22 + 4×82 + 3×10 = 380,和参照的右缘 379.7 对齐。
+        static let colourWidth: CGFloat = 82
         static let colourHeight: CGFloat = 33
         static let colourCorner: CGFloat = 5
         /// 色块底 696 →「背景」墨顶 713.3,行框顶 711.3,上距 15.3。
@@ -975,7 +977,10 @@ struct ReaderMenuOverlay: View {
     }
 
     private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
-        let collapsed = selectedTool == nil
+        // 目录 / 书签页是整页浮层,底块在它们后面不能再画进度面板:
+        // 浮层是淡入的,淡入那 0.26 秒里底下那块「阅读明细」会透出来。
+        let showingList = selectedTool == .chapters || selectedTool == .bookmarks
+        let collapsed = selectedTool == nil || showingList
         let panelTop = collapsed ? height - ReaderToolbarMetrics.height : resolvedPanelTop
         let contentHeight = max(0, height - panelTop)
         // 面板高度按内容链算好:进度/亮度 318,字号 332。
@@ -1151,7 +1156,7 @@ struct ReaderMenuOverlay: View {
                 } label: {
                     RoundedRectangle(cornerRadius: BrightnessPanelMetrics.colourCorner, style: .continuous)
                         .fill(item.backgroundColor)
-                        .frame(maxWidth: .infinity)
+                        .frame(width: BrightnessPanelMetrics.colourWidth)
                         .frame(height: BrightnessPanelMetrics.colourHeight)
                         .overlay {
                             if item == .dark {
@@ -1946,7 +1951,7 @@ struct ReaderMenuOverlay: View {
 
                     // 分享只发一句字,不放链接;系统分享面板由 ShareLink 拉起。
                     // 图形用「方框 + 右上斜箭头」,墨迹约 18 × 18,不再顶出行高。
-                    ShareLink(item: "我在『今日已阅』读《\(book.title)》。") {
+                    ShareLink(item: "我在「今日已阅」读《\(book.title)》。") {
                         topBarIconLabel(
                             systemName: "arrow.up.right.square",
                             glyphSize: ReaderToolbarMetrics.shareGlyphSize
@@ -2024,12 +2029,12 @@ struct ReaderMenuOverlay: View {
                         color: theme.menuPrimary
                     )
                 }
-                .accessibilityLabel("缓存小说")
+                .accessibilityLabel("缓存")
 
             case let .partial(cached, total):
                 Menu {
                     Button("缓存接下来 100 章") { onCache(100) }
-                    Button("补全剩余 \(max(0, total - cached)) 章") { onCache(nil) }
+                    Button("缓存全部") { onCache(nil) }
                 } label: {
                     cacheTopLabel(
                         icon: "arrow.down.circle.fill",
@@ -2045,7 +2050,7 @@ struct ReaderMenuOverlay: View {
                 } label: {
                     cacheTopLabel(
                         icon: "clock.fill",
-                        text: position.map { "排队 \($0)" } ?? cacheCountText(cached: cached, total: total),
+                        text: position.map { "排队第 \($0) 位" } ?? cacheCountText(cached: cached, total: total),
                         color: theme.menuSecondary
                     )
                 }
@@ -2551,7 +2556,7 @@ struct ReaderMenuOverlay: View {
                     color: theme.menuSecondary
                 )
             }
-            Text(String(format: "%.1f", settings.lineSpacing))
+            Text(String(format: "%.2f", settings.lineSpacing))
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(theme.menuSecondary)
                 .frame(width: 30, alignment: .trailing)

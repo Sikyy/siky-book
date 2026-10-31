@@ -1965,8 +1965,10 @@ struct ReaderView: View {
         let now = CFAbsoluteTimeGetCurrent()
         let dx = location.x - lastReaderTapLocation.x
         let dy = location.y - lastReaderTapLocation.y
-        let tolerance: CGFloat = 80
-        if now - lastReaderTapAt < 0.08, dx * dx + dy * dy < tolerance * tolerance {
+        // 逆向文档 4.5:500 毫秒内、位移 65 点以内算同一次点击,
+        // 免得快速连点连翻两页,也免得滑动尾巴被当成一次点击。
+        let tolerance: CGFloat = 65
+        if now - lastReaderTapAt < 0.5, dx * dx + dy * dy < tolerance * tolerance {
             return false
         }
         lastReaderTapAt = now
@@ -1984,6 +1986,10 @@ struct ReaderView: View {
             bodyBottom
         )
         guard location.y >= contentTop - 0.5, location.y <= contentBottom + 0.5 else {
+            return .none
+        }
+        // 选词时边缘不出翻页:短选(不足 10 字)是误触,多半是想拖手柄。
+        if let selection, selection.text.count < 10, selection.chapterIndex == currentChapterIndex {
             return .none
         }
         if location.x < previousPageTapWidth {

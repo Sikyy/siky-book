@@ -164,7 +164,7 @@ struct CacheManageView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(book.title)
                         .font(.body)
-                    Text("\(cached) / \(total) 章已缓存")
+                    Text("\(cached)/\(total) 章已缓存")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

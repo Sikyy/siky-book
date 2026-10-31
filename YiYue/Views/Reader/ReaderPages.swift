@@ -471,7 +471,7 @@ struct ReaderBookmarkPage: View {
             .padding(.bottom, 120)
         }
         .scrollIndicators(.hidden)
-        .alert("删除全部书签?", isPresented: $showDeleteConfirm) {
+        .alert("删除全部书签？", isPresented: $showDeleteConfirm) {
             Button("删除全部", role: .destructive) { onDeleteAll() }
             Button("取消", role: .cancel) {}
         } message: {

@@ -33,7 +33,7 @@ struct ReaderReadingStats: Equatable {
             rows.append(Row(title: "书签", value: "\(bookmarkCount) 条"))
         }
         if finishedChapters > 0 {
-            rows.append(Row(title: "读完", value: "\(finishedChapters) 章"))
+            rows.append(Row(title: "已读章节", value: "\(finishedChapters) 章"))
         }
         return rows
     }
