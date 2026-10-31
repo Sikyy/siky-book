@@ -177,6 +177,8 @@ struct ReaderMenuOverlay: View {
 
     @State private var showChapterList = false
     @State private var sliderValue: Double = 0
+    /// 拖滑轨时滑块跟手用的比例;松手后清掉,回到和进度数字同一个值。
+    @State private var sliderDragFraction: Double?
     /// 当前选中的工具格:目录/书签/文字/亮度/进度。
     @State private var selectedTool: ReaderTool?
     @State private var draggingFontSize: Double?
@@ -573,17 +575,30 @@ struct ReaderMenuOverlay: View {
 
     private func progressStatsRow(width: CGFloat) -> some View {
         let totalChapterCount = max(totalChapters, chapters.count)
-        let finishedText = totalChapterCount > 0
-            ? "\(max(0, readChapterCount))/\(totalChapterCount)"
-            : "\(max(0, readChapterCount))"
+        let readCount = max(0, readChapterCount)
+        // 单位符号按小字号单独排:百分号 / 斜杠加总章数不再和数字同大。
+        let percentMain = progressPercent.hasSuffix("%")
+            ? String(progressPercent.dropLast())
+            : progressPercent
+        let percentSmall = progressPercent.hasSuffix("%") ? "%" : nil
+        let finishedMain = "\(readCount)"
+        let finishedSmall = totalChapterCount > 0 ? "/\(totalChapterCount)" : nil
         let columnWidth = width / 3
         return HStack(alignment: .top, spacing: 0) {
-            progressStatColumn(value: progressPercent, label: "阅读进度")
-                .frame(width: columnWidth)
+            progressStatColumn(
+                main: percentMain,
+                small: percentSmall,
+                label: "阅读进度"
+            )
+            .frame(width: columnWidth)
             Color.clear
                 .frame(width: columnWidth, height: 1)
-            progressStatColumn(value: finishedText, label: "已读章节")
-                .frame(width: columnWidth)
+            progressStatColumn(
+                main: finishedMain,
+                small: finishedSmall,
+                label: "已读章节"
+            )
+            .frame(width: columnWidth)
         }
         .frame(width: width)
         .overlay(alignment: .topLeading) {
@@ -595,14 +610,26 @@ struct ReaderMenuOverlay: View {
         }
     }
 
-    private func progressStatColumn(value: String, label: String) -> some View {
+    /// 主数字 24 点;单位符号 11 点,和主数字共用同一条基线,
+    /// 底边就落在数字的底边上(斜杠比基线低约 1.7 点,仍在容差内)。
+    private func progressStatColumn(main: String, small: String?, label: String) -> some View {
         VStack(spacing: BottomChromeMetrics.numberLabelSpacing) {
-            Text(value)
-                .font(.system(size: 24, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(theme.textColor.opacity(0.9))
-                .lineLimit(1)
-                .fixedSize()
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text(main)
+                    .font(.system(size: 24, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(theme.textColor.opacity(0.9))
+                    .lineLimit(1)
+                    .fixedSize()
+                if let small {
+                    Text(small)
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(theme.textColor.opacity(0.9))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
             Text(label)
                 .font(.system(size: 11))
                 .foregroundStyle(theme.textColor.opacity(0.45))
@@ -611,7 +638,7 @@ struct ReaderMenuOverlay: View {
         }
         .frame(minWidth: 44)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label) \(value)")
+        .accessibilityLabel("\(label) \(main)\(small ?? "")")
     }
 
     private func chapterSlider(width: CGFloat) -> some View {
@@ -621,8 +648,10 @@ struct ReaderMenuOverlay: View {
         let knobInset = BottomChromeMetrics.knobSize / 2
         let travelLeft = grooveLeft + knobInset
         let travelWidth = max(1, grooveWidth - knobInset * 2)
-        let maxIndex = max(totalChapters - 1, 1)
-        let fraction = min(max(sliderValue / Double(maxIndex), 0), 1)
+        // 滑块落点和上方进度数字用同一个值:显示 40% 就让圆心落在可走段的 40%,
+        // 不再用「章序号 /(总章数-1)」——那会把 8/20 画到约 44% 的位置。
+        // 拖动时临时跟手,松手后回到进度数字的值。
+        let fraction = min(max(sliderDragFraction ?? progressFraction, 0), 1)
         let knobX = travelLeft + CGFloat(fraction) * travelWidth
         let centerY = BottomChromeMetrics.sliderHeight / 2
         return ZStack {
@@ -700,11 +729,16 @@ struct ReaderMenuOverlay: View {
         return DragGesture(minimumDistance: 0, coordinateSpace: .named("chapterSlider"))
             .onChanged { value in
                 let x = min(max(value.location.x - travelLeft, 0), travelWidth)
-                sliderValue = Double(x / travelWidth) * Double(maxIndex)
+                let fraction = Double(x / travelWidth)
+                sliderDragFraction = fraction
+                sliderValue = fraction * Double(maxIndex)
             }
             .onEnded { _ in
-                let index = Int(sliderValue.rounded())
+                // 进度数字是全书进度(章序号/总章数),按同一比例反推落在哪一章。
+                let fraction = min(max(sliderDragFraction ?? 0, 0), 1)
+                let index = Int(floor(fraction * Double(max(totalChapters, 1))))
                 jumpChapter(to: index)
+                sliderDragFraction = nil
             }
     }
 
