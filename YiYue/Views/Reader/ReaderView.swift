@@ -43,6 +43,8 @@ struct ReaderView: View {
     @State private var entryBrightness: Double = ReaderScreenBrightness.current
     /// 阅读明细与自动翻页:菜单里的两块,数据都是本书现成的真数。
     @State private var showReadingDetails = false
+    /// 阅读时长走表:只在阅读页真在屏幕上、App 在前台时计时。
+    @State private var timeSession = ReadingTimeSession()
     @State private var autoPageEnabled = false
     @State private var autoPageInterval = 20
     @State private var autoPageTask: Task<Void, Never>?
@@ -487,11 +489,13 @@ struct ReaderView: View {
                 // Re-fetch before the first draw, so the reader never renders
                 // with a model the background reset has already destroyed.
                 refreshModelAfterSceneReset()
+                timeSession.resume()
                 if sceneIsActive {
                     ReaderActivityStore.recordReadingDay(bookID: bookID)
                 }
                 restartAutoPage()
             case .inactive, .background:
+                timeSession.pause()
                 autoPageTask?.cancel()
                 autoPageTask = nil
             @unknown default:
@@ -573,6 +577,7 @@ struct ReaderView: View {
             entryBrightness = ReaderScreenBrightness.current
             applyKeepScreenAwake()
             ReaderActivityStore.recordReadingDay(bookID: bookID)
+            timeSession.begin(bookID: bookID)
             loadChapters()
             recomputePages(position: .first)
             fetchChapterContentIfNeeded()
@@ -581,6 +586,7 @@ struct ReaderView: View {
             await observeChapterDownloads()
         }
         .onDisappear {
+            timeSession.end()
             chapterLoadTask?.cancel()
             prefetchTask?.cancel()
             adjacentPreparationTask?.cancel()
@@ -750,6 +756,7 @@ struct ReaderView: View {
     private var readingStats: ReaderReadingStats {
         ReaderReadingStats(
             readingDays: ReaderActivityStore.readingDays(bookID: bookID),
+            readingTime: timeSession.total(bookID: bookID),
             pagesRead: ReaderActivityStore.pagesRead(bookID: bookID),
             bookmarkCount: book.marks.filter { !$0.isNote }.count,
             finishedChapters: readChapterCount
