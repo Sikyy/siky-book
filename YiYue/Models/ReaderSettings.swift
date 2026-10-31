@@ -159,6 +159,9 @@ class ReaderSettings {
     private static let currentTypographyVersion = 10
     private static let pageModeKey = "reader.pageMode"
     private static let pageModeExplicitKey = "reader.pageMode.explicit"
+    /// 背景只存这一个键:颜色写 "color:paper",照片写 "photo:bg-sea:paper"
+    /// (照片后面的颜色是上次选的颜色,照片摘掉时回到它)。
+    private static let backgroundKey = "reader.background"
     private static let defaultPageMode: PageMode = .scroll
 
     var fontSize: CGFloat {
@@ -181,7 +184,16 @@ class ReaderSettings {
     private var _horizontalPadding: CGFloat = ReaderTypography.defaultHorizontalPadding
 
     var fontFamily: FontFamily
-    var theme: ReaderTheme
+    /// 当前颜色。选照片时不改它:照片摘掉后「上次选的颜色」还在。
+    var theme: ReaderTheme {
+        didSet {
+            // 颜色是「当前背景」的另一半:只要写 theme 就表示回到颜色,
+            // 照片必须同时摘掉,两种背景不能同时成立。
+            if backgroundPhoto != nil { backgroundPhoto = nil }
+        }
+    }
+    /// 当前照片。非 nil 时它就是「当前背景」,theme 只负责记着上次的颜色。
+    private(set) var backgroundPhoto: ReaderBackgroundPhoto?
     var pageMode: PageMode
     /// Keeps the screen awake while the reader is open. On by default.
     var keepScreenAwake: Bool
@@ -189,6 +201,37 @@ class ReaderSettings {
     var firstLineIndentEnabled: Bool
     /// 段间距开关,默认关。关着也有 28 的段间距,打开再加 28。
     var paragraphSpacingEnabled: Bool
+
+    /// 当前背景是不是照片。亮度面板的分组选中、正文颜色都看它。
+    var isPhotoBackground: Bool { backgroundPhoto != nil }
+
+    /// 正文颜色:照片背景上是 #F6F2EA,其余跟颜色主题走。
+    var readingTextColor: Color {
+        backgroundPhoto == nil ? theme.textColor : Color(hex: "#F6F2EA")
+    }
+
+    /// 照片背景上次要文字取正文白的 65%,不另开一套灰。
+    var readingSecondaryColor: Color {
+        backgroundPhoto == nil
+            ? theme.secondaryColor
+            : Color(hex: "#F6F2EA").opacity(0.65)
+    }
+
+    /// 照片上正文是白字,状态栏也要跟着变浅,所以外观按深色走。
+    var isDarkAppearance: Bool {
+        backgroundPhoto != nil || theme.isDark
+    }
+
+    /// 菜单 / 顶栏 / 面板的配色:照片背景上统一走夜间,图标和面板才看得清。
+    var chromeTheme: ReaderTheme {
+        backgroundPhoto == nil ? theme : .dark
+    }
+
+    /// 阅读页的底色。照片由 ReaderView 全屏铺,占位处用透明,
+    /// 避免翻页边界或下拉时露出纸色。
+    var pageBackgroundColor: Color {
+        backgroundPhoto == nil ? theme.backgroundColor : .clear
+    }
 
     /// 行高 = 字号 × (行距档位 × 字体基准),排版和几何都用这一个算法。
     var lineHeightMultiplier: CGFloat {
@@ -240,7 +283,9 @@ class ReaderSettings {
         self._horizontalPadding = CGFloat(defaults.double(forKey: "reader.horizontalPadding"))
             .nonZeroOr(ReaderTypography.defaultHorizontalPadding)
         self.fontFamily = FontFamily(rawValue: defaults.string(forKey: "reader.fontFamily") ?? "") ?? .system
-        self.theme = ReaderTheme(rawValue: defaults.string(forKey: "reader.theme") ?? "") ?? .paper
+        let stored = Self.loadBackground(from: defaults)
+        self.theme = stored.color
+        self.backgroundPhoto = stored.photo
         self.pageMode = Self.loadPageMode(from: defaults)
         let storedKeepAwake = defaults.object(forKey: "reader.keepScreenAwake") as? Bool
         self.keepScreenAwake = storedKeepAwake ?? true
@@ -254,7 +299,14 @@ class ReaderSettings {
         defaults.set(lineSpacing, forKey: "reader.lineSpacing")
         defaults.set(Double(horizontalPadding), forKey: "reader.horizontalPadding")
         defaults.set(fontFamily.rawValue, forKey: "reader.fontFamily")
-        defaults.set(theme.rawValue, forKey: "reader.theme")
+        // 「当前背景」只写 reader.background 一处;reader.theme 是旧存档,不再写。
+        if let photo = backgroundPhoto {
+            defaults.set("photo:\(photo.rawValue):\(theme.rawValue)", forKey: Self.backgroundKey)
+        } else {
+            defaults.set("color:\(theme.rawValue)", forKey: Self.backgroundKey)
+        }
+        // 旧键不再写也不留:读的时候还会认,存的时候只保留 reader.background 这一个值。
+        defaults.removeObject(forKey: "reader.theme")
         defaults.set(pageMode.rawValue, forKey: Self.pageModeKey)
         defaults.set(keepScreenAwake, forKey: "reader.keepScreenAwake")
         defaults.set(firstLineIndentEnabled, forKey: "reader.firstLineIndent")
@@ -262,6 +314,44 @@ class ReaderSettings {
         defaults.set(Self.currentTypographyVersion, forKey: Self.typographyVersionKey)
         if markPageModeExplicit {
             defaults.set(true, forKey: Self.pageModeExplicitKey)
+        }
+    }
+
+    /// 选颜色:照片先摘掉,再把颜色换过去。写 theme 时 didSet 也会同步清照片。
+    func selectColour(_ colour: ReaderTheme) {
+        backgroundPhoto = nil
+        theme = colour
+        save()
+    }
+
+    /// 选照片:只改照片,不动 theme——这样「上次选的颜色」还留着。
+    func selectPhoto(_ photo: ReaderBackgroundPhoto) {
+        backgroundPhoto = photo
+        save()
+    }
+
+    /// 旧存档只有 reader.theme;新存档读 reader.background。
+    /// 「青灰」这类已经不在表里的值一律落回米黄。
+    private static func loadBackground(
+        from defaults: UserDefaults
+    ) -> (color: ReaderTheme, photo: ReaderBackgroundPhoto?) {
+        let legacy = ReaderTheme(rawValue: defaults.string(forKey: "reader.theme") ?? "") ?? .paper
+        guard let raw = defaults.string(forKey: backgroundKey) else {
+            return (legacy, nil)
+        }
+        let parts = raw.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        switch parts.first {
+        case "photo":
+            let photo = parts.count > 1 ? ReaderBackgroundPhoto(rawValue: parts[1]) : nil
+            let color = parts.count > 2
+                ? (ReaderTheme(rawValue: parts[2]) ?? .paper)
+                : legacy
+            return (color, photo)
+        case "color":
+            let color = parts.count > 1 ? (ReaderTheme(rawValue: parts[1]) ?? .paper) : .paper
+            return (color, nil)
+        default:
+            return (legacy, nil)
         }
     }
 

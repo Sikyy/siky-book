@@ -9,7 +9,7 @@ final class ReaderSettingsTests: XCTestCase {
         super.setUp()
         let defaults = UserDefaults.standard
         for key in ["reader.fontSize", "reader.lineSpacing", "reader.horizontalPadding",
-                     "reader.fontFamily", "reader.theme", "reader.pageMode",
+                     "reader.fontFamily", "reader.theme", "reader.background", "reader.pageMode",
                      "reader.pageMode.explicit", "reader.typographyVersion",
                      "reader.firstLineIndent", "reader.paragraphSpacing"] {
             defaults.removeObject(forKey: key)
@@ -56,16 +56,39 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertEqual(night.separatorHex, "#2A2A2C")
 
         let paper = ReaderTheme.paper
-        XCTAssertEqual(paper.backgroundHex, "#F6F0E4")
+        XCTAssertEqual(paper.backgroundHex, "#F7F0DF")
         XCTAssertEqual(paper.textHex, "#2A2017")
         XCTAssertEqual(paper.secondaryHex, "#6B6153")
         XCTAssertEqual(paper.accentHex, "#9A4A31")
         XCTAssertEqual(paper.separatorHex, "#E0D6C2")
 
         XCTAssertEqual(ReaderTheme.allCases.map(\.displayName),
-                       ["纸色", "纯白", "护眼绿", "青灰", "夜间"])
+                       ["米黄", "白色", "护眼绿", "夜间"])
         XCTAssertEqual(ReaderTheme.allCases.map(\.backgroundHex),
-                       ["#F6F0E4", "#FFFFFF", "#DEE8D5", "#E7EDF1", "#121212"])
+                       ["#F7F0DF", "#FFFFFF", "#CCF0CF", "#121212"])
+        XCTAssertEqual(ReaderTheme.palette.map(\.displayName),
+                       ["白色", "米黄", "护眼绿", "夜间"])
+    }
+
+    func testSingleBackgroundValuePersistsPhotoAndLastColour() {
+        settings.selectColour(.green)
+        settings.selectPhoto(.sea)
+
+        let reloaded = ReaderSettings()
+        XCTAssertEqual(reloaded.backgroundPhoto, .sea)
+        XCTAssertEqual(reloaded.theme, .green)
+        XCTAssertTrue(reloaded.isPhotoBackground)
+
+        reloaded.selectColour(.green)
+        XCTAssertNil(reloaded.backgroundPhoto)
+        XCTAssertEqual(reloaded.theme, .green)
+    }
+
+    func testUnknownStoredColourFallsBackToPaper() {
+        UserDefaults.standard.set("blueGray", forKey: "reader.theme")
+        let reloaded = ReaderSettings()
+        XCTAssertEqual(reloaded.theme, .paper)
+        XCTAssertNil(reloaded.backgroundPhoto)
     }
 
     func testFontSizeClamping() {

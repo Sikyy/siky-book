@@ -154,6 +154,21 @@ struct ReaderSliderTicks: View {
     }
 }
 
+/// 色块 / 缩略图的选中蓝环:描边 2、离块面 2。
+/// 用负 padding 把路径推到块外 3 点(2 点留白 + 半个描边),
+/// 环就不会压到色块自己的边缘。
+struct BrightnessSelectionRing: View {
+    let cornerRadius: CGFloat
+    let color: Color
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(color, lineWidth: 2)
+            .padding(-3)
+            .allowsHitTesting(false)
+    }
+}
+
 struct ReaderMenuOverlay: View {
     let book: Book
     @Binding var currentChapterIndex: Int
@@ -208,7 +223,9 @@ struct ReaderMenuOverlay: View {
     /// 从「更多」里删除成功后,阅读页应立即退出,不能继续显示已删掉的书。
     var onBookDeleted: (() -> Void)? = nil
 
-    private var theme: ReaderTheme { settings.theme }
+    /// 菜单 / 顶栏 / 面板的配色。照片背景上统一走夜间,
+    /// 否则纸色图标压在深色照片上看不见。
+    private var theme: ReaderTheme { settings.chromeTheme }
 
     @Environment(\.modelContext) private var modelContext
 
@@ -289,7 +306,8 @@ struct ReaderMenuOverlay: View {
 
                 // 顶栏底色带:0–100 一条实色,只在图标态(菜单开、没开面板)出现,
                 // 面板一开就只剩正文底色,和参考图的两态一致。
-                if selectedTool == nil {
+                // 照片背景自己已经铺了 0–100 的 20% 黑,这里不再盖一层纸色。
+                if selectedTool == nil, !settings.isPhotoBackground {
                     topBarBand(width: screenWidth)
                 }
 
@@ -301,7 +319,9 @@ struct ReaderMenuOverlay: View {
                     case .text:
                         fontSizeFloatingPanel(barTop: barTop)
                     case .brightness:
-                        brightnessFloatingPanel(barTop: barTop)
+                        // 亮度面板也是底部这块 chrome 自己:滑杆、颜色、背景
+                        // 都画在 bottomChrome 里,顶边跟进度面板同一套内容链。
+                        EmptyView()
                     case .progress:
                         // 进度面板就是底部这块 chrome 自己:统计行、滑轨、胶囊
                         // 都画在 bottomChrome 里。以前再叠一层旧版浮层面板,
@@ -584,20 +604,79 @@ struct ReaderMenuOverlay: View {
         static let pillGap: CGFloat = 21.3
     }
 
-    /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从算出的顶边起,
-    /// 面板里从顶往下就是一个竖直栈:35 顶距 + 数字行 + 标签 + 槽 + 胶囊 + 图标带,
+    /// 亮度面板的竖直链(design-diff-16 §4)。面板顶和进度面板一样是 556,
+    /// 高度同样 318:滑杆 32 顶距 + 35.7 + 颜色标题 + 4 块 33 + 背景标题 + 5 图 38。
+    /// 每一段都从上一段的底边加间距,不用屏幕绝对 y 偏移。
+    private enum BrightnessPanelMetrics {
+        static let panelDarkHex = "#171719"
+        static let panelTop = BottomChromeMetrics.panelTop                 // 556
+        static let panelHeight = BottomChromeMetrics.panelHeight           // 318
+        static let ringHex = "#2493EE"
+
+        /// 滑杆轨道整条 x 22–379.7、高 35.7、y 588–623.7;左端一颗小太阳。
+        static let sliderLeft: CGFloat = 22
+        static let sliderRightInset: CGFloat = 402 - 379.7                 // 22.3
+        static let sliderTop = 588 - panelTop                              // 32
+        static let sliderHeight: CGFloat = 35.7
+        static let sunCenterInset: CGFloat = 20                            // 轨道左端往内 20
+        static let sunSize: CGFloat = 13
+        /// 参考图的滑块是 35 的实心圆,正好顶满轨道高。
+        static let knobSize: CGFloat = 35
+        static let knobDarkHex = "#8C8C90"
+        /// 轨道比面板亮约 10% 墨,和参考图 (39,39,41) 对得上。
+        static let trackOpacity: CGFloat = 0.10
+
+        /// 「颜色」墨顶 641.3,墨高 8.7;11 点行框高 13.1,
+        /// 行框顶到字墨顶约 2,所以标题上距 = 641.3 − 623.7 − 2 = 15.6。
+        static let titleFontSize: CGFloat = 11
+        static let titleLineHeight: CGFloat = 13.1
+        static let titleInkTopOffset: CGFloat = 2
+        static let colorTitleTopGap = 641.3 - (sliderTop + panelTop + sliderHeight) - titleInkTopOffset // 15.6
+        /// 标题墨底 650 → 色块顶 663:行框底 652.4 到色块 10.6。
+        static let colorTitleBottomGap: CGFloat = 10.6
+        /// 色块 23–378.7:宽 79.7、缝 12.3,外圈 2 点蓝环 + 2 点留白。
+        static let colourLeft: CGFloat = 23
+        static let colourRightInset: CGFloat = 402 - 378.7                 // 23.3
+        static let colourGap: CGFloat = 12.3
+        static let colourHeight: CGFloat = 33
+        static let colourCorner: CGFloat = 5
+        /// 色块底 696 →「背景」墨顶 713.3,行框顶 711.3,上距 15.3。
+        static let backgroundTitleTopGap: CGFloat = 15.3
+        /// 「背景」行框底 724.4 → 缩略图顶 731,下距 6.6。
+        static let backgroundTitleBottomGap: CGFloat = 6.6
+        /// 五张缩略图 22–379.7:高 38、缝 9,宽度由列宽等分(约 64)。
+        static let photoLeft: CGFloat = 22
+        static let photoRightInset: CGFloat = 402 - 379.7                  // 22.3
+        static let photoGap: CGFloat = 9
+        static let photoHeight: CGFloat = 38
+        static let photoCorner: CGFloat = 8
+        /// 蓝环:描边 2、离块面 2;路径内缩 3 = 2 留白 + 半个描边。
+        static let ringLineWidth: CGFloat = 2
+        static let ringPadding: CGFloat = 3
+    }
+
+    /// 菜单块:进度面板(统计行 / 滑轨 / 胶囊)或亮度面板(滑杆 / 颜色 / 背景)。
+    /// 背景从算出的顶边起,面板里从顶往下就是一个竖直栈,
     /// 不再用屏幕绝对 y 偏移——面板顶变了,里面的东西跟着面板走。
-    /// 面板高度 = 这条链的合计 318 点,贴屏底,不再写死 334。
-    /// 同一套间距也决定进度面板顶 556;字号面板 542、亮度面板 556 的内容由后续包补。
+    /// 两块面板的顶边都是 556、高度都是 318,贴屏底,不写死 334。
     /// 上面那行用 22 点渐隐收尾,不做半行硬切。
     private var resolvedPanelTop: CGFloat {
         BottomChromeMetrics.panelTop
     }
 
     /// 菜单块上沿的渐隐带:让压在边上的那行字淡出去,而不是被切一半。
+    /// 渐隐的终点要和面板顶部的实色对齐;亮度面板夜间是 #171719,
+    /// 进度面板是 #1C1C1E 的菜单底。
+    private var panelFadeColor: Color {
+        if selectedTool == .brightness, theme.isDark {
+            return Color(hex: BrightnessPanelMetrics.panelDarkHex)
+        }
+        return theme.menuBackground
+    }
+
     private var panelTopFade: some View {
         LinearGradient(
-            colors: [theme.menuBackground.opacity(0), theme.menuBackground],
+            colors: [panelFadeColor.opacity(0), panelFadeColor],
             startPoint: .top,
             endPoint: .bottom
         )
@@ -612,26 +691,35 @@ struct ReaderMenuOverlay: View {
         // 面板高度按内容链算好(318),内部从上往下排:数字行 → 标签 → 槽 → 胶囊。
         // 图标那一格由 bottomToolbar 画在面板底色上,所以链尾还留 35.7 + 22.3 + 49。
         let panelHeight = min(BottomChromeMetrics.panelHeight, contentHeight)
+        let showingBrightness = selectedTool == .brightness
         return VStack(spacing: 0) {
-            progressStatsRow(width: width)
-                // 固定占住数字行 + 11 点墨距 + 标签行;估计句为空时不留空行但保住高度。
-                .frame(
-                    width: width,
-                    height: BottomChromeMetrics.statsBlockHeight,
-                    alignment: .top
-                )
+            if showingBrightness {
+                // 亮度面板:整块按内容链从上往下排,顶边同样是 556。
+                brightnessPanelContent(width: width)
+            } else {
+                progressStatsRow(width: width)
+                    // 固定占住数字行 + 11 点墨距 + 标签行;估计句为空时不留空行但保住高度。
+                    .frame(
+                        width: width,
+                        height: BottomChromeMetrics.statsBlockHeight,
+                        alignment: .top
+                    )
 
-            chapterSlider(width: width)
-                .frame(width: width, height: BottomChromeMetrics.sliderHeight)
-                .padding(.top, BottomChromeMetrics.statsSliderGap)
+                chapterSlider(width: width)
+                    .frame(width: width, height: BottomChromeMetrics.sliderHeight)
+                    .padding(.top, BottomChromeMetrics.statsSliderGap)
 
-            pillRow(width: width)
-                .padding(.top, BottomChromeMetrics.pillSliderGap)
+                pillRow(width: width)
+                    .padding(.top, BottomChromeMetrics.pillSliderGap)
+            }
         }
-        .padding(.top, BottomChromeMetrics.numberFrameTopPadding)
+        .padding(.top, showingBrightness ? 0 : BottomChromeMetrics.numberFrameTopPadding)
         .frame(width: width, height: panelHeight, alignment: .top)
         .background {
-            if theme.isDark {
+            if showingBrightness, theme.isDark {
+                // 亮度面板参考图是 #171719 的实色,不比进度面板的渐变亮。
+                Color(hex: BrightnessPanelMetrics.panelDarkHex)
+            } else if theme.isDark {
                 LinearGradient(
                     colors: [Color(hex: "#141416"), Color(hex: "#1c1c1e")],
                     startPoint: .top,
@@ -650,6 +738,220 @@ struct ReaderMenuOverlay: View {
         }
         .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 0)
         .offset(y: panelTop)
+    }
+
+    // MARK: - 亮度面板
+
+    /// 亮度面板的整条竖直栈:滑杆 → 颜色标题 → 四色块 → 背景标题 → 五张图。
+    /// 面板顶 556、高 318,和进度面板同一套顶底;里面不写绝对 y。
+    private func brightnessPanelContent(width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            brightnessSlider(width: width)
+                .frame(width: width, height: BrightnessPanelMetrics.sliderHeight)
+                .padding(.top, BrightnessPanelMetrics.sliderTop)
+
+            brightnessGroupTitle("颜色")
+                .padding(.top, BrightnessPanelMetrics.colorTitleTopGap)
+                .padding(.bottom, BrightnessPanelMetrics.colorTitleBottomGap)
+
+            brightnessColourRow(width: width)
+
+            brightnessGroupTitle("背景")
+                .padding(.top, BrightnessPanelMetrics.backgroundTitleTopGap)
+                .padding(.bottom, BrightnessPanelMetrics.backgroundTitleBottomGap)
+
+            brightnessPhotoRow(width: width)
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: width, height: BrightnessPanelMetrics.panelHeight, alignment: .top)
+        // 「自动」不能跟参考图抢滑杆位置,放到面板顶部右侧的 32 点空里。
+        .overlay(alignment: .topTrailing) { autoBrightnessButton }
+    }
+
+    /// 分组标题墨左 24.3、11 点次要色;行框高 13.1,墨顶在行框顶下约 2 点。
+    private func brightnessGroupTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: BrightnessPanelMetrics.titleFontSize))
+            .foregroundStyle(theme.menuSecondary)
+            .padding(.leading, 24.3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: BrightnessPanelMetrics.titleLineHeight, alignment: .topLeading)
+    }
+
+    /// 整条轨 x 22–379.7、高 35.7:左端小太阳,滑块 35 的圆跟着当前亮度走。
+    /// 参考图的滑块顶满轨道高,所以轨道两端不给额外内缩。
+    private func brightnessSlider(width: CGFloat) -> some View {
+        let left = BrightnessPanelMetrics.sliderLeft
+        let trackWidth = max(0, width - left - BrightnessPanelMetrics.sliderRightInset)
+        let knob = BrightnessPanelMetrics.knobSize
+        let travel = max(1, trackWidth - knob)
+        let fraction = min(max(brightnessValue, 0), 1)
+        let knobX = left + knob / 2 + CGFloat(fraction) * travel
+        let centerY = BrightnessPanelMetrics.sliderHeight / 2
+        return ZStack(alignment: .topLeading) {
+            Capsule(style: .continuous)
+                .fill(theme.menuPrimary.opacity(BrightnessPanelMetrics.trackOpacity))
+                .frame(width: trackWidth, height: BrightnessPanelMetrics.sliderHeight)
+                .position(x: left + trackWidth / 2, y: centerY)
+
+            Image(systemName: "sun.min")
+                .font(.system(size: BrightnessPanelMetrics.sunSize, weight: .regular))
+                .foregroundStyle(theme.menuPrimary.opacity(0.7))
+                .position(x: left + BrightnessPanelMetrics.sunCenterInset, y: centerY)
+                .allowsHitTesting(false)
+
+            Circle()
+                .fill(theme.isDark
+                    ? Color(hex: BrightnessPanelMetrics.knobDarkHex)
+                    : Color.white)
+                .frame(width: knob, height: knob)
+                .shadow(color: .black.opacity(theme.isDark ? 0 : 0.18), radius: 3, x: 0, y: 1)
+                .position(x: knobX, y: centerY)
+        }
+        .frame(width: width, height: BrightnessPanelMetrics.sliderHeight)
+        .contentShape(Rectangle())
+        .coordinateSpace(name: "brightnessSlider")
+        .gesture(brightnessSliderGesture(width: width))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("屏幕亮度")
+        .accessibilityValue("\(Int((brightnessValue * 100).rounded()))%")
+        .accessibilityAdjustableAction { direction in
+            let step = 0.05
+            let delta = direction == .increment ? step : -step
+            let next = min(max(brightnessValue + delta, 0), 1)
+            brightnessValue = next
+            onBrightnessChange?(next)
+        }
+    }
+
+    private func brightnessSliderGesture(width: CGFloat) -> some Gesture {
+        let left = BrightnessPanelMetrics.sliderLeft
+        let trackWidth = max(0, width - left - BrightnessPanelMetrics.sliderRightInset)
+        let knob = BrightnessPanelMetrics.knobSize
+        let travel = max(1, trackWidth - knob)
+        return DragGesture(minimumDistance: 0, coordinateSpace: .named("brightnessSlider"))
+            .onChanged { value in
+                let x = min(max(value.location.x - left - knob / 2, 0), travel)
+                let next = Double(x / travel)
+                guard abs(next - brightnessValue) > 0.0005 else { return }
+                brightnessValue = next
+                onBrightnessChange?(next)
+            }
+    }
+
+    /// 颜色四块:白 / 米黄 / 护眼绿 / 夜间,宽 79.7、缝 12.3、高 33。
+    /// 选中加 2 点蓝环,环离块面留 2 点。夜间块里放一个月亮,和参考图一致。
+    private func brightnessColourRow(width: CGFloat) -> some View {
+        HStack(spacing: BrightnessPanelMetrics.colourGap) {
+            ForEach(Array(ReaderTheme.palette.enumerated()), id: \.element) { index, item in
+                let selected = !settings.isPhotoBackground && settings.theme == item
+                Button {
+                    settings.selectColour(item)
+                } label: {
+                    RoundedRectangle(cornerRadius: BrightnessPanelMetrics.colourCorner, style: .continuous)
+                        .fill(item.backgroundColor)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: BrightnessPanelMetrics.colourHeight)
+                        .overlay {
+                            if item == .dark {
+                                Image(systemName: "moon.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(selected
+                                        ? Color(hex: BrightnessPanelMetrics.ringHex)
+                                        : Color.white.opacity(0.8))
+                            }
+                        }
+                        .overlay {
+                            if selected {
+                                BrightnessSelectionRing(
+                                    cornerRadius: BrightnessPanelMetrics.colourCorner + 3,
+                                    color: Color(hex: BrightnessPanelMetrics.ringHex)
+                                )
+                            }
+                        }
+                        .contentShape(RoundedRectangle(
+                            cornerRadius: BrightnessPanelMetrics.colourCorner,
+                            style: .continuous
+                        ))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(item.displayName)，四个里第 \(index + 1) 个")
+                .accessibilityValue(selected ? "已选中" : "")
+                .accessibilityAddTraits(selected ? [.isSelected] : [])
+            }
+        }
+        .padding(.leading, BrightnessPanelMetrics.colourLeft)
+        .padding(.trailing, BrightnessPanelMetrics.colourRightInset)
+        .frame(width: width, height: BrightnessPanelMetrics.colourHeight, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("颜色")
+    }
+
+    /// 背景五张实景图:高 38、缝 9、圆角 8,宽度按 22–379.7 等分(约 64)。
+    /// 图上不写字;名称只给读屏。
+    private func brightnessPhotoRow(width: CGFloat) -> some View {
+        HStack(spacing: BrightnessPanelMetrics.photoGap) {
+            ForEach(Array(ReaderBackgroundPhoto.allCases.enumerated()), id: \.element) { index, photo in
+                let selected = settings.backgroundPhoto == photo
+                Button {
+                    settings.selectPhoto(photo)
+                } label: {
+                    Image(photo.assetName)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: BrightnessPanelMetrics.photoHeight)
+                        .clipped()
+                        .clipShape(RoundedRectangle(
+                            cornerRadius: BrightnessPanelMetrics.photoCorner,
+                            style: .continuous
+                        ))
+                        .overlay {
+                            if selected {
+                                BrightnessSelectionRing(
+                                    cornerRadius: BrightnessPanelMetrics.photoCorner + 3,
+                                    color: Color(hex: BrightnessPanelMetrics.ringHex)
+                                )
+                            }
+                        }
+                        .contentShape(RoundedRectangle(
+                            cornerRadius: BrightnessPanelMetrics.photoCorner,
+                            style: .continuous
+                        ))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(photo.displayName)，五个里第 \(index + 1) 个")
+                .accessibilityValue(selected ? "已选中" : "")
+                .accessibilityAddTraits(selected ? [.isSelected] : [])
+            }
+        }
+        .padding(.leading, BrightnessPanelMetrics.photoLeft)
+        .padding(.trailing, BrightnessPanelMetrics.photoRightInset)
+        .frame(width: width, height: BrightnessPanelMetrics.photoHeight, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("背景")
+    }
+
+    /// 原来的「自动」浮层功能保留,收成面板右上角一颗 11 点小字,
+    /// 不占参考图里滑杆和色块的位置。
+    private var autoBrightnessButton: some View {
+        let following = isFollowingSystemBrightness || followSystemFlash
+        return Button {
+            onFollowSystemBrightness?()
+            flashFollowSystem()
+        } label: {
+            Text("自动")
+                .font(.system(size: 11, weight: following ? .semibold : .regular))
+                .foregroundStyle(following ? theme.accentColor : theme.menuSecondary)
+                .frame(width: 44, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2)
+        .padding(.trailing, 14)
+        .accessibilityLabel("跟随系统亮度")
+        .accessibilityValue(following ? "已开启" : "已关闭")
     }
 
     private func progressStatsRow(width: CGFloat) -> some View {
@@ -1847,78 +2149,6 @@ struct ReaderMenuOverlay: View {
                 .onTapGesture { selectedTool = nil }
 
             fontCard(barTop: barTop)
-        }
-    }
-
-    private func brightnessFloatingPanel(barTop: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .ignoresSafeArea()
-                .onTapGesture { selectedTool = nil }
-
-            HStack(spacing: 10) {
-                Image(systemName: "sun.min")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.menuSecondary)
-                    .frame(width: 20)
-
-                Slider(
-                    value: Binding(
-                        get: { brightnessValue },
-                        set: { newValue in
-                            brightnessValue = newValue
-                            onBrightnessChange?(newValue)
-                        }
-                    ),
-                    in: 0...1
-                )
-                .tint(theme.menuPrimary)
-                .accessibilityLabel("屏幕亮度")
-                .accessibilityValue("\(Int((brightnessValue * 100).rounded()))%")
-
-                Image(systemName: "sun.max")
-                    .font(.system(size: 20))
-                    .foregroundStyle(theme.menuPrimary)
-                    .frame(width: 24)
-            }
-            .padding(.horizontal, 18)
-            .frame(width: floatingCardSize.width, height: floatingCardSize.height)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(theme.menuBackground)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(theme.separatorColor, lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 6)
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    onFollowSystemBrightness?()
-                    flashFollowSystem()
-                } label: {
-                    Text("自动")
-                        .font(.system(size: 11, weight: isFollowingSystemBrightness ? .semibold : .regular))
-                        .foregroundStyle(
-                            isFollowingSystemBrightness || followSystemFlash
-                                ? theme.accentColor
-                                : theme.menuSecondary
-                        )
-                        .frame(width: 36, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 4)
-                .padding(.trailing, 8)
-                .accessibilityLabel("跟随系统亮度")
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .onTapGesture { }
-            .position(
-                x: UIScreen.main.bounds.width / 2,
-                y: floatingCardTop(barTop: barTop) + floatingCardSize.height / 2
-            )
         }
     }
 

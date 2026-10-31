@@ -327,7 +327,7 @@ struct ReaderView: View {
 
     var body: some View {
         ZStack {
-            settings.theme.backgroundColor
+            readerBackground
                 .ignoresSafeArea()
 
             readingContent
@@ -482,9 +482,14 @@ struct ReaderView: View {
         }
         .statusBarHidden(!showMenu)
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
-        .preferredColorScheme(settings.theme.isDark ? .dark : .light)
-        .onAppear { onAppearanceChange?(settings.theme.isDark) }
-        .onChange(of: settings.theme) { _, theme in onAppearanceChange?(theme.isDark) }
+        .preferredColorScheme(settings.isDarkAppearance ? .dark : .light)
+        .onAppear { onAppearanceChange?(settings.isDarkAppearance) }
+        .onChange(of: settings.theme) { _, _ in
+            onAppearanceChange?(settings.isDarkAppearance)
+        }
+        .onChange(of: settings.backgroundPhoto) { _, _ in
+            onAppearanceChange?(settings.isDarkAppearance)
+        }
         .onChange(of: showMenu) { _, open in
             // 菜单开着就不该同时有选中段,toolbar 和菜单会叠在一起。
             if open { selection = nil }
@@ -651,6 +656,30 @@ struct ReaderView: View {
 
     // MARK: - Reading Content
 
+    /// 阅读页底色。选照片时整页铺图:aspectFill、居中、忽略安全区,
+    /// 顶到状态栏、底到 Home 条,四边不留白。
+    /// 压暗按图片 id 分别给(15/15/10/10/25%),再在 0–100 加一层 20% 黑,
+    /// 顶栏图标和状态栏压在照片上也看得清。不降饱和度。
+    @ViewBuilder
+    private var readerBackground: some View {
+        if let photo = settings.backgroundPhoto {
+            GeometryReader { geometry in
+                Image(photo.assetName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .overlay(Color.black.opacity(photo.dimmingOpacity))
+                    .overlay(alignment: .top) {
+                        Color.black.opacity(0.2)
+                            .frame(height: ReaderToolbarMetrics.topBarBandHeight)
+                    }
+            }
+        } else {
+            settings.theme.backgroundColor
+        }
+    }
+
     private var readingContent: some View {
         ZStack {
             if isLoadingContent || isPaginating {
@@ -658,7 +687,7 @@ struct ReaderView: View {
                     ProgressView()
                     Text(isLoadingContent ? "加载中…" : "排版中…")
                         .font(.subheadline)
-                        .foregroundStyle(settings.theme.textColor.opacity(0.6))
+                        .foregroundStyle(settings.readingTextColor.opacity(0.6))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -669,10 +698,10 @@ struct ReaderView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.title)
-                        .foregroundStyle(settings.theme.textColor.opacity(0.5))
+                        .foregroundStyle(settings.readingTextColor.opacity(0.5))
                     Text(error)
                         .font(.subheadline)
-                        .foregroundStyle(settings.theme.textColor.opacity(0.6))
+                        .foregroundStyle(settings.readingTextColor.opacity(0.6))
                         .multilineTextAlignment(.center)
                     HStack(spacing: 18) {
                         Button("重试") { fetchChapterContentIfNeeded() }
@@ -960,7 +989,7 @@ struct ReaderView: View {
                 if !bodyRepeatsChapterTitle {
                     Text(currentChapter?.title ?? "")
                         .font(.system(size: 12))
-                        .foregroundStyle(settings.theme.chapterTitleColor)
+                        .foregroundStyle(settings.readingSecondaryColor)
                         .padding(.top, scrollChapterTitleTopInset)
                         // 章节名行高 14.3 + 34.3 让正文行框顶落在 125.3 的字墨线上;
                         // 大字时行框顶要往上收,收的量与 scrollBodyTopInset 同一笔。
@@ -977,7 +1006,7 @@ struct ReaderView: View {
                         .font(settings.fontFamily.isSystem
                             ? .system(size: settings.fontSize)
                             : .custom(settings.fontFamily.postScriptName, size: settings.fontSize))
-                        .foregroundStyle(settings.theme.textColor)
+                        .foregroundStyle(settings.readingTextColor)
                         .lineSpacing(bodyLineGap)
                         // SwiftUI 的单行 Text 只按字体自然行高(约 22.7)收尾,
                         // 最后一行缺了行距那一段;补回 bodyLineGap,让每段都是
@@ -989,7 +1018,7 @@ struct ReaderView: View {
                             if selection?.paragraphIndex == index,
                                selection?.chapterIndex == currentChapterIndex {
                                 RoundedRectangle(cornerRadius: 4)
-                                    .fill(settings.theme.textColor.opacity(0.12))
+                                    .fill(settings.readingTextColor.opacity(0.12))
                                     .padding(.horizontal, -4)
                                     .padding(.vertical, -2)
                             }
@@ -1136,10 +1165,12 @@ struct ReaderView: View {
 
     private var pullHintBand: some View {
         ZStack(alignment: .top) {
-            settings.theme.backgroundColor
+            settings.isPhotoBackground
+                ? Color.black.opacity(0.2)
+                : settings.theme.backgroundColor
             Text(pullWillDelete ? "松手删除书签" : "松手添加书签")
                 .font(.system(size: 13))
-                .foregroundStyle(settings.theme.textColor.opacity(0.55))
+                .foregroundStyle(settings.readingTextColor.opacity(0.55))
                 .padding(.top, 30)
         }
         .frame(height: 88)
@@ -1323,7 +1354,7 @@ struct ReaderView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 0) {
                     if hasPrev {
-                        settings.theme.backgroundColor
+                        settings.pageBackgroundColor
                             .frame(width: width, height: height)
                             .id(HorizontalPageID.legacyTrigger(
                                 ownerChapterID: chapter.id,
@@ -1354,7 +1385,7 @@ struct ReaderView: View {
                                 direction: .next
                             ))
 
-                        settings.theme.backgroundColor
+                        settings.pageBackgroundColor
                             .frame(width: width, height: height)
                             .id(HorizontalPageID.legacyTrigger(
                                 ownerChapterID: chapter.id,
@@ -1370,7 +1401,7 @@ struct ReaderView: View {
                 handleLegacyHorizontalScrollPosition(newValue)
             }
         } else {
-            settings.theme.backgroundColor
+            settings.pageBackgroundColor
         }
     }
 
@@ -1774,10 +1805,10 @@ struct ReaderView: View {
             Spacer()
             Text(label)
                 .font(.system(size: 14))
-                .foregroundStyle(settings.theme.textColor.opacity(0.4))
+                .foregroundStyle(settings.readingTextColor.opacity(0.4))
             Text(title)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(settings.theme.textColor.opacity(0.6))
+                .foregroundStyle(settings.readingTextColor.opacity(0.6))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
@@ -1810,8 +1841,8 @@ struct ReaderView: View {
             fontSize: settings.fontSize,
             lineSpacing: settings.lineSpacing,
             fontFamily: settings.fontFamily.rawValue,
-            textColor: settings.theme.textColor,
-            titleColor: settings.theme.chapterTitleColor,
+            textColor: settings.readingTextColor,
+            titleColor: settings.readingSecondaryColor,
             horizontalPadding: settings.horizontalPadding,
             bottomReserve: pageBottomReserve,
             paragraphSpacing: settings.paragraphSpacing,

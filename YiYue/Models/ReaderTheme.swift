@@ -1,30 +1,34 @@
 import SwiftUI
 
+/// 背景是一个值:要么四色之一,要么五张照片之一(「已定的实现口径」)。
+/// 顺序就是亮度面板里的顺序:白色、米黄、护眼绿、夜间。
+/// 青灰已撤:旧存档里的 "blueGray" 解析不出来,统一回落到米黄。
 enum ReaderTheme: String, CaseIterable, Codable {
     case paper
     case white
     case green
-    case blueGray
     case dark
 
-    // MARK: - 五套主题(名字与色值见 reader-chrome-replica-spec §7)
+    /// 亮度面板的四格顺序:白、米黄、护眼绿、夜间。
+    /// allCases 保持旧顺序不动,设置页那行就不会因为这一版换排列。
+    static let palette: [ReaderTheme] = [.white, .paper, .green, .dark]
+
+    // MARK: - 四套颜色(名字与色值见 design-diff-16 §4)
 
     var backgroundHex: String {
         switch self {
-        case .paper: return "#F6F0E4"
         case .white: return "#FFFFFF"
-        case .green: return "#DEE8D5"
-        case .blueGray: return "#E7EDF1"
+        case .paper: return "#F7F0DF"
+        case .green: return "#CCF0CF"
         case .dark: return "#121212"
         }
     }
 
     var textHex: String {
         switch self {
-        case .paper: return "#2A2017"
         case .white: return "#1B1B1D"
+        case .paper: return "#2A2017"
         case .green: return "#23301F"
-        case .blueGray: return "#1F2A33"
         case .dark: return "#D4D4D4"
         }
     }
@@ -32,10 +36,9 @@ enum ReaderTheme: String, CaseIterable, Codable {
     /// 页脚、标签、章节名共用这一档次要色。
     var secondaryHex: String {
         switch self {
-        case .paper: return "#6B6153"
         case .white: return "#6E6E73"
+        case .paper: return "#6B6153"
         case .green: return "#55634E"
-        case .blueGray: return "#556571"
         case .dark: return "#8A8A8A"
         }
     }
@@ -43,10 +46,8 @@ enum ReaderTheme: String, CaseIterable, Codable {
     /// 强调色:当前章、书签丝带、选字手柄、选中格和进度环都用它。
     var accentHex: String {
         switch self {
-        case .paper: return "#9A4A31"
-        case .white: return "#9A4A31"
+        case .white, .paper: return "#9A4A31"
         case .green: return "#8A4B2A"
-        case .blueGray: return "#9A4A31"
         case .dark: return "#C9825C"
         }
     }
@@ -54,10 +55,9 @@ enum ReaderTheme: String, CaseIterable, Codable {
     /// 菜单分隔线 / 面板描边。
     var separatorHex: String {
         switch self {
-        case .paper: return "#E0D6C2"
         case .white: return "#E5E5EA"
+        case .paper: return "#E0D6C2"
         case .green: return "#CBD8C0"
-        case .blueGray: return "#D2DBE2"
         case .dark: return "#2A2A2C"
         }
     }
@@ -79,7 +79,6 @@ enum ReaderTheme: String, CaseIterable, Codable {
         case .paper: return "#EFE8DA"
         case .white: return "#F7F7F7"
         case .green: return "#D7E1CE"
-        case .blueGray: return "#DFE6EB"
         case .dark: return "#131314"
         }
     }
@@ -127,16 +126,50 @@ enum ReaderTheme: String, CaseIterable, Codable {
 
     var displayName: String {
         switch self {
-        case .paper: return "纸色"
-        case .white: return "纯白"
+        case .white: return "白色"
+        case .paper: return "米黄"
         case .green: return "护眼绿"
-        case .blueGray: return "青灰"
         case .dark: return "夜间"
         }
     }
 
     var isDark: Bool {
         self == .dark
+    }
+}
+
+/// 五张实景背景。id 就是资源名,压暗比例按 id 各给各的,
+/// 不做「一个全局暗化值」——五张图本身的明度差很多。
+enum ReaderBackgroundPhoto: String, CaseIterable, Codable, Identifiable {
+    case mountain = "bg-mountain"
+    case sea = "bg-sea"
+    case night = "bg-night"
+    case forest = "bg-forest"
+    case warm = "bg-warm"
+
+    var id: String { rawValue }
+    var assetName: String { rawValue }
+
+    /// 只做读屏名,缩略图上不写字。
+    var displayName: String {
+        switch self {
+        case .mountain: return "远山"
+        case .sea: return "海面"
+        case .night: return "夜色"
+        case .forest: return "林间"
+        case .warm: return "暖光"
+        }
+    }
+
+    /// 照片上的黑色压暗比例(design-diff-16:远山/海面 15%,夜色/林间 10%,暖光 25%)。
+    var dimmingOpacity: Double {
+        switch self {
+        case .mountain: return 0.15
+        case .sea: return 0.15
+        case .night: return 0.10
+        case .forest: return 0.10
+        case .warm: return 0.25
+        }
     }
 }
 
