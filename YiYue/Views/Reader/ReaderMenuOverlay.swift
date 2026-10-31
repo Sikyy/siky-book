@@ -72,18 +72,22 @@ enum ReaderToolbarMetrics {
     static let iconTopInset: CGFloat = 7
 }
 
-/// 第三格:进度。实心圆 + 一条横杆穿过,进度面板打开时用强调色。
+/// 第三格:进度。小圆环两侧各一段短线(左 4、右 3),中间留 1 点缝,
+/// 不再是「一条长横杆穿过圆」的禁止符。进度面板打开时用强调色。
 struct ReaderProgressGlyph: View {
     var color: Color
 
     var body: some View {
-        ZStack {
+        HStack(spacing: 1) {
             Capsule()
                 .fill(color)
-                .frame(width: 23, height: 2)
+                .frame(width: 4, height: 2)
             Circle()
                 .fill(color)
-                .frame(width: 15, height: 15)
+                .frame(width: 14, height: 14)
+            Capsule()
+                .fill(color)
+                .frame(width: 3, height: 2)
         }
         .frame(width: 23, height: 23)
     }
@@ -238,7 +242,7 @@ struct ReaderMenuOverlay: View {
                         }
                     }
 
-                // 底部菜单块:从 y=568 起到屏底,纸色、分隔线、软阴影。
+                // 底部菜单块:从面板顶(按底往上的间距链算出)到屏底,纸色、分隔线、软阴影。
                 // 内容全部画在这块里,正文排版视口一帧不动。
                 bottomChrome(width: screenWidth, height: screenHeight)
 
@@ -458,29 +462,62 @@ struct ReaderMenuOverlay: View {
     // MARK: - Bottom Chrome
 
     private enum BottomChromeMetrics {
-        static let panelTop: CGFloat = 568
-        /// 面板顶到数字墨顶 41:数字行框顶在 603,字形上留白约 6。
-        static let progressFrameTop: CGFloat = 603
+        /// 参考屏高:整块内容按屏幕绝对坐标摆放。
+        static let screenBottom: CGFloat = 874
+
+        /// 从 874 的底边往上量:图标 23 点、胶囊 40、滑槽 36,
+        /// 中间夹 36 / 35,再往上 34 到标签、12 到数字,最后 41 到面板顶。
+        static let iconBottomInset: CGFloat = 52
+        static let iconBoxHeight: CGFloat = 23
+        static let iconPillGap: CGFloat = 36
+        static let pillHeight: CGFloat = 40
+        static let pillSliderGap: CGFloat = 35
+        static let sliderHeight: CGFloat = 36
+        static let sliderLabelGap: CGFloat = 34
+        static let labelInkHeight: CGFloat = 8
+        static let labelNumberGap: CGFloat = 12
+        static let numberInkHeight: CGFloat = 17
+        static let numberPanelGap: CGFloat = 41
+
+        /// 由底往上的间距链算出来的各条边,不再单独硬编码顶边。
+        static let iconBottom = screenBottom - iconBottomInset          // 822
+        static let iconTop = iconBottom - iconBoxHeight                 // 799
+        static let pillBottom = iconTop - iconPillGap                   // 763
+        static let pillTop = pillBottom - pillHeight                    // 723
+        static let sliderBottom = pillTop - pillSliderGap               // 688
+        static let sliderTop = sliderBottom - sliderHeight              // 652
+        static let labelInkBottom = sliderTop - sliderLabelGap          // 618
+        static let labelInkTop = labelInkBottom - labelInkHeight        // 610
+        static let numberInkBottom = labelInkTop - labelNumberGap       // 598
+        static let numberInkTop = numberInkBottom - numberInkHeight     // 581
+        static let panelHeight = iconBottomInset + iconBoxHeight + iconPillGap
+            + pillHeight + pillSliderGap + sliderHeight + sliderLabelGap
+            + labelInkHeight + labelNumberGap + numberInkHeight + numberPanelGap
+        static let panelTop = screenBottom - panelHeight                // 540
+
+        /// 24 点数字的行框顶比墨顶高 6 点。
+        static let numberInkTopOffset: CGFloat = 6
+        /// 数字行与标签行的间距:让标签墨顶落到 610。
+        static let numberLabelSpacing: CGFloat = 4.7
+        static let progressFrameTop = numberInkTop - numberInkTopOffset // 575
         /// 三个等宽栏:两组数落在第 1、3 栏,整体仍以 x=201 居中。
         static let dividerHeight: CGFloat = 24
         /// 分隔线顶边相对数字行框顶:与 24 点数字的墨迹垂直居中。
         static let dividerTop: CGFloat = 4
-        static let sliderTop: CGFloat = 659
-        static let sliderHeight: CGFloat = 36
         static let grooveLeft: CGFloat = 21
         static let grooveRight: CGFloat = 390
         static let arrowInset: CGFloat = 17
         /// SF 雪佛龙字形在字框里向外偏约 1.2,回补后箭头墨迹中心距槽边 17。
         static let arrowOpticalInset: CGFloat = 1.2
         static let knobSize: CGFloat = 36
-        static let pillTop: CGFloat = 730
-        static let pillHeight: CGFloat = 40
+        /// 已读段叠在未读槽色上,合成后比未读深约 11 级灰(未读 12% 墨)。
+        static let readTrackOpacity: CGFloat = 0.056
         static let pillMargin: CGFloat = 20
         static let pillGap: CGFloat = 21
     }
 
-    /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从 568 起,内容按屏幕绝对坐标。
-    /// 菜单块顶边:固定值;上面那行用 12 点渐隐收尾,不做半行硬切。
+    /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从算出的顶边起,内容按屏幕绝对坐标。
+    /// 菜单块顶边由底往上的间距链推出;上面那行用 22 点渐隐收尾,不做半行硬切。
     private var resolvedPanelTop: CGFloat {
         BottomChromeMetrics.panelTop
     }
@@ -559,7 +596,7 @@ struct ReaderMenuOverlay: View {
     }
 
     private func progressStatColumn(value: String, label: String) -> some View {
-        VStack(spacing: 8.7) {
+        VStack(spacing: BottomChromeMetrics.numberLabelSpacing) {
             Text(value)
                 .font(.system(size: 24, weight: .medium))
                 .monospacedDigit()
@@ -592,6 +629,12 @@ struct ReaderMenuOverlay: View {
             Capsule()
                 .fill(theme.menuPrimary.opacity(0.12))
                 .frame(width: grooveWidth, height: BottomChromeMetrics.sliderHeight)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(theme.menuPrimary.opacity(BottomChromeMetrics.readTrackOpacity))
+                        .frame(width: max(0, knobX - grooveLeft))
+                }
+                .clipShape(Capsule())
                 .position(x: grooveLeft + grooveWidth / 2, y: centerY)
                 .contentShape(Rectangle().inset(by: -16))
                 .gesture(chapterSliderGesture(width: width))
