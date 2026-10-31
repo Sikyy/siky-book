@@ -63,28 +63,62 @@ enum ReaderToolbarMetrics {
     /// 底部工具条从 y=791 到屏幕底。
     static let height: CGFloat = 83
     static let topBarHeight: CGFloat = 40
-    /// 顶栏高 40、返回/目录图标中心 y=78。
+    /// 顶栏高 40、返回 / 排版 / 分享 / 更多图标中心 y=78。
     static let topBarTop: CGFloat = 58
-    /// 图标框 23,墨迹高 23(字形按 22 点画)。
-    static let iconSize: CGFloat = 23
-    static let iconGlyphSize: CGFloat = 22
-    /// 图标墨底距屏底 52:框中心 y=810.5,工具条顶 791 加 1 点分隔线、内缩 7。
-    static let iconTopInset: CGFloat = 7
+    /// 菜单开时的顶栏底色带 0–100:顶栏自己占 58–98,带子上下各留一点余量。
+    static let topBarBandHeight: CGFloat = 100
+
+    /// 顶栏图标墨盒约 21.7 宽 × 19 高(原来按 24 点字画,偏大)。
+    static let topBarIconWidth: CGFloat = 21.7
+    static let topBarIconHeight: CGFloat = 19
+    static let topBarGlyphSize: CGFloat = 22
+    /// 返回的雪佛龙和其他三个同一字号:22 点字、墨高约 19–20。
+    static let topBarBackGlyphSize: CGFloat = 22
+    /// 雪佛龙字形墨心比字框中心偏左约 2 点,回补后墨心落在 13.8。
+    static let backOpticalOffset: CGFloat = 2
+    /// 402 点屏上的图标中心 x。右侧三个从屏右缘往回量,换屏宽也不跑位。
+    static let backCenterX: CGFloat = 13.8
+    static let textCenterFromTrailing: CGFloat = 402 - 292.9   // 109.1
+    static let shareCenterFromTrailing: CGFloat = 402 - 338.9  // 63.1
+    static let moreCenterFromTrailing: CGFloat = 402 - 380.5   // 21.5
+    /// 图标按钮的点击框:32 宽、40 高,相邻两颗不叠。
+    static let buttonBoxWidth: CGFloat = 32
+
+    /// 底部五格:图标墨高 22.3、墨底离屏底 49(原来是 23 / 52)。
+    static let iconBoxHeight: CGFloat = 22.3
+    static let iconBottomInset: CGFloat = 49
+    static let iconGlyphSize: CGFloat = 21.3
+    /// 选中格:实心蓝圆 #2493EE;圆直径和图标墨高一致。
+    static let selectedFillHex: String = "#2493EE"
+    static var selectedFill: Color { Color(hex: selectedFillHex) }
+    /// 选中格圆里的小图形要收到圆内(参考图约 10 × 13)。
+    static let selectedGlyphSize: CGFloat = 12
+    /// 图标墨底离工具条内容顶:83 − 49 − 22.3 = 11.7,再扣 1 点分隔线。
+    static let iconTopInset: CGFloat = height - iconBottomInset - iconBoxHeight - 1
+    /// 正文可排到的底边离屏底 = 图标墨顶(49 + 22.3 = 71.3)。
+    /// 页脚那行删掉后,正文一直排到图标行,这条线接手原来「页脚上沿」的位置。
+    static let bodyBottomInset: CGFloat = iconBottomInset + iconBoxHeight
 }
 
 /// 第三格:进度。小圆环两侧各一段短线(左 4、右 3),中间留 1 点缝,
-/// 不再是「一条长横杆穿过圆」的禁止符。进度面板打开时用强调色。
+/// 不再是「一条长横杆穿过圆」的禁止符。未选中是描边圆,选中格填实(参考图)。
 struct ReaderProgressGlyph: View {
     var color: Color
+    var isFilled: Bool = false
 
     var body: some View {
         HStack(spacing: 1) {
             Capsule()
                 .fill(color)
                 .frame(width: 4, height: 2)
-            Circle()
-                .fill(color)
-                .frame(width: 14, height: 14)
+            Group {
+                if isFilled {
+                    Circle().fill(color)
+                } else {
+                    Circle().stroke(color, lineWidth: 1.5)
+                }
+            }
+            .frame(width: 14, height: 14)
             Capsule()
                 .fill(color)
                 .frame(width: 3, height: 2)
@@ -152,7 +186,7 @@ struct ReaderMenuOverlay: View {
     /// 正文第一条线的屏幕 y 和一行的高度:目录/设置面板的顶边要落在行边界上。
     var bodyTopY: CGFloat = 0
     var bodyLineHeight: CGFloat = 0
-    /// 阅读进度,和页脚同一个算法。
+    /// 阅读进度,和进度格同一个算法。
     var progressPercent: String = ""
     /// 进度格的圆环取 0…1。
     var progressFraction: Double = 0
@@ -250,7 +284,13 @@ struct ReaderMenuOverlay: View {
 
                 panelTopFade
 
-                // 顶栏:高 40、无底色无分隔线,返回 / 章节名 / 目录。
+                // 顶栏底色带:0–100 一条实色,只在图标态(菜单开、没开面板)出现,
+                // 面板一开就只剩正文底色,和参考图的两态一致。
+                if selectedTool == nil {
+                    topBarBand(width: screenWidth)
+                }
+
+                // 顶栏:高 40,返回 / 排版 / 分享 / 更多。
                 topBar
 
                 if let panelTool = selectedTool {
@@ -467,41 +507,43 @@ struct ReaderMenuOverlay: View {
         /// 参考屏高:整块内容按屏幕绝对坐标摆放。
         static let screenBottom: CGFloat = 874
 
-        /// 从 874 的底边往上量:图标 23 点、胶囊 40、滑槽 36,
-        /// 中间夹 36 / 35,再往上 34 到标签、12 到数字,最后 41 到面板顶。
-        static let iconBottomInset: CGFloat = 52
-        static let iconBoxHeight: CGFloat = 23
-        static let iconPillGap: CGFloat = 36
-        static let pillHeight: CGFloat = 40
-        static let pillSliderGap: CGFloat = 35
-        static let sliderHeight: CGFloat = 36
-        static let sliderLabelGap: CGFloat = 34
-        static let labelInkHeight: CGFloat = 8
-        static let labelNumberGap: CGFloat = 12
-        static let numberInkHeight: CGFloat = 17
-        static let numberPanelGap: CGFloat = 41
+        /// 从 874 的底边往上量:图标 22.3 点、胶囊 36、滑槽 35.7,
+        /// 中间夹 35.7 / 35.3,再往上 31.3 到标签、11 到数字,最后 35 到面板顶。
+        /// 这些缝就是面板的全部高度,面板不再写死 334。
+        static let iconBottomInset = ReaderToolbarMetrics.iconBottomInset       // 49
+        static let iconBoxHeight = ReaderToolbarMetrics.iconBoxHeight           // 22.3
+        static let iconPillGap: CGFloat = 35.7
+        static let pillHeight: CGFloat = 36
+        static let pillSliderGap: CGFloat = 35.3
+        static let sliderHeight: CGFloat = 35.7
+        static let sliderLabelGap: CGFloat = 31.3
+        static let labelInkHeight: CGFloat = 9.4
+        static let labelNumberGap: CGFloat = 11
+        static let numberInkHeight: CGFloat = 17.3
+        static let numberPanelGap: CGFloat = 35
 
         /// 由底往上的间距链算出来的各条边,不再单独硬编码顶边。
-        static let iconBottom = screenBottom - iconBottomInset          // 822
-        static let iconTop = iconBottom - iconBoxHeight                 // 799
-        static let pillBottom = iconTop - iconPillGap                   // 763
-        static let pillTop = pillBottom - pillHeight                    // 723
-        static let sliderBottom = pillTop - pillSliderGap               // 688
-        static let sliderTop = sliderBottom - sliderHeight              // 652
-        static let labelInkBottom = sliderTop - sliderLabelGap          // 618
-        static let labelInkTop = labelInkBottom - labelInkHeight        // 610
-        static let numberInkBottom = labelInkTop - labelNumberGap       // 598
-        static let numberInkTop = numberInkBottom - numberInkHeight     // 581
+        static let iconBottom = screenBottom - iconBottomInset          // 825
+        static let iconTop = iconBottom - iconBoxHeight                 // 802.7
+        static let pillBottom = iconTop - iconPillGap                   // 767
+        static let pillTop = pillBottom - pillHeight                    // 731
+        static let sliderBottom = pillTop - pillSliderGap               // 695.7
+        static let sliderTop = sliderBottom - sliderHeight              // 660
+        static let labelInkBottom = sliderTop - sliderLabelGap          // 628.7
+        static let labelInkTop = labelInkBottom - labelInkHeight        // 619.3
+        static let numberInkBottom = labelInkTop - labelNumberGap       // 608.3
+        static let numberInkTop = numberInkBottom - numberInkHeight     // 591
         static let panelHeight = iconBottomInset + iconBoxHeight + iconPillGap
             + pillHeight + pillSliderGap + sliderHeight + sliderLabelGap
             + labelInkHeight + labelNumberGap + numberInkHeight + numberPanelGap
-        static let panelTop = screenBottom - panelHeight                // 540
+        /// 面板高 318、贴底:874 − 318 = 556(参考图进度面板顶)。
+        static let panelTop = screenBottom - panelHeight                // 556
 
         /// 24 点数字的行框顶比墨顶高 6 点。
         static let numberInkTopOffset: CGFloat = 6
-        /// 数字行与标签行的间距:让标签墨顶落到 610。
-        static let numberLabelSpacing: CGFloat = 4.7
-        static let progressFrameTop = numberInkTop - numberInkTopOffset // 575
+        /// 数字行与标签行的间距:让标签墨顶落在 619.3(数字墨底 608.3 + 11)。
+        static let numberLabelSpacing: CGFloat = 4
+        static let progressFrameTop = numberInkTop - numberInkTopOffset // 585
         /// 三个等宽栏:两组数落在第 1、3 栏,整体仍以 x=201 居中。
         static let dividerHeight: CGFloat = 24
         /// 分隔线顶边相对数字行框顶:与 24 点数字的墨迹垂直居中。
@@ -519,7 +561,9 @@ struct ReaderMenuOverlay: View {
     }
 
     /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从算出的顶边起,内容按屏幕绝对坐标。
-    /// 菜单块顶边由底往上的间距链推出;上面那行用 22 点渐隐收尾,不做半行硬切。
+    /// 面板高度 = 由底往上那串内容间距的合计(318 点),贴屏底,不再写死 334。
+    /// 同一套间距也决定进度面板顶 556;字号面板 542、亮度面板 556 的内容由后续包补。
+    /// 上面那行用 22 点渐隐收尾,不做半行硬切。
     private var resolvedPanelTop: CGFloat {
         BottomChromeMetrics.panelTop
     }
@@ -813,8 +857,53 @@ struct ReaderMenuOverlay: View {
 
     // MARK: - Top Bar
 
+    /// 菜单开、没开面板时的顶栏底色带:0–100 一条实色,夜间 #131314。
+    /// 只铺在图标态;面板开时这份带上就只剩正文底色。
+    private func topBarBand(width: CGFloat) -> some View {
+        theme.topBarBand
+            .frame(width: width, height: ReaderToolbarMetrics.topBarBandHeight)
+            .allowsHitTesting(false)
+    }
+
+    /// 顶栏图标:墨盒 21.7 × 19,外面留 32 × 40 的点击框。
+    private func topBarIconLabel(
+        systemName: String,
+        glyphSize: CGFloat,
+        opticalOffset: CGFloat = 0
+    ) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: glyphSize, weight: .regular))
+            .foregroundStyle(theme.menuPrimary)
+            .frame(width: ReaderToolbarMetrics.topBarIconWidth,
+                   height: ReaderToolbarMetrics.topBarIconHeight)
+            .offset(x: opticalOffset)
+            .frame(width: ReaderToolbarMetrics.buttonBoxWidth,
+                   height: ReaderToolbarMetrics.topBarHeight)
+            .contentShape(Rectangle())
+    }
+
+    private func topBarIconButton(
+        systemName: String,
+        label: String,
+        glyphSize: CGFloat,
+        centerX: CGFloat,
+        opticalOffset: CGFloat = 0,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            topBarIconLabel(
+                systemName: systemName,
+                glyphSize: glyphSize,
+                opticalOffset: opticalOffset
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .position(x: centerX, y: ReaderToolbarMetrics.topBarHeight / 2)
+    }
+
     private var topBar: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             if selectedTool != nil {
                 // 面板开着:左侧只留章节名,字墨从 x=31 起,比正文(28)稍内收;
                 // 墨迹 y 76–86,比居中位置下移 3 点。
@@ -829,54 +918,55 @@ struct ReaderMenuOverlay: View {
                     .offset(y: 3)
                     .accessibilityLabel(chapterTitle.isEmpty ? "" : "当前章节 \(chapterTitle)")
             } else {
-                HStack(spacing: 0) {
-                    Button(action: { onBack() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 24, weight: .regular))
-                            .foregroundStyle(theme.menuPrimary)
-                            .frame(width: 30, height: ReaderToolbarMetrics.topBarHeight)
-                            // 雪佛龙字形本身偏左,补 2.8 让字墨中心落在 x=16。
-                            .offset(x: 2.8)
-                            .contentShape(Rectangle())
+                // 两态只换内容:图标态四颗按参考图的墨心落点排,
+                // 返回 13.8、排版 292.9、分享 338.9、更多 380.5(402 点宽)。
+                GeometryReader { proxy in
+                    let width = proxy.size.width
+                    topBarIconButton(
+                        systemName: "chevron.left",
+                        label: "返回",
+                        glyphSize: ReaderToolbarMetrics.topBarBackGlyphSize,
+                        centerX: ReaderToolbarMetrics.backCenterX,
+                        opticalOffset: ReaderToolbarMetrics.backOpticalOffset,
+                        action: { onBack() }
+                    )
+
+                    topBarIconButton(
+                        systemName: ReaderTool.text.icon,
+                        label: "排版",
+                        glyphSize: ReaderToolbarMetrics.topBarGlyphSize,
+                        centerX: width - ReaderToolbarMetrics.textCenterFromTrailing,
+                        action: { handleToolTap(.text) }
+                    )
+
+                    // 分享只发一句字,不放链接;系统分享面板由 ShareLink 拉起。
+                    ShareLink(item: "我在『今日已阅』读《\(book.title)》。") {
+                        topBarIconLabel(
+                            systemName: "square.and.arrow.up",
+                            glyphSize: ReaderToolbarMetrics.topBarGlyphSize
+                        )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("返回")
+                    .accessibilityLabel("分享")
+                    .position(
+                        x: width - ReaderToolbarMetrics.shareCenterFromTrailing,
+                        y: ReaderToolbarMetrics.topBarHeight / 2
+                    )
 
-                    Spacer(minLength: 0)
-
-                    // 右侧两个入口:排版居中 x=335、更多居中 x=379(402 点宽屏)。
-                    HStack(spacing: 12) {
-                        Button {
-                            handleToolTap(.text)
-                        } label: {
-                            Image(systemName: ReaderTool.text.icon)
-                                .font(.system(size: 24, weight: .regular))
-                                .foregroundStyle(theme.menuPrimary)
-                                .frame(width: 32, height: ReaderToolbarMetrics.topBarHeight)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("排版")
-
-                        Button {
-                            showMoreMenu = true
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 24, weight: .regular))
-                                .foregroundStyle(theme.menuPrimary)
-                                .frame(width: 32, height: ReaderToolbarMetrics.topBarHeight)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("更多")
-                    }
-                    .padding(.trailing, 7)
+                    topBarIconButton(
+                        systemName: "ellipsis",
+                        label: "更多",
+                        glyphSize: ReaderToolbarMetrics.topBarGlyphSize,
+                        centerX: width - ReaderToolbarMetrics.moreCenterFromTrailing,
+                        action: { showMoreMenu = true }
+                    )
                 }
+                .frame(height: ReaderToolbarMetrics.topBarHeight)
             }
         }
         .frame(maxWidth: .infinity)
         .frame(height: ReaderToolbarMetrics.topBarHeight)
-        // 无底色、无分隔线,直接压在正文上,正文不动。
+        // 图标态下面铺实色带;带子本身在 topBarBand 里画,这层只让顶栏不挡正文。
         .background(Color.clear)
         .background(
             GeometryReader { proxy in
@@ -1097,8 +1187,8 @@ struct ReaderMenuOverlay: View {
                         handleToolTap(tool)
                     } label: {
                         toolIcon(tool)
-                            .frame(width: ReaderToolbarMetrics.iconSize,
-                                   height: ReaderToolbarMetrics.iconSize)
+                            .frame(width: ReaderToolbarMetrics.iconBoxHeight,
+                                   height: ReaderToolbarMetrics.iconBoxHeight)
                             .frame(width: cellWidth, height: height - 1, alignment: .top)
                             .offset(y: ReaderToolbarMetrics.iconTopInset)
                             .contentShape(Rectangle())
@@ -1119,29 +1209,52 @@ struct ReaderMenuOverlay: View {
     @ViewBuilder
     private func toolIcon(_ tool: ReaderTool) -> some View {
         let selected = selectedTool == tool
-        let color = selected ? theme.accentColor : theme.menuPrimary.opacity(0.7)
+        let tint = theme.menuPrimary.opacity(0.7)
+        let iconSide = ReaderToolbarMetrics.iconBoxHeight
         switch tool {
         case .progress:
-            ReaderProgressGlyph(color: color)
+            // 选中格:圆填实成蓝 #2493EE,两侧短线也跟着变蓝(参考图)。
+            ReaderProgressGlyph(
+                color: selected ? ReaderToolbarMetrics.selectedFill : tint,
+                isFilled: selected
+            )
+            .frame(width: iconSide, height: iconSide)
         case .text:
             Text("A")
                 .font(.system(size: 26, weight: .regular))
-                .foregroundStyle(color)
-                .frame(width: ReaderToolbarMetrics.iconSize,
-                       height: ReaderToolbarMetrics.iconSize)
-        case .bookmarks:
-            Image(systemName: hasPageBookmark ? "bookmark.fill" : "bookmark")
+                .foregroundStyle(selected ? ReaderToolbarMetrics.selectedFill : tint)
+                .frame(width: iconSide, height: iconSide)
+        case .brightness:
+            // 选中格太阳中心填实,和参考图一致。
+            Image(systemName: selected ? "sun.max.fill" : tool.icon)
                 .font(.system(size: ReaderToolbarMetrics.iconGlyphSize, weight: .regular))
-                .foregroundStyle(color)
-                .frame(width: ReaderToolbarMetrics.iconSize,
-                       height: ReaderToolbarMetrics.iconSize)
-        default:
-            Image(systemName: tool.icon)
-                .font(.system(size: ReaderToolbarMetrics.iconGlyphSize, weight: .regular))
-                .foregroundStyle(color)
-                .frame(width: ReaderToolbarMetrics.iconSize,
-                       height: ReaderToolbarMetrics.iconSize)
+                .foregroundStyle(selected ? ReaderToolbarMetrics.selectedFill : tint)
+                .frame(width: iconSide, height: iconSide)
+        case .chapters, .bookmarks:
+            // 选中格是实心蓝圆 + 白色图形:图形要缩到圆内。
+            ZStack {
+                if selected {
+                    Circle()
+                        .fill(ReaderToolbarMetrics.selectedFill)
+                        .frame(width: iconSide, height: iconSide)
+                }
+                Image(systemName: bookmarkSymbol(for: tool))
+                    .font(.system(
+                        size: selected
+                            ? ReaderToolbarMetrics.selectedGlyphSize
+                            : ReaderToolbarMetrics.iconGlyphSize,
+                        weight: .regular
+                    ))
+                    .foregroundStyle(selected ? Color.white : tint)
+            }
+            .frame(width: iconSide, height: iconSide)
         }
+    }
+
+    /// 第二格是书签(有意和微信读书的「笔记」不同):有书签时用填实图形。
+    private func bookmarkSymbol(for tool: ReaderTool) -> String {
+        guard tool == .bookmarks, hasPageBookmark else { return tool.icon }
+        return "bookmark.fill"
     }
 
     private func handleToolTap(_ tool: ReaderTool) {
@@ -1172,8 +1285,8 @@ struct ReaderMenuOverlay: View {
         if let lineTop = measuredBodyLineTops.last(where: { $0 <= raw }) {
             return lineTop
         }
-        // 滚动模式量不到真实行框时,从规格的 116 字顶按当前行高铺网格。
-        let bodyTop = measuredBodyLineTops.first ?? ReaderTypography.bodyTopInkY
+        // 滚动模式量不到真实行框时,从规格的 125.3 字顶按当前行高铺网格。
+        let bodyTop = measuredBodyLineTops.first ?? ReaderBodyMetrics.firstLineInkTop
         let steps = floor((raw - bodyTop) / line)
         return bodyTop + max(0, steps) * line
     }
@@ -1811,7 +1924,7 @@ struct ReaderMenuOverlay: View {
         guard topBarHeight > 1 else { return 0 }
         let line = currentBodyLineHeight
         guard line > 1 else { return 0 }
-        let origin = measuredBodyLineTops.first ?? ReaderTypography.bodyTopInkY
+        let origin = measuredBodyLineTops.first ?? ReaderBodyMetrics.firstLineInkTop
         let distance = max(topBarBottomY, Self.panelTop + topBarHeight) - origin
         guard distance > 0 else { return 0 }
         let remainder = distance.truncatingRemainder(dividingBy: line)
@@ -1831,8 +1944,8 @@ struct ReaderMenuOverlay: View {
             let steps = ceil((minimum - last) / line)
             return last + max(0, steps) * line
         }
-        // 滚动模式可能量不到 bodyTopY,退回规格的 116 字顶,按当前行高铺网格。
-        let origin = ReaderTypography.bodyTopInkY
+        // 滚动模式可能量不到 bodyTopY,退回规格的 125.3 字顶,按当前行高铺网格。
+        let origin = ReaderBodyMetrics.firstLineInkTop
         let steps = ceil((minimum - origin) / line)
         return origin + max(0, steps) * line
     }

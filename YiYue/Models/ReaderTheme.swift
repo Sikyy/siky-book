@@ -71,6 +71,21 @@ enum ReaderTheme: String, CaseIterable, Codable {
     var chapterTitleColor: Color { secondaryColor }
     var statusBarColor: Color { secondaryColor }
 
+    /// 菜单开(只有顶栏图标、没有面板)时,顶栏底下那条 0–100 的实色带。
+    /// 夜间是 #131314,正文底是纯黑,所以带子要单独给一个值,不能用纸色。
+    var topBarBandHex: String {
+        switch self {
+        // TODO(浅色带待设计定值): 浅色主题的带色还没有设计值,先按纸色深一档压。
+        case .paper: return "#EFE8DA"
+        case .white: return "#F7F7F7"
+        case .green: return "#D7E1CE"
+        case .blueGray: return "#DFE6EB"
+        case .dark: return "#131314"
+        }
+    }
+
+    var topBarBand: Color { Self.color(topBarBandHex) }
+
     // MARK: - Menu (reader overlay)
 
     /// 菜单是不透明面板,不用 material,浅色主题上也不会泛灰。
@@ -97,7 +112,8 @@ enum ReaderTheme: String, CaseIterable, Codable {
                 theme.secondaryHex,
                 theme.accentHex,
                 theme.separatorHex,
-                theme.menuBackgroundHex
+                theme.menuBackgroundHex,
+                theme.topBarBandHex
             ] {
                 cache[hex.lowercased()] = Color(hex: hex)
             }

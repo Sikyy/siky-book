@@ -4,6 +4,14 @@ import Combine
 import CoreText
 import UIKit
 
+/// 正文排版的纵向基准。菜单/面板开合都不能动这些数。
+/// 页脚那行删掉后,正文可排到的底边改用 `ReaderToolbarMetrics.bodyBottomInset`
+/// (底部五格的图标墨顶),不再按页脚上沿算。
+enum ReaderBodyMetrics {
+    /// 首行字墨顶 125.3(旧值 116,整体下移 9.3);行高 / 段距 / 左边距都不动。
+    static let firstLineInkTop: CGFloat = 125.3
+}
+
 @MainActor
 struct ReaderView: View {
     /// Replaced on foreground (see `refreshModelAfterSceneReset`): iOS 27 resets
@@ -119,8 +127,8 @@ struct ReaderView: View {
     @State private var horizontalProgrammaticScrollFallbackTask: Task<Void, Never>?
     @State private var horizontalIdleFinalizationTask: Task<Void, Never>?
     @State private var horizontalPageDescriptorSnapshot: [HorizontalPageDescriptor]?
-    /// One-line footer (11 pt + 8 pt inset) plus a small separation from text.
-    private let pageBottomReserve: CGFloat = 32
+    /// 正文可排到的底边离屏底:底部五格图标墨顶(49 + 22.3)。页脚那行已经删掉。
+    private let pageBottomReserve: CGFloat = ReaderToolbarMetrics.bodyBottomInset
     /// 左侧上一页热区 42 点、右侧下一页 62 点;中间其余部分开/关菜单。
     private let previousPageTapWidth: CGFloat = 42
     private let nextPageTapWidth: CGFloat = 62
@@ -697,7 +705,7 @@ struct ReaderView: View {
                 case .scroll:
                     scrollContent
                 case .horizontal, .tap:
-                    // 正文按屏幕绝对坐标排版:首行 116、页脚 55 都是相对屏幕底的。
+                    // 正文按屏幕绝对坐标排版:首行 125.3,底边到图标行。
                     pullablePage.ignoresSafeArea()
                 }
             }
@@ -727,7 +735,7 @@ struct ReaderView: View {
         return remainder < 0.5 ? 0 : remainder
     }
 
-    /// 全书进度(0…1),和页脚、进度格同一个算法。
+    /// 全书进度(0…1),和进度格同一个算法。
     private var overallProgressFraction: Double {
         let pageCount = max(cachedPages.count, 1)
         let currentPage = min(max(currentPageIndex + 1, 1), pageCount)
@@ -737,7 +745,7 @@ struct ReaderView: View {
         return (Double(currentChapterIndex) + chapterFraction) / Double(max(bookChapterCount, 1))
     }
 
-    /// 菜单进度,和页脚同一个算法。
+    /// 菜单进度,和进度格同一个算法。
     private var menuProgressText: String {
         "\(Int((overallProgressFraction * 100).rounded()))%"
     }
@@ -820,21 +828,22 @@ struct ReaderView: View {
         return max(0, bodyLineHeight - font.lineHeight)
     }
 
-    /// 一页能排的行数:从正文行框顶到页脚上沿,按行高取整。
-    /// 底边因此总是贴着页脚,余量永远小于一行。
+    /// 一页能排的行数:从正文行框顶到最底部五格的图标墨顶,按行高取整。
+    /// 页脚那行删掉后,这条底线接手原来「页脚上沿」的位置,正文一直排到图标行,
+    /// 行数不会因为删页脚而少一行、也不会多出一行被图标盖住。
     private var bodyLineCapacity: Double {
         let screenHeight = viewSize.height > 0
             ? Double(viewSize.height)
             : Double(currentWindowSize.height)
-        let footerTop = screenHeight - Double(ReaderTypography.footerBottomInset) - 16
+        let bodyBottom = screenHeight - Double(ReaderToolbarMetrics.bodyBottomInset)
         let lineHeight = Double(settings.bodyLineHeight)
         guard lineHeight > 0 else { return 1 }
-        let available = footerTop - Double(bodyContainerTopY)
+        let available = bodyBottom - Double(bodyContainerTopY)
         guard available > 0 else { return 1 }
         return max(1, (available / lineHeight).rounded(.down))
     }
 
-    /// 正文容器顶(屏幕坐标):首行字顶 116 减去行内字墨偏移。
+    /// 正文容器顶(屏幕坐标):首行字墨顶 125.3 减去行内字墨偏移。
     private var bodyContainerTopY: CGFloat {
         let size = CGFloat(settings.fontSize)
         let font = settings.fontFamily.uiFont(size: size)
@@ -843,7 +852,7 @@ struct ReaderView: View {
             lineHeight: settings.bodyLineHeight,
             font: font
         )
-        return max(0, ReaderTypography.bodyTopInkY - inkOffset + ReaderTypography.bodyInkCalibration)
+        return max(0, ReaderBodyMetrics.firstLineInkTop - inkOffset + ReaderTypography.bodyInkCalibration)
     }
 
     /// 当前页每一条正文线的行顶(屏幕坐标)。段间距 28 会让行位偏离
@@ -893,18 +902,20 @@ struct ReaderView: View {
         return body == (currentChapter?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 滚动模式正文首行字顶 116:SwiftUI Text 的行框顶到字墨顶实测约 2.8 点。
-    /// 字越大,字墨顶离行框顶越远,按实测比例补回来,首行始终落在 116。
+    /// 滚动模式正文首行字墨顶 125.3:SwiftUI Text 的行框顶到字墨顶实测约 2.8 点。
+    /// 字越大,字墨顶离行框顶越远,按实测比例补回来,首行始终落在 125.3。
     private var scrollInkTopCorrection: CGFloat {
         max(0, (CGFloat(settings.fontSize) - 19) * 0.24)
     }
 
     private var scrollBodyTopInset: CGFloat {
-        116 - 2.8 - scrollInkTopCorrection
+        ReaderBodyMetrics.firstLineInkTop - 2.8 - scrollInkTopCorrection
     }
 
     private var scrollChapterTitleBottomInset: CGFloat {
-        25 - scrollInkTopCorrection
+        // 章节名行底到正文行框顶:25 是首行落在 116 时的实测值,
+        // 首行下移到 125.3 后同步加 9.3,章节名自己的位置不动。
+        34.3 - scrollInkTopCorrection
     }
 
     /// 滚动模式章节名字顶 76:12 号字的行框顶到字墨顶实测约 2 点。
@@ -912,20 +923,21 @@ struct ReaderView: View {
         76 - 2
     }
 
-    /// 滚动模式页脚上沿(屏幕坐标),和点击分流的页脚判定用同一条线。
-    private var scrollFooterTop: CGFloat {
-        max(0, currentWindowSize.height - ReaderTypography.footerBottomInset - 16)
+    /// 滚动模式正文可排到的底边(屏幕坐标):底部五格图标墨顶,
+    /// 和点击分流、翻页分页用同一条线。
+    private var scrollTextBottomLimit: CGFloat {
+        max(0, currentWindowSize.height - ReaderToolbarMetrics.bodyBottomInset)
     }
 
-    /// 滚动模式正文可视区底边:落在整行行框的边界上,最后一行不会被页脚
+    /// 滚动模式正文可视区底边:落在整行行框的边界上,最后一行不会被图标行
     /// 切掉半行。只按屏幕和字号算,菜单开合不参与,正文区高度始终不变。
     private var scrollTextBottomY: CGFloat {
         let line = bodyLineHeight
         let bodyTop = scrollBodyTopInset
-        let footerTop = max(bodyTop + line, scrollFooterTop)
-        guard line > 1 else { return footerTop }
-        let wholeLines = max(1, floor((footerTop - bodyTop) / line))
-        return min(footerTop, bodyTop + wholeLines * line)
+        let limit = max(bodyTop + line, scrollTextBottomLimit)
+        guard line > 1 else { return limit }
+        let wholeLines = max(1, floor((limit - bodyTop) / line))
+        return min(limit, bodyTop + wholeLines * line)
     }
 
     /// 滚动模式也按默认 19 号的 18 字行宽补字距,和翻页模式同一套排版。
@@ -949,7 +961,7 @@ struct ReaderView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(settings.theme.chapterTitleColor)
                         .padding(.top, scrollChapterTitleTopInset)
-                        // 章节名行高 14.3 + 25 让正文行框顶落在 116 的字墨线上;
+                        // 章节名行高 14.3 + 34.3 让正文行框顶落在 125.3 的字墨线上;
                         // 大字时行框顶要往上收,收的量与 scrollBodyTopInset 同一笔。
                         .padding(.bottom, scrollChapterTitleBottomInset)
                         // 菜单开着时左上角只有返回箭头,章节名不能和它挤在一起。
@@ -1042,7 +1054,7 @@ struct ReaderView: View {
         .onTapGesture(coordinateSpace: .global) { location in
             handleTap(location: location)
         }
-        // 正文只画到页脚上沿:滚动时也不会有字钻到页脚下面,
+        // 正文只画到图标行上沿:滚动时也不会有字钻到五格下面,
         // 末尾 12 点渐隐软收边,不硬切半行。
         .mask(alignment: .top) {
             VStack(spacing: 0) {
@@ -1059,18 +1071,13 @@ struct ReaderView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .overlay(alignment: .bottom) {
-            readerFooter(currentPage: currentPageIndex + 1, totalPages: max(cachedPages.count, 1))
-                .opacity(showMenu ? 0 : 1)
-                .animation(.linear(duration: 0.12), value: showMenu)
-        }
-        // 滚动模式也按屏幕绝对坐标排版:首行 116、页脚字底 55 和翻页模式一致。
+        // 滚动模式也按屏幕绝对坐标排版:首行 125.3,底边和翻页模式一致。
         .ignoresSafeArea()
     }
 
     // MARK: - 下拉加书签
 
-    /// 一页外面套一层:下拉时整页(正文 + 页脚)跟手下移,页顶露出提示带和丝带。
+    /// 一页外面套一层:下拉时整页跟手下移,页顶露出提示带和丝带。
     private var pullablePage: some View {
         ZStack(alignment: .top) {
             if pullOffset > 0 {
@@ -1207,11 +1214,6 @@ struct ReaderView: View {
             .contentShape(Rectangle())
             .onTapGesture(coordinateSpace: .global) { location in
                 handlePageTap(location: location, screenSize: geometry.size, totalPages: totalPages)
-            }
-            .overlay(alignment: .bottom) {
-                readerFooter(currentPage: safeIndex + 1, totalPages: totalPages)
-                    .opacity(showMenu ? 0 : 1)
-                    .animation(.linear(duration: 0.12), value: showMenu)
             }
             .onAppear {
                 updateReaderGeometry(geometry.size)
@@ -1914,14 +1916,14 @@ struct ReaderView: View {
         return true
     }
 
-    /// 竖直方向只认正文区;页脚那一行不响应,横向按 42 / 62 点分流。
+    /// 竖直方向只认正文区;底部五格图标行不响应,横向按 42 / 62 点分流。
     private func readerTapAction(location: CGPoint, screenSize: CGSize) -> ReaderTapAction {
         guard screenSize.width > 0, screenSize.height > 0 else { return .none }
-        let footerTop = screenSize.height - ReaderTypography.footerBottomInset - 16
-        let contentTop = min(bodyContainerTopY, footerTop)
+        let bodyBottom = screenSize.height - ReaderToolbarMetrics.bodyBottomInset
+        let contentTop = min(bodyContainerTopY, bodyBottom)
         let contentBottom = min(
             bodyContainerTopY + bodyLineHeight * CGFloat(max(1, bodyLineCapacity)),
-            footerTop
+            bodyBottom
         )
         guard location.y >= contentTop - 0.5, location.y <= contentBottom + 0.5 else {
             return .none
@@ -2742,7 +2744,7 @@ struct ReaderView: View {
 
         let textWidth = CGFloat(input.width - input.horizontalPadding * 2)
         let fontSize = CGFloat(input.fontSize)
-        // 一页的容量由正文行框顶到页脚上沿算出来,行高 = 字号 × 倍率。
+        // 一页的容量由正文行框顶到图标行上沿算出来,行高 = 字号 × 倍率。
         let lineHeight = ReaderTypography.bodyLineHeight(fontSize: fontSize, level: input.lineSpacing)
         let pageHeight = lineHeight * CGFloat(max(1, input.lineCount))
         let paragraphGap = CGFloat(input.paragraphSpacing)
@@ -4402,88 +4404,6 @@ struct ReaderView: View {
     private func applyKeepScreenAwake() {
         UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
     }
-
-    /// 本章总字符数;空白和分页硬换行都不算。
-    private var chapterCharacterTotal: Int {
-        cachedParagraphs.reduce(0) { $0 + ReaderCharacterCount.count($1) }
-    }
-
-    /// 本章已读字符数(当前页起点,1 起算),没有内容时为 0。
-    private var chapterPositionValue: Int {
-        let total = chapterCharacterTotal
-        guard total > 0 else { return 0 }
-        let consumed: Int
-        if settings.pageMode == .scroll {
-            let end = min(max(visibleParagraphIndex, 0), cachedParagraphs.count)
-            consumed = cachedParagraphs.prefix(end).reduce(0) { $0 + ReaderCharacterCount.count($1) }
-        } else {
-            let end = min(max(currentPageIndex, 0), cachedPages.count)
-            consumed = cachedPages.prefix(end).reduce(0) { partial, page in
-                partial + page.reduce(0) { $0 + ReaderCharacterCount.count($1.text) }
-            }
-        }
-        return min(max(consumed + 1, 1), total)
-    }
-
-    /// 本章已读字符数(当前页起点,1 起算)与本篇总字符数;空白和分页硬换行都不算。
-    private var chapterPositionText: String {
-        let total = cachedParagraphs.reduce(0) { $0 + ReaderCharacterCount.count($1) }
-        guard total > 0 else { return "0 / 0" }
-
-        let consumed: Int
-        if settings.pageMode == .scroll {
-            let end = min(max(visibleParagraphIndex, 0), cachedParagraphs.count)
-            consumed = cachedParagraphs.prefix(end).reduce(0) { $0 + ReaderCharacterCount.count($1) }
-        } else {
-            let end = min(max(currentPageIndex, 0), cachedPages.count)
-            consumed = cachedPages.prefix(end).reduce(0) { partial, page in
-                partial + page.reduce(0) { $0 + ReaderCharacterCount.count($1.text) }
-            }
-        }
-        let position = min(max(consumed + 1, 1), total)
-        return "\(position)/\(total)"
-    }
-
-    /// 页脚:左书名(一行省略,不加书名号)、右本章已读/总字数。
-    /// 11 点、次要色,左右和正文对齐,字底离屏幕底 55。
-    private func readerFooter(currentPage: Int, totalPages: Int) -> some View {
-        let color = settings.theme.statusBarColor
-        let positionText = chapterPositionText
-        // 总字数还是 0(刚进页面、还没排版)时整块不显示,别让人看到 0/0。
-        let hasPosition = chapterCharacterTotal > 0
-        return HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(bookTitle)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if hasPosition {
-                Text(positionText)
-                    .monospacedDigit()
-                    .fixedSize()
-                    .frame(alignment: .trailing)
-            }
-        }
-        .font(.system(size: 11))
-        .foregroundStyle(color)
-        .padding(.horizontal, settings.horizontalPadding)
-        // 字底 55:字身底边到屏幕底的距离,行框底还留着 descender 的一点空。
-        // 实测再往下 0.3 点正好让字墨底落进 55 点(3x 下 1 像素)。
-        .padding(.bottom, ReaderTypography.footerBottomInset - 2.7)
-        .frame(maxWidth: .infinity, alignment: .bottom)
-        .allowsHitTesting(false)
-        // 读屏整行一句。
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(hasPosition ? "《\(bookTitle)》，本章读到第 \(String(chapterPositionValue)) 字，共 \(String(chapterCharacterTotal)) 字" : "《\(bookTitle)》")
-    }
-
-    private var showsBatteryInFooter: Bool {
-        let level = UIDevice.current.batteryLevel
-        return level >= 0 && level < 0.2
-    }
-
-    private var footerWarningColor: Color {
-        settings.theme.isDark ? Color(hex: "#ff6b6b") : Color(hex: "#c0392b")
-    }
 }
 
 private struct ReaderChapterFetchConfiguration: Sendable {
@@ -4751,8 +4671,8 @@ private struct StaticPageView: View {
                 lineHeight: bodyLineHeight,
                 font: uiFont
             )
-            // 首行字顶 116:文本容器顶 = 116 - 行内字顶偏移。
-            let bodyLayoutY = max(0, ReaderTypography.bodyTopInkY - inkOffset + ReaderTypography.bodyInkCalibration)
+            // 首行字墨顶 125.3:文本容器顶 = 125.3 - 行内字顶偏移。
+            let bodyLayoutY = max(0, ReaderBodyMetrics.firstLineInkTop - inkOffset + ReaderTypography.bodyInkCalibration)
             ZStack(alignment: .topLeading) {
                 if showsChapterTitle {
                     Text(chapterTitle)
@@ -4791,7 +4711,7 @@ private struct StaticPageView: View {
 
                 Color.clear
                     .frame(width: 1, height: 1)
-                    .preference(key: ReaderBodyTopPreference.self, value: ReaderTypography.bodyTopInkY)
+                    .preference(key: ReaderBodyTopPreference.self, value: ReaderBodyMetrics.firstLineInkTop)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
