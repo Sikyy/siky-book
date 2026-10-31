@@ -24,8 +24,9 @@ struct ReaderPageStyle {
     var destructive: Color { theme.isDark ? Color(hex: "#D98276") : Color(hex: "#B4483B") }
     /// 目录顶部胶囊里选中的那半截:比容器亮一档。
     var segmentFill: Color { theme.isDark ? Color.white.opacity(0.14) : Color.white.opacity(0.9) }
-    /// 「最后一章」浮钮。
-    var pillFill: Color { theme.menuPrimary.opacity(0.09) }
+    /// 「最后一章」浮钮:实心深底亮字,和页面至少差 40 级,底下的章名不许透上来。
+    var pillFill: Color { theme.isDark ? Color(hex: "#4A4238") : Color(hex: "#3A322A") }
+    var pillForeground: Color { Color(hex: "#F7F0DE") }
 }
 
 // MARK: - 目录页
@@ -279,7 +280,7 @@ struct ReaderTocPage: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Text("\(entry.percent)%")
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(style.secondary)
                     .monospacedDigit()
             }
@@ -317,7 +318,7 @@ struct ReaderTocPage: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("当前读到")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(style.blue)
                     Text(hasPageBookmark ? "移除书签" : "添加书签")
                         .font(.system(size: 12))
@@ -329,7 +330,7 @@ struct ReaderTocPage: View {
                 Spacer(minLength: 8)
 
                 Text(currentPercentText)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(style.secondary)
                     .monospacedDigit()
                     .padding(.trailing, 27.3)
@@ -360,9 +361,13 @@ struct ReaderTocPage: View {
                 Text("最后一章")
                     .font(.system(size: 12))
             }
-            .foregroundStyle(style.primary)
+            .foregroundStyle(style.pillForeground)
             .frame(width: 126.3, height: 33.7)
-            .background(Capsule(style: .continuous).fill(style.pillFill))
+            .background(
+                Capsule(style: .continuous)
+                    .fill(style.pillFill)
+                    .shadow(color: .black.opacity(0.16), radius: 2, x: 0, y: 1)
+            )
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
