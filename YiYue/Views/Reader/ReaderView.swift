@@ -328,7 +328,8 @@ struct ReaderView: View {
     }
 
     var body: some View {
-        ZStack {
+        ReaderFrameProbe.shared.noteBodyEvaluation()
+        return ZStack {
             readerBackground
                 .ignoresSafeArea()
 
@@ -414,7 +415,8 @@ struct ReaderView: View {
                         } else {
                             dismiss()
                         }
-                    }
+                    },
+                    onNotify: { showReaderToast($0) }
                 )
             }
 
@@ -482,10 +484,17 @@ struct ReaderView: View {
         .onPreferenceChange(ReaderMenuBottomTopPreference.self) { y in
             if bottomMenuInset == 0 { menuBottomTopY = y }
         }
+        .overlay(alignment: .topLeading) {
+            ReaderPerfHUD(probe: ReaderFrameProbe.shared)
+                .padding(.top, 60)
+        }
         .statusBarHidden(!showMenu)
         .persistentSystemOverlays(showMenu ? .automatic : .hidden)
         .preferredColorScheme(settings.isDarkAppearance ? .dark : .light)
-        .onAppear { onAppearanceChange?(settings.isDarkAppearance) }
+        .onAppear {
+            onAppearanceChange?(settings.isDarkAppearance)
+            ReaderFrameProbe.shared.start()
+        }
         .onChange(of: settings.theme) { _, _ in
             onAppearanceChange?(settings.isDarkAppearance)
         }
@@ -493,6 +502,7 @@ struct ReaderView: View {
             onAppearanceChange?(settings.isDarkAppearance)
         }
         .onChange(of: showMenu) { _, open in
+            ReaderFrameProbe.shared.reset()
             // 菜单开着就不该同时有选中段,toolbar 和菜单会叠在一起。
             if open { selection = nil }
             onMenuVisibilityChange?(open)
@@ -4214,9 +4224,6 @@ struct ReaderView: View {
             HStack(spacing: 0) {
                 selectionAction(icon: "bookmark", title: "书签", accessibility: "添加书签", hint: summary) {
                     addBookmark(from: selection)
-                }
-                selectionAction(icon: "note.text", title: "笔记", accessibility: "写笔记", hint: summary) {
-                    openNote(from: selection)
                 }
                 selectionAction(icon: "doc.on.doc", title: "复制", accessibility: "复制", hint: summary) {
                     copySelection(selection)

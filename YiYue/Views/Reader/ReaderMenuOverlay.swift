@@ -96,6 +96,9 @@ enum ReaderToolbarMetrics {
     /// 「更多」自绘:竖三点,墨盒 3.7 × 16.3。
     static let moreGlyphWidth: CGFloat = 3.7
     static let moreGlyphHeight: CGFloat = 16.3
+    /// 目录行固定高 52:List 里行高固定,首帧不必逐行测量,弹出动画才不掉帧。
+    static let rowHeight: CGFloat = 52
+
     /// 图标按钮的点击框:32 宽、40 高,相邻两颗不叠。
     static let buttonBoxWidth: CGFloat = 32
 
@@ -342,6 +345,8 @@ struct ReaderMenuOverlay: View {
     var onSetAutoPageInterval: ((Int) -> Void)? = nil
     /// 从「更多」里删除成功后,阅读页应立即退出,不能继续显示已删掉的书。
     var onBookDeleted: (() -> Void)? = nil
+    /// 页内动作(如「全部删除」)完成后浮一条提示。
+    var onNotify: ((String) -> Void)? = nil
 
     /// 菜单 / 顶栏 / 面板的配色。照片背景上统一走夜间,
     /// 否则纸色图标压在深色照片上看不见。
@@ -357,7 +362,6 @@ struct ReaderMenuOverlay: View {
     @State private var selectedTool: ReaderTool?
     @State private var draggingFontSize: Double?
     @State private var draggingLineSpacing: Double?
-    @State private var chapterSearch = ""
     @State private var isUpdatingToc = false
     @State private var tocToast: String?
     @State private var tocToastRetryable = false
@@ -366,7 +370,6 @@ struct ReaderMenuOverlay: View {
     @State private var panelSegment: ReaderPanelSegment = .chapters
     @State private var panelDragOffset: CGFloat = 0
     @State private var topBarHeight: CGFloat = 0
-    @State private var isPanelSearchOpen = false
     @State private var pendingDeletionID: UUID?
     @State private var undoToast: String?
     @State private var undoToastTask: Task<Void, Never>?
@@ -458,11 +461,12 @@ struct ReaderMenuOverlay: View {
                     }
                 }
 
-                bottomToolbar(width: screenWidth, top: barTop, height: barHeight)
-
                 if showChapterList {
                     panelOverlay
                 }
+
+                // 五格画在目录页/书签页之上:再点同一格能收起,换一格能换页。
+                bottomToolbar(width: screenWidth, top: barTop, height: barHeight)
             }
             .frame(width: screenWidth, height: screenHeight, alignment: .topLeading)
         }
@@ -2193,8 +2197,10 @@ struct ReaderMenuOverlay: View {
         .frame(width: width, height: height)
         // 五格和上面的面板是同一块 chrome:浅色用顶栏带的色,否则图标行会在
         // 791 处又掉回纸色,面板看起来被截成两段。夜间维持菜单底。
-        .background(theme.isDark ? theme.menuBackground : theme.topBarBand,
-                    ignoresSafeAreaEdges: .bottom)
+        .background(
+            showChapterList || theme.isDark ? theme.menuBackground : theme.topBarBand,
+            ignoresSafeAreaEdges: .bottom
+        )
         .offset(y: top)
     }
 
@@ -2276,11 +2282,19 @@ struct ReaderMenuOverlay: View {
     private func handleToolTap(_ tool: ReaderTool) {
         switch tool {
         case .chapters:
-            selectedTool = .chapters
-            openPanel(.chapters)
+            if selectedTool == .chapters, showChapterList {
+                closePanel()
+            } else {
+                selectedTool = .chapters
+                openPanel(.chapters)
+            }
         case .bookmarks:
-            selectedTool = .bookmarks
-            openPanel(.bookmarks)
+            if selectedTool == .bookmarks, showChapterList {
+                closePanel()
+            } else {
+                selectedTool = .bookmarks
+                openPanel(.bookmarks)
+            }
         case .text, .brightness, .progress:
             if selectedTool == tool {
                 selectedTool = nil
@@ -2756,61 +2770,152 @@ struct ReaderMenuOverlay: View {
         return origin + max(0, steps) * line
     }
 
-    /// 目录 / 书签面板:从底部升到状态栏下 8pt,左右贴边、只有上边两个 16pt 圆角,
-    /// 界面上没有关闭按钮——出三条:拖动条轻点、往下拖、读屏的自定义动作「关闭」。
+    /// 目录页 / 书签页:整屏 sheet(顶 y=0、上圆角 12),底部五格画在它之上。
+    /// 进场整体从下 12pt 上移 + 淡入,只动位移和透明度,0.26 秒;出场 0.22 秒,同一条曲线。
+    /// 内容在起动画前就绪,动画期间不插入行、不换字号。
     private var panelOverlay: some View {
-        // 用屏幕高度而不是 GeometryReader:盖层自己的坐标系从安全区开始,
-        // 量出来会比屏幕短,面板顶边就落不到状态栏下 8pt。
-        let top = alignedPanelTop
-        let height = max(UIScreen.main.bounds.height - top, 320)
+        let width = UIScreen.main.bounds.width
+        let height = UIScreen.main.bounds.height
         return ZStack(alignment: .top) {
-            // 面板以外不压暗:透出来的就是阅读页本身,只负责接住点击收起。
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { closePanel() }
-
-            panelSheet
-                .frame(height: height, alignment: .top)
-                .background(theme.menuBackground)
-                .clipShape(TopRoundedRectangle(radius: 16))
-                .overlay(alignment: .top) {
-                    TopRoundedRectangle(radius: 16)
-                        .stroke(theme.menuPrimary.opacity(0.12), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.10), radius: 12, x: 0, y: 12)
-                .offset(y: top + max(0, panelDragOffset))
-                .transition(.move(edge: .bottom))
+            theme.menuBackground
+            pageContent
+                .frame(width: width, height: height, alignment: .top)
         }
+        .frame(width: width, height: height)
+        .clipShape(TopRoundedRectangle(radius: 12))
+        .overlay(alignment: .top) {
+            TopRoundedRectangle(radius: 12)
+                .stroke(theme.menuPrimary.opacity(0.12), lineWidth: 1)
+        }
+        .overlay(alignment: .top) {
+            panelHandle
+                .padding(.top, 46)
+        }
+        .offset(y: max(0, panelDragOffset))
+        .transition(.opacity.combined(with: .offset(y: 12)))
         .ignoresSafeArea()
         .accessibilityAction(named: "关闭") { closePanel() }
         .accessibilityAction(.escape) { closePanel() }
     }
 
-    private var panelSheet: some View {
-        VStack(spacing: 0) {
-            panelHandle
-            panelHeader
-            chapterCacheRow
-            panelSectionContent
-            Spacer(minLength: 0)
+    @ViewBuilder
+    private var pageContent: some View {
+        if selectedTool == .bookmarks {
+            ReaderBookmarkPage(
+                style: ReaderPageStyle(theme: theme),
+                bookTitle: book.title,
+                coverURL: book.coverURL,
+                readingSeconds: readingSeconds,
+                entries: bookmarkEntries,
+                onOpenReadingDetails: { onShowReadingDetails?() },
+                onJump: { id in
+                    guard let mark = book.marks.first(where: { $0.id == id }) else { return }
+                    closePanel()
+                    onJumpToMark?(mark)
+                },
+                onDeleteAll: { deleteAllBookmarks() },
+                onDeleteOne: { id in deleteBookmark(id: id) }
+            )
+        } else {
+            ReaderTocPage(
+                style: ReaderPageStyle(theme: theme),
+                entries: tocEntries,
+                currentIndex: currentChapterIndex,
+                currentPercentText: progressPercent,
+                hasPageBookmark: hasPageBookmark,
+                onSelect: { index in
+                    currentChapterIndex = index
+                    closePanel()
+                },
+                onAddBookmark: { onAddBookmarkHere?() },
+                headerAccessory: cacheRowAccessory
+            )
         }
     }
 
-    /// 拖动条 36×4,热区 88×44;轻点收起,读屏提示「向下拖动或轻点收起」。
+    private var cacheRowAccessory: AnyView? {
+        guard onCache != nil, cacheState != .unavailable else { return nil }
+        return AnyView(
+            VStack(spacing: 0) {
+                chapterCacheRow
+                    .padding(.top, 4)
+                    .frame(height: 32)
+                if let tocToast {
+                    tocToastBar(tocToast)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 4)
+                }
+            }
+        )
+    }
+
+    /// 目录行:章名 + 这一章在全书的位置百分比(章序号 / 总章数),和进度面板同一个算法。
+    private var tocEntries: [ReaderTocEntry] {
+        let total = max(chapters.count, 1)
+        return chapters
+            .sorted { $0.index < $1.index }
+            .map { chapter in
+                ReaderTocEntry(
+                    index: chapter.index,
+                    title: chapter.title,
+                    percent: Int((Double(chapter.index) / Double(total) * 100).rounded())
+                )
+            }
+    }
+
+    private var bookmarkEntries: [ReaderBookmarkEntry] {
+        bookmarks
+            .sorted { lhs, rhs in
+                lhs.chapterIndex == rhs.chapterIndex
+                    ? lhs.paragraphIndex < rhs.paragraphIndex
+                    : lhs.chapterIndex < rhs.chapterIndex
+            }
+            .map { mark in
+                ReaderBookmarkEntry(
+                    id: mark.id,
+                    chapterIndex: mark.chapterIndex,
+                    chapterTitle: chapterLabel(for: mark),
+                    paragraphIndex: mark.paragraphIndex,
+                    excerpt: mark.excerpt,
+                    createdAt: mark.createdAt
+                )
+            }
+    }
+
+    private func deleteAllBookmarks() {
+        let targets = book.marks.filter { !$0.isNote }
+        guard !targets.isEmpty else { return }
+        let count = targets.count
+        for mark in targets {
+            modelContext.delete(mark)
+        }
+        try? modelContext.save()
+        onNotify?("已删除 \(count) 条书签")
+    }
+
+    private func deleteBookmark(id: UUID) {
+        guard let mark = book.marks.first(where: { $0.id == id }) else { return }
+        modelContext.delete(mark)
+        try? modelContext.save()
+        onNotify?("已删除书签")
+    }
+
+    /// 拖拽条 36×4,中心 y 69;热区 44 高,1:1 跟手,松手过 90 点或甩得够快就关。
     private var panelHandle: some View {
-        Capsule()
-            .fill(theme.menuPrimary.opacity(0.25))
-            .frame(width: 36, height: 4)
-            .frame(maxWidth: .infinity)
-            .frame(height: 22, alignment: .bottom)
-            .padding(.horizontal, 26)
-            .contentShape(Rectangle())
-            .onTapGesture { closePanel() }
-            .gesture(panelDragGesture)
-            .accessibilityElement()
-            .accessibilityLabel("向下拖动或轻点收起")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { closePanel() }
+        ZStack {
+            Color.clear
+            Capsule()
+                .fill(theme.menuPrimary.opacity(0.25))
+                .frame(width: 36, height: 4)
+        }
+        .frame(width: 240, height: 44)
+        .contentShape(Rectangle())
+        .onTapGesture { closePanel() }
+        .gesture(panelDragGesture)
+        .accessibilityElement()
+        .accessibilityLabel("向下拖动或轻点收起")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { closePanel() }
     }
 
     private var panelDragGesture: some Gesture {
@@ -2820,61 +2925,14 @@ struct ReaderMenuOverlay: View {
             }
             .onEnded { value in
                 let flick = value.predictedEndTranslation.height - value.translation.height > 300
-                if value.translation.height > 80 || flick {
+                if value.translation.height > 90 || flick {
                     closePanel()
                 } else {
-                    withAnimation(.easeOut(duration: 0.25)) { panelDragOffset = 0 }
-                }
-            }
-    }
-
-    /// 顶部一行:左「搜索本书」胶囊(高 36、圆角 18、底 字色 6%),右目录/书签 tab;
-    /// 下面一条 1pt 分隔线。
-    private var panelHeader: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
-                chapterSearchRow
-                panelSegments
-            }
-            .padding(.leading, 24)
-            .padding(.trailing, 24)
-            .frame(height: 56)
-            .contentShape(Rectangle())
-            .gesture(panelDragGesture)
-
-            Rectangle()
-                .fill(theme.menuPrimary.opacity(0.12))
-                .frame(height: 1)
-        }
-    }
-
-    private var visibleSegments: [ReaderPanelSegment] {
-        ReaderPanelSegment.allCases.filter { $0 != .notes || !notes.isEmpty }
-    }
-
-    /// 右端 tab:目录 / 书签(有笔记时再多一个);选中是主色加 2pt 短横线。
-    private var panelSegments: some View {
-        HStack(spacing: 18) {
-            ForEach(visibleSegments) { segment in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { panelSegment = segment }
-                } label: {
-                    VStack(spacing: 4) {
-                        Text(segment.title)
-                            .font(.system(size: 15, weight: panelSegment == segment ? .semibold : .regular))
-                            .foregroundStyle(panelSegment == segment ? theme.menuPrimary : theme.menuSecondary)
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(panelSegment == segment ? theme.accentColor : Color.clear)
-                            .frame(width: 18, height: 2)
+                    withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.3)) {
+                        panelDragOffset = 0
                     }
-                    .frame(height: 36)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(segment.title)
-                .accessibilityAddTraits(panelSegment == segment ? [.isSelected] : [])
             }
-        }
     }
 
     /// 有书源的书才显示缓存/更新目录这一行;测试书没有书源时整行不出现。
@@ -2912,89 +2970,24 @@ struct ReaderMenuOverlay: View {
         }
     }
 
-    @ViewBuilder
-    private var panelSectionContent: some View {
-        switch panelSegment {
-        case .chapters:
-            VStack(spacing: 0) {
-                if let tocToast {
-                    tocToastBar(tocToast)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 8)
-                        .transition(.opacity)
-                }
-                if chapterSearchKeyword.isEmpty {
-                    chapterList
-                } else if filteredChapters.isEmpty {
-                    emptyChapterSearchResult
-                } else {
-                    Text("找到 \(filteredChapters.count) 章")
-                        .font(.system(size: 12))
-                        .foregroundStyle(theme.menuSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 6)
-                    chapterList
-                }
-            }
-        case .bookmarks:
-            VStack(spacing: 0) {
-                addBookmarkRow
-                markList(
-                    marks: bookmarks,
-                    emptyTitle: "还没有书签",
-                    emptyBody: "从页面顶部下拉，松手即可添加书签"
-                )
-            }
-        case .notes:
-            markList(
-                marks: notes,
-                emptyTitle: "还没有笔记",
-                emptyBody: "长按正文选中文字，就能写笔记"
-            )
-        }
-    }
-
     private func openPanel(_ segment: ReaderPanelSegment) {
         panelSegment = segment
-        isPanelSearchOpen = false
         panelDragOffset = 0
-        withAnimation(.easeOut(duration: 0.3)) { showChapterList = true }
+        ReaderFrameProbe.shared.reset()
+        withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.26)) {
+            showChapterList = true
+        }
     }
 
     private func closePanel() {
-        isPanelSearchOpen = false
-        chapterSearch = ""
-        withAnimation(.easeOut(duration: 0.25)) {
+        ReaderFrameProbe.shared.reset()
+        withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.22)) {
             panelDragOffset = 0
             showChapterList = false
-            selectedTool = nil
         }
-    }
-
-    /// 书签面板顶部那颗按钮:本页没书签「给这一页加书签」,已有「移除书签」。
-    private var addBookmarkRow: some View {
-        Button {
-            onAddBookmarkHere?()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: hasPageBookmark ? "bookmark.fill" : "bookmark")
-                    .font(.system(size: 14, weight: .medium))
-                Text(hasPageBookmark ? "移除书签" : "给这一页加书签")
-                    .font(.system(size: 14))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(theme.menuPrimary)
-            .padding(.horizontal, 24)
-            .frame(height: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(hasPageBookmark ? "移除书签" : "给这一页加书签")
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(theme.menuPrimary.opacity(0.06))
-                .frame(height: 1)
+        // 内容等淡出完再收,否则面板会在淡出到一半时先变空。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+            if !showChapterList { selectedTool = nil }
         }
     }
 
@@ -3010,85 +3003,6 @@ struct ReaderMenuOverlay: View {
     /// 有书签的章:目录行右侧那个 6pt 圆点。
     private var bookmarkChapterIndices: Set<Int> {
         Set(bookmarks.map(\.chapterIndex))
-    }
-
-    private func markList(
-        marks: [ReadingMark],
-        emptyTitle: String,
-        emptyBody: String
-    ) -> some View {
-        Group {
-            if marks.isEmpty {
-                VStack(spacing: 8) {
-                    Text(emptyTitle)
-                        .font(.system(size: 15))
-                        .foregroundStyle(theme.menuPrimary)
-                    Text(emptyBody)
-                        .font(.system(size: 13))
-                        .foregroundStyle(theme.menuSecondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 120)
-            } else {
-                List {
-                    ForEach(marks) { mark in
-                        Button {
-                            closePanel()
-                            if mark.isNote {
-                                onOpenNote?(mark)
-                            } else {
-                                onJumpToMark?(mark)
-                            }
-                        } label: {
-                            markRow(mark)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                deleteMark(mark)
-                            } label: {
-                                Text("删除")
-                            }
-                        }
-                        .accessibilityAction(named: "删除") { deleteMark(mark) }
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-            }
-        }
-    }
-
-    /// 书签行:第一行「第 12 章 夜行 · 33%」加右侧时间,下面两行摘录,行高 84。
-    private func markRow(_ mark: ReadingMark) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 0) {
-                Text("\(chapterLabel(for: mark)) · \(percentText(for: mark))")
-                    .font(.system(size: 15))
-                    .foregroundStyle(theme.menuPrimary)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Text(Self.shortDate(mark.createdAt))
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.menuSecondary)
-            }
-            if mark.isNote, let note = mark.note {
-                Text(note)
-                    .font(.system(size: 13))
-                    .foregroundStyle(theme.menuSecondary)
-                    .lineLimit(2)
-            }
-            Text(Self.excerptText(mark.excerpt))
-                .font(.system(size: 13))
-                .foregroundStyle(theme.menuSecondary)
-                .lineLimit(2)
-        }
-        .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
-        .contentShape(Rectangle())
     }
 
     /// 章节名本身常常已经带「第 N 章」,别在书签行里再叠一遍。
@@ -3200,91 +3114,6 @@ struct ReaderMenuOverlay: View {
         .transition(.opacity)
     }
 
-    private var chapterSearchKeyword: String {
-        chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var filteredChapters: [Chapter] {
-        let keyword = chapterSearchKeyword
-        guard !keyword.isEmpty else { return chapters }
-        return chapters.filter { $0.title.localizedCaseInsensitiveContains(keyword) }
-    }
-
-    /// 搜索本书:高 36、圆角 18 的胶囊,底色 = 字色 6%;输入即过滤章节。
-    private var chapterSearchRow: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14))
-                .foregroundStyle(theme.menuSecondary)
-            TextField("", text: $chapterSearch)
-                .font(.system(size: 14))
-                .foregroundStyle(theme.menuPrimary)
-                .tint(theme.menuPrimary)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityLabel("搜索本书")
-                .overlay(alignment: .leading) {
-                    if chapterSearch.isEmpty {
-                        Text("搜索本书")
-                            .font(.system(size: 14))
-                            .foregroundStyle(theme.menuSecondary)
-                            .allowsHitTesting(false)
-                    }
-                }
-            if !chapterSearch.isEmpty {
-                Button {
-                    chapterSearch = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(theme.menuSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("清除")
-            }
-            if onRefreshToc != nil {
-                Button {
-                    updateToc()
-                } label: {
-                    if isUpdatingToc {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 20, height: 20)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 15))
-                            .foregroundStyle(theme.menuPrimary)
-                            .frame(width: 20, height: 20)
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isUpdatingToc)
-                .accessibilityLabel("更新目录")
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 36)
-        .background(
-            Capsule(style: .continuous)
-                .fill(theme.menuPrimary.opacity(0.06))
-        )
-    }
-
-    private var emptyChapterSearchResult: some View {
-        VStack(spacing: 8) {
-            Spacer(minLength: 0)
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 26))
-                .foregroundStyle(theme.menuSecondary)
-            Text("没有匹配的章节")
-                .font(.system(size: 13))
-                .foregroundStyle(theme.menuSecondary)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private func tocToastBar(_ text: String) -> some View {
         Button {
             if tocToastRetryable { updateToc() }
@@ -3341,89 +3170,6 @@ struct ReaderMenuOverlay: View {
                 }
             }
         }
-    }
-
-    private var chapterList: some View {
-        ScrollViewReader { proxy in
-            List(filteredChapters) { chapter in
-                Button {
-                    currentChapterIndex = chapter.index
-                    closePanel()
-                } label: {
-                    chapterRow(chapter)
-                }
-                .buttonStyle(.plain)
-                .id(chapter.index)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(theme.menuBackground)
-            .onAppear {
-                scrollToCurrentChapter(with: proxy, animated: false)
-            }
-            .onChange(of: currentChapterIndex) { _, _ in
-                scrollToCurrentChapter(with: proxy, animated: true)
-            }
-        }
-    }
-
-    /// 目录行:56pt 高,当前章强调色 + 左侧 3×20 竖条,有书签的章右侧一个 6pt 圆点。
-    /// 右侧百分比只给读过的章(章序号在当前章之前);没读过的章不显示数字,
-    /// 免得把「这一章在全书的位置」误当成阅读进度。
-    private func chapterPercent(for chapter: Chapter) -> Int {
-        guard !chapters.isEmpty else { return 0 }
-        return Int((Double(chapter.index) / Double(chapters.count) * 100).rounded())
-    }
-
-    private func chapterRow(_ chapter: Chapter) -> some View {
-        let isCurrent = chapter.index == currentChapterIndex
-        let isRead = chapter.index < currentChapterIndex
-        let hasBookmark = bookmarkChapterIndices.contains(chapter.index)
-        return HStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(theme.accentColor)
-                .frame(width: 3, height: 20)
-                .padding(.leading, 8)
-                .opacity(isCurrent ? 1 : 0)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(chapter.title)
-                    .font(.system(size: 16, weight: isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? theme.accentColor : theme.menuPrimary)
-                    .lineLimit(2)
-                if isCurrent {
-                    Text("当前读到")
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.menuSecondary)
-                }
-            }
-            .padding(.leading, 13)
-            Spacer(minLength: 8)
-            if hasBookmark {
-                Circle()
-                    .fill(theme.menuSecondary)
-                    .frame(width: 6, height: 6)
-                    .padding(.trailing, 10)
-            }
-            if !isCurrent, isRead {
-                Text("\(chapterPercent(for: chapter))%")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.menuSecondary)
-                    .padding(.trailing, 24)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-        .contentShape(Rectangle())
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(theme.menuPrimary.opacity(0.08))
-                .frame(height: 1)
-                .padding(.leading, 24)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(hasBookmark ? "\(chapter.title),有书签" : chapter.title)
     }
 
     @ViewBuilder
