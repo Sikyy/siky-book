@@ -27,13 +27,13 @@ struct ReaderMenuBottomTopPreference: PreferenceKey {
     }
 }
 
-/// 底部五格:目录 / 书签 / 排版 / 亮度 / 进度。
+/// 底部五格:目录 / 书签 / 进度 / 亮度 / 排版。
 enum ReaderTool: String, CaseIterable, Identifiable {
     case chapters
     case bookmarks
-    case text
-    case brightness
     case progress
+    case brightness
+    case text
 
     var id: String { rawValue }
 
@@ -41,20 +41,20 @@ enum ReaderTool: String, CaseIterable, Identifiable {
         switch self {
         case .chapters: return "目录"
         case .bookmarks: return "书签"
-        case .text: return "排版"
-        case .brightness: return "亮度"
         case .progress: return "进度"
+        case .brightness: return "亮度"
+        case .text: return "排版"
         }
     }
 
-    /// 第五格是自绘圆环,不用 SF Symbol。
+    /// 进度格是自绘圆点加横杆,不用 SF Symbol。
     var icon: String {
         switch self {
         case .chapters: return "line.3.horizontal"
         case .bookmarks: return "bookmark"
-        case .text: return "textformat.size"
-        case .brightness: return "sun.max"
         case .progress: return "circle"
+        case .brightness: return "sun.max"
+        case .text: return "textformat.size"
         }
     }
 }
@@ -65,42 +65,27 @@ enum ReaderToolbarMetrics {
     static let topBarHeight: CGFloat = 40
     /// 顶栏高 40、返回/目录图标中心 y=78。
     static let topBarTop: CGFloat = 58
-    static let iconSize: CGFloat = 24
-    /// 图标中心 y=813,工具条顶 791,图标 24:上沿留 9。
-    static let iconTopInset: CGFloat = 9
+    /// 图标框 23,墨迹高 23(字形按 22 点画)。
+    static let iconSize: CGFloat = 23
+    static let iconGlyphSize: CGFloat = 22
+    /// 图标墨底距屏底 52:框中心 y=810.5,工具条顶 791 加 1 点分隔线、内缩 7。
+    static let iconTopInset: CGFloat = 7
 }
 
-/// 第五格:直径 22、线宽 2、18° 缺口朝上的自绘进度环,
-/// 末端一个 2 点实心圆点。缺口收到 20° 以内,不会读成「U」,也不是时钟。
-struct ReaderProgressRing: View {
+/// 第三格:进度。实心圆 + 一条横杆穿过,进度面板打开时用强调色。
+struct ReaderProgressGlyph: View {
     var color: Color
-
-    /// 圆环画 342°,只留 18° 缺口;旋转 -81° 让缺口中心落在正上方。
-    private let arcFraction: CGFloat = 0.95
-    private let rotationDegrees: Double = -81
-    /// 环中线半径 = (22 - 2) / 2。
-    private let ringRadius: CGFloat = 10
 
     var body: some View {
         ZStack {
-            Circle()
-                .trim(from: 0, to: arcFraction)
-                .stroke(
-                    color,
-                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                )
-                .rotationEffect(.degrees(rotationDegrees))
-
-            // 弧末点(参数 0.95 → 342°,再加 -81° = 261°),贴环中线放一颗 2 点圆点。
+            Capsule()
+                .fill(color)
+                .frame(width: 23, height: 2)
             Circle()
                 .fill(color)
-                .frame(width: 2, height: 2)
-                .offset(
-                    x: ringRadius * cos(261 * .pi / 180),
-                    y: ringRadius * sin(261 * .pi / 180)
-                )
+                .frame(width: 15, height: 15)
         }
-        .frame(width: 22, height: 22)
+        .frame(width: 23, height: 23)
     }
 }
 
@@ -210,6 +195,7 @@ struct ReaderMenuOverlay: View {
     @State private var showSettingsSheet = false
     @State private var showMoreMenu = false
     @State private var pendingMoreAction: MoreAction?
+    @State private var showDeleteBookConfirmation = false
     @State private var changeSourceBook: Book?
     @State private var coverPickerBook: Book?
     @State private var isDeletingBook = false
@@ -342,6 +328,15 @@ struct ReaderMenuOverlay: View {
         } message: {
             Text(deleteBookError ?? "")
         }
+        .alert(
+            "删除《\(book.title)》?",
+            isPresented: $showDeleteBookConfirmation
+        ) {
+            Button("删除", role: .destructive) { deleteBookFromReader() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("这本书和它的阅读进度都会删掉，不能恢复。")
+        }
     }
 
     /// 「更多」的动作表:只有换源(限书源书) / 修改封面 / 删除 / 取消 四行。
@@ -424,7 +419,7 @@ struct ReaderMenuOverlay: View {
         case .editCover:
             coverPickerBook = book
         case .delete:
-            deleteBookFromReader()
+            showDeleteBookConfirmation = true
         }
     }
 
@@ -464,17 +459,24 @@ struct ReaderMenuOverlay: View {
 
     private enum BottomChromeMetrics {
         static let panelTop: CGFloat = 568
-        static let progressFrameTop: CGFloat = 587
-        static let sliderTop: CGFloat = 660
-        static let sliderHeight: CGFloat = 34
-        static let sliderInset: CGFloat = 34
-        static let knobSize: CGFloat = 37
+        /// 面板顶到数字墨顶 41:数字行框顶在 603,字形上留白约 6。
+        static let progressFrameTop: CGFloat = 603
+        /// 三个等宽栏:两组数落在第 1、3 栏,整体仍以 x=201 居中。
+        static let dividerHeight: CGFloat = 24
+        /// 分隔线顶边相对数字行框顶:与 24 点数字的墨迹垂直居中。
+        static let dividerTop: CGFloat = 4
+        static let sliderTop: CGFloat = 659
+        static let sliderHeight: CGFloat = 36
+        static let grooveLeft: CGFloat = 21
+        static let grooveRight: CGFloat = 390
+        static let arrowInset: CGFloat = 17
+        /// SF 雪佛龙字形在字框里向外偏约 1.2,回补后箭头墨迹中心距槽边 17。
+        static let arrowOpticalInset: CGFloat = 1.2
+        static let knobSize: CGFloat = 36
         static let pillTop: CGFloat = 730
-        static let pillHeight: CGFloat = 37
-        static let leftPillX: CGFloat = 34
-        static let leftPillWidth: CGFloat = 165
-        static let rightPillX: CGFloat = 210
-        static let rightPillWidth: CGFloat = 157
+        static let pillHeight: CGFloat = 40
+        static let pillMargin: CGFloat = 20
+        static let pillGap: CGFloat = 21
     }
 
     /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从 568 起,内容按屏幕绝对坐标。
@@ -537,17 +539,29 @@ struct ReaderMenuOverlay: View {
         let finishedText = totalChapterCount > 0
             ? "\(max(0, readChapterCount))/\(totalChapterCount)"
             : "\(max(0, readChapterCount))"
-        return HStack(alignment: .top, spacing: 40) {
+        let columnWidth = width / 3
+        return HStack(alignment: .top, spacing: 0) {
             progressStatColumn(value: progressPercent, label: "阅读进度")
+                .frame(width: columnWidth)
+            Color.clear
+                .frame(width: columnWidth, height: 1)
             progressStatColumn(value: finishedText, label: "已读章节")
+                .frame(width: columnWidth)
         }
-        .frame(width: width, alignment: .center)
+        .frame(width: width)
+        .overlay(alignment: .topLeading) {
+            Rectangle()
+                .fill(theme.menuPrimary.opacity(0.12))
+                .frame(width: 1, height: BottomChromeMetrics.dividerHeight)
+                .offset(x: width / 2 - 0.5, y: BottomChromeMetrics.dividerTop)
+                .accessibilityHidden(true)
+        }
     }
 
     private func progressStatColumn(value: String, label: String) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 8.7) {
             Text(value)
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: 24, weight: .medium))
                 .monospacedDigit()
                 .foregroundStyle(theme.textColor.opacity(0.9))
                 .lineLimit(1)
@@ -564,17 +578,21 @@ struct ReaderMenuOverlay: View {
     }
 
     private func chapterSlider(width: CGFloat) -> some View {
-        let inset = BottomChromeMetrics.sliderInset
-        let trackWidth = max(0, width - inset * 2)
+        let grooveLeft = BottomChromeMetrics.grooveLeft
+        let grooveRight = min(BottomChromeMetrics.grooveRight, width)
+        let grooveWidth = max(0, grooveRight - grooveLeft)
+        let knobInset = BottomChromeMetrics.knobSize / 2
+        let travelLeft = grooveLeft + knobInset
+        let travelWidth = max(1, grooveWidth - knobInset * 2)
         let maxIndex = max(totalChapters - 1, 1)
         let fraction = min(max(sliderValue / Double(maxIndex), 0), 1)
-        let knobX = inset + CGFloat(fraction) * trackWidth
+        let knobX = travelLeft + CGFloat(fraction) * travelWidth
         let centerY = BottomChromeMetrics.sliderHeight / 2
         return ZStack {
             Capsule()
                 .fill(theme.menuPrimary.opacity(0.12))
-                .frame(width: trackWidth, height: 2)
-                .position(x: width / 2, y: centerY)
+                .frame(width: grooveWidth, height: BottomChromeMetrics.sliderHeight)
+                .position(x: grooveLeft + grooveWidth / 2, y: centerY)
                 .contentShape(Rectangle().inset(by: -16))
                 .gesture(chapterSliderGesture(width: width))
 
@@ -603,10 +621,11 @@ struct ReaderMenuOverlay: View {
                     .font(.system(size: 20, weight: .regular))
                     .foregroundStyle(theme.menuPrimary.opacity(0.6))
                     .frame(width: 44, height: BottomChromeMetrics.sliderHeight)
+                    .offset(x: BottomChromeMetrics.arrowOpticalInset)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .position(x: inset, y: centerY)
+            .position(x: grooveLeft + BottomChromeMetrics.arrowInset, y: centerY)
             .disabled(currentChapterIndex <= 0)
             .accessibilityLabel("上一章")
 
@@ -617,10 +636,11 @@ struct ReaderMenuOverlay: View {
                     .font(.system(size: 20, weight: .regular))
                     .foregroundStyle(theme.menuPrimary.opacity(0.6))
                     .frame(width: 44, height: BottomChromeMetrics.sliderHeight)
+                    .offset(x: -BottomChromeMetrics.arrowOpticalInset)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .position(x: width - inset, y: centerY)
+            .position(x: grooveRight - BottomChromeMetrics.arrowInset, y: centerY)
             .disabled(currentChapterIndex >= totalChapters - 1)
             .accessibilityLabel("下一章")
         }
@@ -628,13 +648,16 @@ struct ReaderMenuOverlay: View {
     }
 
     private func chapterSliderGesture(width: CGFloat) -> some Gesture {
-        let inset = BottomChromeMetrics.sliderInset
-        let trackWidth = max(1, width - inset * 2)
+        let grooveLeft = BottomChromeMetrics.grooveLeft
+        let grooveRight = min(BottomChromeMetrics.grooveRight, width)
+        let knobInset = BottomChromeMetrics.knobSize / 2
+        let travelLeft = grooveLeft + knobInset
+        let travelWidth = max(1, grooveRight - grooveLeft - knobInset * 2)
         let maxIndex = max(totalChapters - 1, 1)
         return DragGesture(minimumDistance: 0, coordinateSpace: .named("chapterSlider"))
             .onChanged { value in
-                let x = min(max(value.location.x - inset, 0), trackWidth)
-                sliderValue = Double(x / trackWidth) * Double(maxIndex)
+                let x = min(max(value.location.x - travelLeft, 0), travelWidth)
+                sliderValue = Double(x / travelWidth) * Double(maxIndex)
             }
             .onEnded { _ in
                 let index = Int(sliderValue.rounded())
@@ -652,16 +675,20 @@ struct ReaderMenuOverlay: View {
 
     private func pillRow(width: CGFloat) -> some View {
         let height = BottomChromeMetrics.pillHeight
+        let margin = BottomChromeMetrics.pillMargin
+        let gap = BottomChromeMetrics.pillGap
+        let pillWidth = max(0, (width - margin * 2 - gap) / 2)
+        let rightX = margin + pillWidth + gap
         return ZStack {
             pillButton(
                 title: "阅读明细",
                 highlighted: false,
                 action: { onShowReadingDetails?() }
             )
-            .frame(width: BottomChromeMetrics.leftPillWidth, height: height)
+            .frame(width: pillWidth, height: height)
             .contentShape(Rectangle())
             .position(
-                x: BottomChromeMetrics.leftPillX + BottomChromeMetrics.leftPillWidth / 2,
+                x: margin + pillWidth / 2,
                 y: height / 2
             )
 
@@ -678,10 +705,10 @@ struct ReaderMenuOverlay: View {
                     }
                 }
             )
-            .frame(width: BottomChromeMetrics.rightPillWidth, height: height)
+            .frame(width: pillWidth, height: height)
             .contentShape(Rectangle())
             .position(
-                x: BottomChromeMetrics.rightPillX + BottomChromeMetrics.rightPillWidth / 2,
+                x: rightX + pillWidth / 2,
                 y: height / 2
             )
         }
@@ -703,8 +730,7 @@ struct ReaderMenuOverlay: View {
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityState.map { "\(title),\($0)" } ?? title)
-        .accessibilityLabel(title)
+        .accessibilityLabel(accessibilityState.map { "\(title)，\($0)" } ?? title)
         .accessibilityAddTraits(highlighted ? [.isSelected] : [])
     }
 
@@ -713,15 +739,17 @@ struct ReaderMenuOverlay: View {
     private var topBar: some View {
         ZStack {
             if selectedTool != nil {
-                // 面板开着:左侧只留章节名,从 x=24 开始;返回和右侧两个入口都收起。
+                // 面板开着:左侧只留章节名,字墨从 x=31 起,比正文(28)稍内收;
+                // 墨迹 y 76–86,比居中位置下移 3 点。
                 Text(chapterTitle)
                     .font(.system(size: 12))
                     .foregroundStyle(theme.textColor.opacity(0.55))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 24)
+                    .padding(.leading, 30)
                     .frame(height: ReaderToolbarMetrics.topBarHeight)
+                    .offset(y: 3)
                     .accessibilityLabel(chapterTitle.isEmpty ? "" : "当前章节 \(chapterTitle)")
             } else {
                 HStack(spacing: 0) {
@@ -1017,17 +1045,22 @@ struct ReaderMenuOverlay: View {
         let color = selected ? theme.accentColor : theme.menuPrimary.opacity(0.7)
         switch tool {
         case .progress:
-            ReaderProgressRing(color: color)
-                .frame(width: 22, height: 22)
+            ReaderProgressGlyph(color: color)
+        case .text:
+            Text("A")
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(color)
+                .frame(width: ReaderToolbarMetrics.iconSize,
+                       height: ReaderToolbarMetrics.iconSize)
         case .bookmarks:
             Image(systemName: hasPageBookmark ? "bookmark.fill" : "bookmark")
-                .font(.system(size: ReaderToolbarMetrics.iconSize, weight: .regular))
+                .font(.system(size: ReaderToolbarMetrics.iconGlyphSize, weight: .regular))
                 .foregroundStyle(color)
                 .frame(width: ReaderToolbarMetrics.iconSize,
                        height: ReaderToolbarMetrics.iconSize)
         default:
             Image(systemName: tool.icon)
-                .font(.system(size: ReaderToolbarMetrics.iconSize, weight: .regular))
+                .font(.system(size: ReaderToolbarMetrics.iconGlyphSize, weight: .regular))
                 .foregroundStyle(color)
                 .frame(width: ReaderToolbarMetrics.iconSize,
                        height: ReaderToolbarMetrics.iconSize)
