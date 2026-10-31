@@ -59,6 +59,12 @@ enum ReaderTool: String, CaseIterable, Identifiable {
     }
 }
 
+/// 菜单开合动效:0.2 秒,曲线和面板同一个快出(0.32,0.72,0,1)。
+/// 用 easeInOut 时前 60 毫秒只走不到两成,看着像「点了没反应」。
+enum ReaderMenuMotion {
+    static let toggle = Animation.timingCurve(0.32, 0.72, 0, 1, duration: 0.2)
+}
+
 enum ReaderToolbarMetrics {
     /// 底部工具条从 y=791 到屏幕底。
     static let height: CGFloat = 83
@@ -412,7 +418,7 @@ struct ReaderMenuOverlay: View {
                     .contentShape(Rectangle())
                     .frame(
                         width: screenWidth,
-                        height: max(0, BottomChromeMetrics.panelTop - 98)
+                        height: max(0, chromeTop(selectedTool: selectedTool) - 98)
                     )
                     .offset(y: 98)
                     .onTapGesture {
@@ -425,7 +431,9 @@ struct ReaderMenuOverlay: View {
 
                 // 面板上沿的渐隐先画:面板和它的阴影再压上来,
                 // 这样 552–556 的压字带不会把面板阴影的上半截抹掉。
-                panelTopFade
+                if selectedTool != nil {
+                    panelTopFade
+                }
 
                 // 底部菜单块:从面板顶(按底往上的间距链算出)到屏底,纸色、分隔线、软阴影。
                 // 内容全部画在这块里,正文排版视口一帧不动。
@@ -467,6 +475,7 @@ struct ReaderMenuOverlay: View {
 
                 // 五格画在目录页/书签页之上:再点同一格能收起,换一格能换页。
                 bottomToolbar(width: screenWidth, top: barTop, height: barHeight)
+
             }
             .frame(width: screenWidth, height: screenHeight, alignment: .topLeading)
         }
@@ -960,8 +969,14 @@ struct ReaderMenuOverlay: View {
         .offset(y: resolvedPanelTop - BottomChromeMetrics.fadeTotalHeight)
     }
 
+    /// 菜单底块的顶边:选工具时是面板顶,只开菜单时是图标行上沿(791)。
+    private func chromeTop(selectedTool: ReaderTool?) -> CGFloat {
+        selectedTool == nil ? BottomChromeMetrics.screenBottom - ReaderToolbarMetrics.height : resolvedPanelTop
+    }
+
     private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
-        let panelTop = resolvedPanelTop
+        let collapsed = selectedTool == nil
+        let panelTop = collapsed ? height - ReaderToolbarMetrics.height : resolvedPanelTop
         let contentHeight = max(0, height - panelTop)
         // 面板高度按内容链算好:进度/亮度 318,字号 332。
         // 图标那一格由 bottomToolbar 画在面板底色上,所以链尾还留 35.7 + 22.3 + 49。
@@ -972,7 +987,9 @@ struct ReaderMenuOverlay: View {
             : BottomChromeMetrics.panelHeight
         let panelHeight = min(basePanelHeight, contentHeight)
         return VStack(spacing: 0) {
-            if showingFont {
+            if collapsed {
+                EmptyView()
+            } else if showingFont {
                 // 字号面板:标题行 → 滑杆 → 边距/行距 → 三颗按钮,顶边 542。
                 fontPanelContent(width: width)
             } else if showingBrightness {
@@ -995,8 +1012,8 @@ struct ReaderMenuOverlay: View {
                     .padding(.top, BottomChromeMetrics.pillSliderGap)
             }
         }
-        .padding(.top, showingFont || showingBrightness ? 0 : BottomChromeMetrics.numberFrameTopPadding)
-        .frame(width: width, height: panelHeight, alignment: .top)
+        .padding(.top, (showingFont || showingBrightness || collapsed) ? 0 : BottomChromeMetrics.numberFrameTopPadding)
+        .frame(width: width, height: collapsed ? ReaderToolbarMetrics.height : panelHeight, alignment: .top)
         .background {
             if showingBrightness, theme.isDark {
                 // 亮度面板参考图是 #171719 的实色,不比进度面板的渐变亮。
@@ -1021,7 +1038,7 @@ struct ReaderMenuOverlay: View {
                     .frame(height: 1)
             }
         }
-        .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 0)
+        .shadow(color: .black.opacity(collapsed ? 0 : 0.12), radius: 12, x: 0, y: 0)
         .offset(y: panelTop)
     }
 

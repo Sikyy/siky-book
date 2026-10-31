@@ -274,12 +274,12 @@ struct ReaderTocPage: View {
         } label: {
             HStack(spacing: 0) {
                 Text(entry.title)
-                    .font(.system(size: 19, weight: isCurrent ? .semibold : .regular))
+                    .font(.system(size: 16.5, weight: isCurrent ? .semibold : .regular))
                     .foregroundStyle(style.primary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Text("\(entry.percent)%")
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundStyle(style.secondary)
                     .monospacedDigit()
             }
@@ -317,7 +317,7 @@ struct ReaderTocPage: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("当前读到")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(style.blue)
                     Text(hasPageBookmark ? "移除书签" : "添加书签")
                         .font(.system(size: 12))
@@ -329,7 +329,7 @@ struct ReaderTocPage: View {
                 Spacer(minLength: 8)
 
                 Text(currentPercentText)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundStyle(style.secondary)
                     .monospacedDigit()
                     .padding(.trailing, 27.3)
@@ -347,7 +347,7 @@ struct ReaderTocPage: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "当前读到，全书 \(currentPercentText)，\(hasPageBookmark ? "移除本页书签" : "添加本页书签")"
+            "\(hasPageBookmark ? "移除书签" : "添加书签")，第 \(currentIndex + 1) 章，全书 \(currentPercentText)"
         )
         .accessibilityAddTraits(.isButton)
     }
@@ -482,14 +482,14 @@ struct ReaderBookmarkPage: View {
     private var bookCard: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 11) {
                     Text(bookTitle)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(style.primary)
                         .lineLimit(1)
                     readingTimeRow
                 }
-                .padding(.top, 33)
+                .padding(.top, 36)
 
                 Spacer(minLength: 0)
 

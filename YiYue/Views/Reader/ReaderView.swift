@@ -709,7 +709,7 @@ struct ReaderView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) { showMenu.toggle() }
+                    withAnimation(ReaderMenuMotion.toggle) { showMenu.toggle() }
                 }
             } else if let error = loadError {
                 VStack(spacing: 16) {
@@ -745,7 +745,7 @@ struct ReaderView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) { showMenu.toggle() }
+                    withAnimation(ReaderMenuMotion.toggle) { showMenu.toggle() }
                 }
             } else {
                 switch settings.pageMode {
@@ -1922,7 +1922,7 @@ struct ReaderView: View {
             let centerXRange = (screenWidth / 3)...(screenWidth * 2 / 3)
             let centerYRange = (screenHeight / 3)...(screenHeight * 2 / 3)
             if centerXRange.contains(location.x) && centerYRange.contains(location.y) {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(ReaderMenuMotion.toggle) {
                     showMenu.toggle()
                 }
             }
@@ -2002,7 +2002,7 @@ struct ReaderView: View {
         case .nextPage:
             performPageTurn(direction: .next, totalPages: totalPages)
         case .toggleMenu:
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(ReaderMenuMotion.toggle) {
                 showMenu.toggle()
             }
         case .none:
