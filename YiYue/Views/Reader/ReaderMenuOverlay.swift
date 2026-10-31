@@ -492,9 +492,9 @@ struct ReaderMenuOverlay: View {
             startPoint: .top,
             endPoint: .bottom
         )
-        .frame(height: 12)
+        .frame(height: 22)
         .allowsHitTesting(false)
-        .offset(y: resolvedPanelTop - 12)
+        .offset(y: resolvedPanelTop - 22)
     }
 
     private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
