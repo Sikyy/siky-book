@@ -710,15 +710,16 @@ struct ReaderMenuOverlay: View {
         /// 文字在 536 只剩 30%(遮色 70%),到 551 恢复到全实(遮色 0);
         /// 551 到面板顶是 5 点实色硬裁,正文一个字也不再往下画。
         /// 方向和旧版相反:旧版是上实下虚,参照是上虚下实。
-        static let fadeHeight: CGFloat = 15
+        static let fadeHeight: CGFloat = 20
         /// 渐变顶端遮色 70% = 文字剩 30%。
         static let fadeTopOpacity: Double = 0.70
         /// 渐变底端遮色 42% = 文字剩 58%:裁切线前的最后一点墨不做到全实,
         /// 参照那半截字整行是一个浓度。
         static let fadeBottomOpacity: Double = 0.42
-        /// 面板顶 −5 到面板顶的硬裁带。
-        static let fadeClipHeight: CGFloat = 5
-        /// 整块渐隐 + 硬裁的高度:15 + 5 = 20(从面板顶 −20 起)。
+        /// 不再提前硬裁:渐变一路走到面板顶,下半截由面板本身压掉,
+        /// 切口和面板沿严丝合缝(参照露到 555.7 为止)。
+        static let fadeClipHeight: CGFloat = 0
+        /// 整块渐隐 + 硬裁的高度:20 + 0 = 20(从面板顶 −20 起)。
         static let fadeTotalHeight = fadeHeight + fadeClipHeight
 
         /// 24 点数字的行框顶比墨顶高 6 点。
@@ -932,8 +933,8 @@ struct ReaderMenuOverlay: View {
         return theme.backgroundColor
     }
 
-    /// 面板顶 −20 到 −5 走渐变:顶端文字剩 30%,到底边恢复到 100%;
-    /// 再往下的 5 点用实色压死,等于把正文硬裁在面板顶 −5。
+    /// 面板顶 −20 到面板顶走渐变:顶端文字剩 30%,贴边处剩 58%;
+    /// 再往下不在这一层裁——面板本身盖住,切口就落在面板沿上。
     /// 方向和旧版相反:字在靠近面板的一侧最实,往上淡掉。
     private var panelTopFade: some View {
         VStack(spacing: 0) {
