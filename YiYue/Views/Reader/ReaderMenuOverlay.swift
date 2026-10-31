@@ -190,6 +190,9 @@ struct ReaderMenuOverlay: View {
     var progressPercent: String = ""
     /// 进度格的圆环取 0…1。
     var progressFraction: Double = 0
+    /// 本书累计阅读时长(秒):来自 ReaderView 里 ReadingTimeSession 的走表。
+    /// 进度面板右栏显示这个真数,左栏的剩余估计也用同一个数,两栏不会对不上。
+    var readingSeconds: TimeInterval = 0
     /// 当前页每一条正文线的行顶(屏幕坐标),面板顶边贴它。
     var bodyLineTops: [CGFloat] = []
     /// 顶栏底边的屏幕 y:面板从这条线下面开始,不能盖住顶栏。
@@ -300,7 +303,10 @@ struct ReaderMenuOverlay: View {
                     case .brightness:
                         brightnessFloatingPanel(barTop: barTop)
                     case .progress:
-                        progressFloatingPanel(barTop: barTop)
+                        // 进度面板就是底部这块 chrome 自己:统计行、滑轨、胶囊
+                        // 都画在 bottomChrome 里。以前再叠一层旧版浮层面板,
+                        // 它的底色会把胶囊盖掉、数字却露在上沿外面,所以这里不画。
+                        EmptyView()
                     case .chapters, .bookmarks:
                         EmptyView()
                     }
@@ -544,10 +550,27 @@ struct ReaderMenuOverlay: View {
         /// 数字行与标签行的间距:让标签墨顶落在 619.3(数字墨底 608.3 + 11)。
         static let numberLabelSpacing: CGFloat = 4
         static let progressFrameTop = numberInkTop - numberInkTopOffset // 585
-        /// 三个等宽栏:两组数落在第 1、3 栏,整体仍以 x=201 居中。
-        static let dividerHeight: CGFloat = 24
-        /// 分隔线顶边相对数字行框顶:与 24 点数字的墨迹垂直居中。
-        static let dividerTop: CGFloat = 4
+        /// 面板顶 → 数字墨顶是 35:24 点数字的行框比墨顶高 6 点,
+        /// 所以竖直栈的顶距只留 29,数字墨顶正好落在面板顶下 35。
+        static let numberFrameTopPadding = numberPanelGap - numberInkTopOffset // 29
+        /// 24 点 SF 数字的行框高约 28.6;11 点标签的行框高约 13.1。
+        static let numberLineHeight: CGFloat = 28.6
+        static let labelLineHeight: CGFloat = 13.1
+        /// 数字行框 + 4 点行距 + 标签行框 = 45.7。
+        /// 估计句为 nil 时也占住这块高度,下面的滑轨和胶囊不会跟着往上跳。
+        static let statsBlockHeight = numberLineHeight + numberLabelSpacing + labelLineHeight // 45.7
+        /// 标签行框底到槽顶:104 − 29 − 45.7 = 29.3(链上 31.3 是墨底到槽顶)。
+        static let statsSliderGap = sliderTop - panelTop - numberFrameTopPadding - statsBlockHeight
+        /// 两栏(Siky 定,第三栏整块不摆):列心落在屏宽四等分 100.5 / 301.5,
+        /// 竖线在 x=201,1 点宽、40 高。
+        static let dividerHeight: CGFloat = 40
+        static let dividerWidth: CGFloat = 1
+        /// 40 高的竖线在 28.6 高的数字行里上下各探出 5.7。
+        static let dividerTop = (numberLineHeight - dividerHeight) / 2
+        /// 夜间竖线照参考图取 #323233;浅色沿用面板那档 12% 墨。
+        static let dividerDarkHex: String = "#323233"
+        static let numberFontSize: CGFloat = 24
+        static let unitFontSize: CGFloat = 11
         static let grooveLeft: CGFloat = 21
         static let grooveRight: CGFloat = 390
         static let arrowInset: CGFloat = 17
@@ -557,11 +580,14 @@ struct ReaderMenuOverlay: View {
         /// 已读段叠在未读槽色上,合成后比未读深约 11 级灰(未读 12% 墨)。
         static let readTrackOpacity: CGFloat = 0.056
         static let pillMargin: CGFloat = 20
-        static let pillGap: CGFloat = 21
+        /// 两胶囊 20–190.3 / 211.7–382:中间缝 21.3(参考图量的,不是 21)。
+        static let pillGap: CGFloat = 21.3
     }
 
-    /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从算出的顶边起,内容按屏幕绝对坐标。
-    /// 面板高度 = 由底往上那串内容间距的合计(318 点),贴屏底,不再写死 334。
+    /// 菜单块:进度两数 / 章节滑轨 / 两颗胶囊。背景从算出的顶边起,
+    /// 面板里从顶往下就是一个竖直栈:35 顶距 + 数字行 + 标签 + 槽 + 胶囊 + 图标带,
+    /// 不再用屏幕绝对 y 偏移——面板顶变了,里面的东西跟着面板走。
+    /// 面板高度 = 这条链的合计 318 点,贴屏底,不再写死 334。
     /// 同一套间距也决定进度面板顶 556;字号面板 542、亮度面板 556 的内容由后续包补。
     /// 上面那行用 22 点渐隐收尾,不做半行硬切。
     private var resolvedPanelTop: CGFloat {
@@ -583,18 +609,27 @@ struct ReaderMenuOverlay: View {
     private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
         let panelTop = resolvedPanelTop
         let contentHeight = max(0, height - panelTop)
-        return ZStack(alignment: .topLeading) {
+        // 面板高度按内容链算好(318),内部从上往下排:数字行 → 标签 → 槽 → 胶囊。
+        // 图标那一格由 bottomToolbar 画在面板底色上,所以链尾还留 35.7 + 22.3 + 49。
+        let panelHeight = min(BottomChromeMetrics.panelHeight, contentHeight)
+        return VStack(spacing: 0) {
             progressStatsRow(width: width)
-                .offset(y: BottomChromeMetrics.progressFrameTop - panelTop)
+                // 固定占住数字行 + 11 点墨距 + 标签行;估计句为空时不留空行但保住高度。
+                .frame(
+                    width: width,
+                    height: BottomChromeMetrics.statsBlockHeight,
+                    alignment: .top
+                )
 
             chapterSlider(width: width)
                 .frame(width: width, height: BottomChromeMetrics.sliderHeight)
-                .offset(y: BottomChromeMetrics.sliderTop - panelTop)
+                .padding(.top, BottomChromeMetrics.statsSliderGap)
 
             pillRow(width: width)
-                .offset(y: BottomChromeMetrics.pillTop - panelTop)
+                .padding(.top, BottomChromeMetrics.pillSliderGap)
         }
-        .frame(width: width, height: contentHeight, alignment: .topLeading)
+        .padding(.top, BottomChromeMetrics.numberFrameTopPadding)
+        .frame(width: width, height: panelHeight, alignment: .top)
         .background {
             if theme.isDark {
                 LinearGradient(
@@ -618,71 +653,96 @@ struct ReaderMenuOverlay: View {
     }
 
     private func progressStatsRow(width: CGFloat) -> some View {
-        let totalChapterCount = max(totalChapters, chapters.count)
-        let readCount = max(0, readChapterCount)
-        // 单位符号按小字号单独排:百分号 / 斜杠加总章数不再和数字同大。
-        let percentMain = progressPercent.hasSuffix("%")
-            ? String(progressPercent.dropLast())
-            : progressPercent
-        let percentSmall = progressPercent.hasSuffix("%") ? "%" : nil
-        let finishedMain = "\(readCount)"
-        let finishedSmall = totalChapterCount > 0 ? "/\(totalChapterCount)" : nil
-        let columnWidth = width / 3
+        // 百分号照参考图单独排 11 点;右栏的时长直接吃 ReadingTimeFormat 的拆段。
+        let percentPieces = progressValuePieces(progressPercent)
+        let durationPieces = ReadingTimeFormat.pieces(readingSeconds)
+        // 左栏标签用百分比同一份进度比例和右栏同一份秒数反推,两栏永远不打架。
+        // 估不出来就不画这行(不给占位符),数字行位置由固定的行框顶保住。
+        let estimate = ReadingTimeFormat.remainingEstimate(
+            progress: progressFraction,
+            seconds: readingSeconds
+        )
+        let columnWidth = width / 2
         return HStack(alignment: .top, spacing: 0) {
             progressStatColumn(
-                main: percentMain,
-                small: percentSmall,
-                label: "阅读进度"
+                pieces: percentPieces,
+                label: estimate,
+                accessibilityLabel: estimate.map { "\(progressPercent)，\($0)" } ?? progressPercent
             )
             .frame(width: columnWidth)
-            Color.clear
-                .frame(width: columnWidth, height: 1)
+
             progressStatColumn(
-                main: finishedMain,
-                small: finishedSmall,
-                label: "已读章节"
+                pieces: durationPieces,
+                label: "阅读时长",
+                accessibilityLabel: ReadingTimeFormat.spoken(readingSeconds)
             )
             .frame(width: columnWidth)
         }
         .frame(width: width)
         .overlay(alignment: .topLeading) {
             Rectangle()
-                .fill(theme.menuPrimary.opacity(0.12))
-                .frame(width: 1, height: BottomChromeMetrics.dividerHeight)
-                .offset(x: width / 2 - 0.5, y: BottomChromeMetrics.dividerTop)
+                .fill(
+                    theme.isDark
+                        ? Color(hex: BottomChromeMetrics.dividerDarkHex)
+                        : theme.menuPrimary.opacity(0.12)
+                )
+                .frame(width: BottomChromeMetrics.dividerWidth,
+                       height: BottomChromeMetrics.dividerHeight)
+                .offset(
+                    x: width / 2 - BottomChromeMetrics.dividerWidth / 2,
+                    y: BottomChromeMetrics.dividerTop
+                )
                 .accessibilityHidden(true)
         }
     }
 
-    /// 主数字 24 点;单位符号 11 点,和主数字共用同一条基线,
-    /// 底边就落在数字的底边上(斜杠比基线低约 1.7 点,仍在容差内)。
-    private func progressStatColumn(main: String, small: String?, label: String) -> some View {
+    /// 进度数字拆成「数」和「%」两段:数字 24 点,百分号 11 点,共用基线。
+    private func progressValuePieces(_ percent: String) -> [ReadingTimeFormat.Piece] {
+        guard percent.hasSuffix("%") else {
+            return [ReadingTimeFormat.Piece(text: percent, isNumber: true)]
+        }
+        return [
+            ReadingTimeFormat.Piece(text: String(percent.dropLast()), isNumber: true),
+            ReadingTimeFormat.Piece(text: "%", isNumber: false)
+        ]
+    }
+
+    /// 主数字 24 点;单位 / 百分号 / 「不到」这类文字 11 点,和主数字共用同一条基线。
+    /// 两栏内容都在各自列宽里居中(列心 100.5 / 301.5),不是左对齐。
+    private func progressStatColumn(
+        pieces: [ReadingTimeFormat.Piece],
+        label: String?,
+        accessibilityLabel: String
+    ) -> some View {
         VStack(spacing: BottomChromeMetrics.numberLabelSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text(main)
-                    .font(.system(size: 24, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(theme.textColor.opacity(0.9))
-                    .lineLimit(1)
-                    .fixedSize()
-                if let small {
-                    Text(small)
-                        .font(.system(size: 11, weight: .medium))
+                ForEach(pieces.indices, id: \.self) { index in
+                    let piece = pieces[index]
+                    Text(piece.text)
+                        .font(.system(
+                            size: piece.isNumber
+                                ? BottomChromeMetrics.numberFontSize
+                                : BottomChromeMetrics.unitFontSize,
+                            weight: .medium
+                        ))
                         .monospacedDigit()
                         .foregroundStyle(theme.textColor.opacity(0.9))
                         .lineLimit(1)
                         .fixedSize()
                 }
             }
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(theme.textColor.opacity(0.45))
-                .lineLimit(1)
-                .fixedSize()
+            // 估计为 nil 时整行不出现,数字仍然从同一个行框顶起排,行不跳。
+            if let label {
+                Text(label)
+                    .font(.system(size: BottomChromeMetrics.unitFontSize))
+                    .foregroundStyle(theme.textColor.opacity(0.45))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
         .frame(minWidth: 44)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label) \(main)\(small ?? "")")
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private func chapterSlider(width: CGFloat) -> some View {
@@ -814,8 +874,9 @@ struct ReaderMenuOverlay: View {
             )
 
             pillButton(
-                title: "自动翻页",
-                accessibilityState: autoPageEnabled ? "已开启" : nil,
+                // Camo 定:胶囊写的是「点下去会做什么」,不是当前状态。
+                title: autoPageEnabled ? "关闭自动翻页" : "开启自动翻页",
+                accessibilityValue: autoPageEnabled ? "已开启" : "已关闭",
                 highlighted: autoPageEnabled,
                 action: {
                     if autoPageEnabled {
@@ -836,7 +897,7 @@ struct ReaderMenuOverlay: View {
         .frame(width: width, height: height)
     }
 
-    private func pillButton(title: String, accessibilityState: String? = nil, highlighted: Bool, action: @escaping () -> Void) -> some View {
+    private func pillButton(title: String, accessibilityValue: String? = nil, highlighted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13))
@@ -851,7 +912,8 @@ struct ReaderMenuOverlay: View {
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityState.map { "\(title)，\($0)" } ?? title)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(accessibilityValue ?? ""))
         .accessibilityAddTraits(highlighted ? [.isSelected] : [])
     }
 
@@ -1858,36 +1920,6 @@ struct ReaderMenuOverlay: View {
                 y: floatingCardTop(barTop: barTop) + floatingCardSize.height / 2
             )
         }
-    }
-
-    private func progressFloatingPanel(barTop: CGFloat) -> some View {
-        let naturalHeight: CGFloat = 92
-        let top = gridAlignedTop(naturalHeight: naturalHeight, barTop: barTop)
-        return VStack(spacing: 8) {
-            Text(progressPercent)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(theme.menuPrimary)
-            Slider(
-                value: $sliderValue,
-                in: 0...max(Double(totalChapters - 1), 1),
-                step: 1
-            ) { editing in
-                if !editing {
-                    currentChapterIndex = Int(sliderValue)
-                }
-            }
-            .tint(theme.menuSecondary)
-            .accessibilityLabel("章节")
-            .accessibilityValue("第 \(currentChapterIndex + 1) 章，共 \(totalChapters) 章")
-        }
-        .padding(.horizontal, 24)
-        .frame(maxWidth: .infinity)
-        .frame(height: max(0, barTop - top), alignment: .center)
-        .background(theme.menuBackground)
-        .overlay(alignment: .top) {
-            Rectangle().fill(theme.menuPrimary.opacity(0.12)).frame(height: 1)
-        }
-        .offset(y: top)
     }
 
     private func flashFollowSystem() {

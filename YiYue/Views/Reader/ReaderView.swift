@@ -390,6 +390,7 @@ struct ReaderView: View {
                     bodyLineHeight: bodyLineHeight,
                     progressPercent: menuProgressText,
                     progressFraction: overallProgressFraction,
+                    readingSeconds: timeSession.total(bookID: bookID),
                     bodyLineTops: currentPageLineTops,
                     topBarBottomY: menuTopEdgeY,
                     readChapterCount: readChapterCount,
