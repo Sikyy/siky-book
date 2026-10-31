@@ -3723,6 +3723,12 @@ final class PerfProbe: ObservableObject {
         mark("开栏" + tags)
     }
 
+    /// 直接记一段墙钟时间(不是帧):用来量一次同步调用的耗时。
+    func span(_ name: String, _ milliseconds: Double) {
+        records.append(Record(name: name, worst: milliseconds, drops: 0, frames: 0))
+        if records.count > 12 { records.removeFirst(records.count - 12) }
+    }
+
     func mark(_ name: String) {
         closeWindow()
         self.name = name

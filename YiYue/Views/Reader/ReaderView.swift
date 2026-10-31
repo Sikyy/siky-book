@@ -311,7 +311,9 @@ struct ReaderView: View {
         bookChapterCount = max(book.totalChapters, chapters.count)
         chapterTitles = chapters.map(\.title)
         // 目录行右边的百分比是固定值,书一打开就把表算好,开目录时只读表。
+        let tocScanStart = CACurrentMediaTime()
         TocPercentTable.shared.refresh(bookID: book.id, chapters: chapters)
+        PerfProbe.shared.span("字数表", (CACurrentMediaTime() - tocScanStart) * 1000)
         let index = currentChapterIndex
         currentChapterID = (index >= 0 && index < chapters.count) ? chapters[index].id : nil
     }
