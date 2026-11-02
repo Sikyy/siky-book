@@ -255,9 +255,10 @@ struct ReaderView: View {
     private func scheduleMenuWarmup() {
         menuWarmupTask?.cancel()
         menuWarmupTask = Task { @MainActor in
-            // 开书后的收尾工作(相邻章预取、盘存对账)大约在 0.8–1 秒内
-            // 结束;等它们让出主线程再开始预热,免得切片和收尾撞在同一帧。
-            try? await Task.sleep(for: .milliseconds(1200))
+            // 规则一:开场后先不预热。原来等 1.2 秒就开工,正好撞在
+            // 相邻章预取和盘存对账的尾巴上,把某几次开书放大成三倍。
+            // 现在等 3 秒,页面先静下来。
+            try? await Task.sleep(for: .milliseconds(3000))
             guard !Task.isCancelled, !showMenu else { return }
 
             while !Task.isCancelled {
@@ -282,6 +283,17 @@ struct ReaderView: View {
                         aborted = true
                         break
                     }
+                    // 规则二:这一帧已经有重活在做,就跳过这一片,下一帧再来。
+                    // 预热是给以后开菜单做准备,没有资格拖慢读者当下这一下。
+                    var idleWait = 0.0
+                    while CACurrentMediaTime() - PerfProbe.shared.lastHeavyFrameAt < 0.4,
+                          idleWait < 2.0 {
+                        if Task.isCancelled || showMenu { aborted = true; break }
+                        try? await Task.sleep(for: .milliseconds(120))
+                        idleWait += 0.12
+                    }
+                    if aborted { break }
+
                     menuWarmup.stage = stage
                     // Let the frame containing this slice commit before the
                     // next slice is handed to the render tree.
@@ -1358,6 +1370,7 @@ struct ReaderView: View {
                             guard index == 0 else { return }
                             let firstAt = CACurrentMediaTime()
                             let firstMs = Int((firstAt - PerfProbe.shared.openAt) * 1000)
+                            PerfProbe.shared.noteFirstChar()
                             PerfProbe.shared.mark("首字#\(PerfProbe.shared.openSeq) \(firstMs)ms")
                             Task { @MainActor in
                                 await Task.yield()

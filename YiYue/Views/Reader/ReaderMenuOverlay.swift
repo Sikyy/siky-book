@@ -3746,6 +3746,19 @@ struct ReaderActivitySheet: UIViewControllerRepresentable {
 @MainActor
 final class PerfProbe: ObservableObject {
     static let shared = PerfProbe()
+
+    /// 基线模式:浮层不画(记录照记、退出时照样导出)。开跑前把剪贴板设成
+    /// 「perf-nohud」再启动应用即可。用来验证量具本身有没有拖慢被测代码。
+    private var hudSuppressed = false
+
+    private init() {
+        #if DEBUG || PERF
+        if UIPasteboard.general.string == "perf-nohud" {
+            hudSuppressed = true
+            UIPasteboard.general.string = ""
+        }
+        #endif
+    }
     struct Record: Identifiable {
         let id = UUID()
         let name: String
@@ -3761,7 +3774,8 @@ final class PerfProbe: ObservableObject {
 
     private func append(_ record: Record, cap: Int) {
         records.append(record)
-        if records.count > 400 { records.removeFirst(records.count - 400) }
+        if records.count > 2000 { records.removeFirst(records.count - 2000) }
+        guard !hudSuppressed else { return }
         let now = CACurrentMediaTime()
         if now - lastPublish > 0.5 {
             lastPublish = now
@@ -3835,7 +3849,7 @@ final class PerfProbe: ObservableObject {
 
     /// 直接记一段墙钟时间(不是帧):用来量一次同步调用的耗时。
     func span(_ name: String, _ milliseconds: Double) {
-        append(Record(name: name, worst: milliseconds, drops: 0, frames: 0), cap: 400)
+        append(Record(name: name, worst: milliseconds, drops: 0, frames: 0), cap: 2000)
     }
 
     func mark(_ name: String) {
@@ -3853,11 +3867,16 @@ final class PerfProbe: ObservableObject {
         ensureHUD()
     }
 
+    /// 最近一次卡帧(超过 20 毫秒)的时刻。预热用它判断「这一帧已经有重活」,
+    /// 有就让开,下一帧再来,不排队。
+    var lastHeavyFrameAt: CFTimeInterval = 0
+
     @objc private func tick(_ link: CADisplayLink) {
         let now = link.timestamp
         defer { last = now }
         if last > 0 {
             let d = (now - last) * 1000
+            if d > 20 { lastHeavyFrameAt = now }
             #if PERF
             if d > 25, openAt > 0 {
                 // 归因用:长帧记下当时所处的阶段(最近一条 mark 的名字),
@@ -3865,7 +3884,7 @@ final class PerfProbe: ObservableObject {
                 // 优先用「此刻正在跑的那段活」,没有再退回最近的阶段名。
                 // 没标到的帧用问号开头单独标出来:那是我们还没覆盖到的活。
                 let stage = currentActivity.isEmpty ? "?\(name ?? "-")" : currentActivity
-                append(Record(name: "卡\(Int(d))@\(stage)@\(Int((now - openAt) * 1000))", worst: d, drops: 0, frames: 0), cap: 400)
+                append(Record(name: "卡\(Int(d))@\(stage)@\(Int((now - openAt) * 1000))", worst: d, drops: 0, frames: 0), cap: 2000)
             }
             #endif
             guard name != nil else { return }
@@ -3880,7 +3899,7 @@ final class PerfProbe: ObservableObject {
 
     private func closeWindow() {
         guard let n = name else { return }
-        append(Record(name: n, worst: worst, drops: drops, frames: frames), cap: 400)
+        append(Record(name: n, worst: worst, drops: drops, frames: frames), cap: 2000)
         name = nil
     }
 
@@ -3889,6 +3908,7 @@ final class PerfProbe: ObservableObject {
     /// 探针面板挂在独立的窗口上:退出阅读页以后还要能读出「退出」那一笔。
     private func ensureHUD() {
         #if DEBUG || PERF
+        guard !hudSuppressed else { return }
         guard hudWindow == nil else { return }
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
@@ -3919,6 +3939,7 @@ final class PerfProbe: ObservableObject {
     func noteReaderAppeared() {
         let now = CACurrentMediaTime()
         openAt = now
+        appearedAt = now
         if openStartedAt > 0 {
             span("点书出现#\(openSeq)", (now - openStartedAt) * 1000)
         }
@@ -3929,11 +3950,27 @@ final class PerfProbe: ObservableObject {
         openSeq += 1
     }
 
+    /// 首字出现的时刻,用来把「墙钟 − 首字」那段尾巴单独量出来。
+    private var firstCharAt: CFTimeInterval = 0
+
+    func noteFirstChar() {
+        let now = CACurrentMediaTime()
+        firstCharAt = now
+        if appearedAt > 0 { span("出现到首字#\(openSeq)", (now - appearedAt) * 1000) }
+    }
+
     func finishOpen() {
         guard openStartedAt > 0 else { return }
-        span("开书墙#\(openSeq)", (CACurrentMediaTime() - openStartedAt) * 1000)
+        let now = CACurrentMediaTime()
+        span("开书墙#\(openSeq)", (now - openStartedAt) * 1000)
+        if firstCharAt > 0 { span("首字到收尾#\(openSeq)", (now - firstCharAt) * 1000) }
         openStartedAt = 0
+        firstCharAt = 0
+        appearedAt = 0
     }
+
+    /// 阅读页出现的时刻。
+    private var appearedAt: CFTimeInterval = 0
 
     /// 退出阅读页时把全部记录塞进剪贴板,外面用 simulator pbpaste 取走:
     /// 屏幕上只放得下几十行,跑五次这种量法必须整段取数。
