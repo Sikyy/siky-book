@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import SwiftData
 
 // MARK: - 两页共用配色
 
@@ -843,6 +844,10 @@ final class TocPercentTable {
     }
 
     private var cache: [UUID: Cached] = [:]
+    /// 正在后台算的小时。同一本不重复起。
+    private var building: Set<UUID> = []
+    /// 这个章数以内主线程直接算(两百章三毫秒);再大就挪后台,开书不等它。
+    private let inlineChapterLimit = 500
 
     private func signature(of chapters: [Chapter]) -> String {
         // 章节数、首尾章名判不出「中间换了一章」或者「正文从 SwiftData 搬到磁盘」,
@@ -851,9 +856,16 @@ final class TocPercentTable {
         return "\(chapters.count)|\(revision)|\(chapters.first?.title ?? "")|\(chapters.last?.title ?? "")"
     }
 
-    /// 书打开、目录刷新之后调一次,把表算好存起来。
-    func refresh(bookID: UUID, chapters: [Chapter]) {
+    /// 书打开、目录刷新之后调一次。小书当场算好;
+    /// 大书先不算,后台算完落盘,下次开这本书直接从盘上读。
+    func refresh(bookID: UUID, chapters: [Chapter], container: ModelContainer?) {
         _ = table(bookID: bookID, chapters: chapters)
+        guard cache[bookID]?.lengths == nil, let container else { return }
+        scheduleBackgroundBuild(
+            bookID: bookID,
+            container: container,
+            signature: signature(of: chapters)
+        )
     }
 
     /// 目录行:章名 + 这一章起点在全书的位置。
@@ -906,38 +918,48 @@ final class TocPercentTable {
         if let cached = cache[bookID], cached.signature == signature {
             return cached
         }
-        let built = build(chapters)
+        let sorted = chapters.sorted { $0.index < $1.index }
+        let indices = sorted.map(\.index)
+
+        // 1. 盘上有这张表,直接读 —— 不碰任何一章正文。
+        if let disk = TocLengthStore.load(bookID: bookID, signature: signature, indices: indices) {
+            let built = build(sorted: sorted, signature: signature, lengths: disk)
+            cache[bookID] = built
+            return built
+        }
+
+        // 2. 小书当场算;大书先用章序号,后台算完落盘。
+        let lengths = sorted.count <= inlineChapterLimit ? inlineLengths(sorted) : nil
+        let built = build(sorted: sorted, signature: signature, lengths: lengths)
         cache[bookID] = built
         return built
     }
 
-    private func build(_ chapters: [Chapter]) -> Cached {
-        let sorted = chapters.sorted { $0.index < $1.index }
-        let indices = sorted.map(\.index)
-
-        // 每章字数:整本都有正文才算得出字数占比,缺一章就整本退回按章序号。
+    /// 每章字数:缺一章就整本退回按章序号算。
+    private func inlineLengths(_ sorted: [Chapter]) -> [Int]? {
         var lengths: [Int] = []
         lengths.reserveCapacity(sorted.count)
         for chapter in sorted {
-            guard let content = chapter.content, !content.isEmpty else {
-                lengths.removeAll(keepingCapacity: false)
-                break
-            }
+            guard let content = chapter.content, !content.isEmpty else { return nil }
             lengths.append(content.count)
         }
+        return lengths
+    }
 
-        let hasWords = lengths.count == sorted.count
-        let totalWords = hasWords ? lengths.reduce(0, +) : 0
+    private func build(sorted: [Chapter], signature: String, lengths source: [Int]?) -> Cached {
+        let indices = sorted.map(\.index)
+        let lengths = (source?.count == indices.count) ? source : nil
+        let totalWords = lengths?.reduce(0, +) ?? 0
         var cumulative: [Int] = []
-        cumulative.reserveCapacity(sorted.count)
+        cumulative.reserveCapacity(indices.count)
         var walked = 0
-        for (offset, _) in sorted.enumerated() {
+        for offset in indices.indices {
             cumulative.append(walked)
-            if hasWords, totalWords > 0 { walked += lengths[offset] }
+            if let lengths, totalWords > 0 { walked += lengths[offset] }
         }
 
         let entries: [ReaderTocEntry]
-        if hasWords, totalWords > 0 {
+        if let lengths, totalWords > 0 {
             entries = sorted.enumerated().map { offset, chapter in
                 ReaderTocEntry(
                     index: chapter.index,
@@ -957,12 +979,96 @@ final class TocPercentTable {
         }
 
         return Cached(
-            signature: signature(of: chapters),
+            signature: signature,
             indices: indices,
-            lengths: hasWords && totalWords > 0 ? lengths : nil,
+            lengths: (lengths != nil && totalWords > 0) ? lengths : nil,
             cumulative: cumulative,
             totalWords: totalWords,
             entries: entries
         )
+    }
+
+    private func scheduleBackgroundBuild(bookID: UUID, container: ModelContainer, signature: String) {
+        guard !building.contains(bookID) else { return }
+        building.insert(bookID)
+        Task.detached(priority: .utility) { [weak self] in
+            let lengths = Self.computeLengths(bookID: bookID, container: container)
+            await MainActor.run {
+                guard let self else { return }
+                self.building.remove(bookID)
+                guard let lengths else { return }
+                TocLengthStore.save(
+                    bookID: bookID,
+                    signature: signature,
+                    indices: Array(0..<lengths.count),
+                    lengths: lengths
+                )
+                // 这一本当前记着的表作废:下次查表从盘上读新的。
+                if self.cache[bookID]?.signature == signature, self.cache[bookID]?.lengths == nil {
+                    self.cache.removeValue(forKey: bookID)
+                }
+            }
+        }
+    }
+
+    /// 后台读整本每章字数。自己开一个 ModelContext,不碰主线程那个。
+    nonisolated private static func computeLengths(bookID: UUID, container: ModelContainer) -> [Int]? {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<Chapter>(
+            predicate: #Predicate<Chapter> { $0.book?.id == bookID },
+            sortBy: [SortDescriptor(\.index)]
+        )
+        guard let chapters = try? context.fetch(descriptor), !chapters.isEmpty else { return nil }
+        var lengths: [Int] = []
+        lengths.reserveCapacity(chapters.count)
+        for chapter in chapters {
+            guard let content = chapter.content, !content.isEmpty else { return nil }
+            lengths.append(content.count)
+        }
+        return lengths
+    }
+}
+
+// MARK: - 每章字数的落盘
+
+/// 表按「书号 + 正文版本」存:版本一变旧表就不再命中,不会拿旧百分比糊弄人。
+enum TocLengthStore {
+    private struct Payload: Codable {
+        let signature: String
+        let indices: [Int]
+        let lengths: [Int]
+    }
+
+    private static var directory: URL? {
+        guard let base = try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) else { return nil }
+        let dir = base.appendingPathComponent("TocLengths", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private static func url(bookID: UUID) -> URL? {
+        directory?.appendingPathComponent("\(bookID.uuidString).json")
+    }
+
+    static func load(bookID: UUID, signature: String, indices: [Int]) -> [Int]? {
+        guard let url = url(bookID: bookID),
+              let data = try? Data(contentsOf: url),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              payload.signature == signature,
+              payload.indices == indices,
+              payload.lengths.count == indices.count else { return nil }
+        return payload.lengths
+    }
+
+    static func save(bookID: UUID, signature: String, indices: [Int], lengths: [Int]) {
+        guard let url = url(bookID: bookID) else { return }
+        let payload = Payload(signature: signature, indices: indices, lengths: lengths)
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        try? data.write(to: url, options: .atomic)
     }
 }
