@@ -12,6 +12,8 @@ struct ReaderPageStyle {
     var panel: Color { theme.menuBackground }
     var primary: Color { theme.menuPrimary }
     var secondary: Color { theme.menuSecondary }
+    /// 搜索占位字:夜间单独提到 #969698(150,150,152),不跟次要色那一档。
+    var searchPlaceholder: Color { theme.isDark ? Color(hex: "#969698") : theme.secondaryColor }
     /// 参照图里的蓝:和底栏选中格同一个值 #2493EE,不用主题的砖红强调色。
     var blue: Color { ReaderToolbarMetrics.selectedFill }
     /// 卡片底:比面板深一档(浅色)/亮一档(夜间),一条公式两边都对。
@@ -111,7 +113,11 @@ struct ReaderTocPage: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 15))
                         .foregroundStyle(style.secondary)
-                    TextField("搜索章节", text: $searchText)
+                    TextField(
+                        "",
+                        text: $searchText,
+                        prompt: Text("搜索章节").foregroundStyle(style.searchPlaceholder)
+                    )
                         .font(.system(size: 15))
                         .foregroundStyle(style.primary)
                         .tint(style.blue)
@@ -144,6 +150,7 @@ struct ReaderTocPage: View {
                             .font(.system(size: 15))
                         Text("搜索章节")
                             .font(.system(size: 15))
+                            .foregroundStyle(style.searchPlaceholder)
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(style.secondary)
@@ -158,6 +165,9 @@ struct ReaderTocPage: View {
 
             Spacer(minLength: 0)
 
+            // 不用 .disabled:禁用会把标签整体压暗,「目录」就比下面的章名还浅。
+            // 它和左边的搜索框是一枚开关的两半:目录态是选中的那一半(读屏念已选中),
+            // 搜索态是「取消」,点了回到目录列表。
             Button {
                 if isSearching { endSearch() }
             } label: {
@@ -172,8 +182,10 @@ struct ReaderTocPage: View {
                     .contentShape(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(!isSearching)
             .accessibilityLabel(isSearching ? "取消搜索" : "目录")
+            // 目录态它是这枚开关选中的那一半:读屏念「已选中」,
+            // 不是念成一个按得动、按了不响应的按钮;搜索态才是「取消」。
+            .accessibilityAddTraits(isSearching ? [] : [.isSelected])
             .padding(.trailing, 3.3)
         }
         .frame(height: 27)

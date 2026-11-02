@@ -2810,6 +2810,7 @@ struct ReaderView: View {
                 return
             }
 
+            PerfProbe.shared.finishOpen()
             PerfProbe.shared.mark("排版完")
             cachedParagraphs = output.paragraphs
             cachedPages = output.pages

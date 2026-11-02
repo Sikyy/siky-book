@@ -2664,10 +2664,9 @@ struct ReaderMenuOverlay: View {
         HStack(spacing: 8) {
             settingLabel("翻页方式", width: 72)
             Spacer(minLength: 0)
-            ForEach([PageMode.horizontal, PageMode.scroll], id: \.self) { mode in
-                let selected = mode == .scroll
-                    ? settings.pageMode == .scroll
-                    : settings.pageMode != .scroll
+            // 三档和设置页一致:菜单里少的「点击翻页」也能用,藏起来只会让人以为设置里那档坏了。
+            ForEach([PageMode.horizontal, PageMode.tap, PageMode.scroll], id: \.self) { mode in
+                let selected = settings.pageMode == mode
                 Button {
                     settings.pageMode = mode
                     settings.save(markPageModeExplicit: true)
@@ -2675,7 +2674,7 @@ struct ReaderMenuOverlay: View {
                     Text(mode.displayName)
                         .font(.system(size: 13, weight: selected ? .semibold : .regular))
                         .foregroundStyle(selected ? theme.menuBackground : theme.menuSecondary)
-                        .frame(width: 62, height: 32)
+                        .frame(width: 58, height: 32)
                         .background(
                             Capsule().fill(selected ? theme.accentColor : theme.menuPrimary.opacity(0.05))
                         )
@@ -3783,6 +3782,20 @@ final class PerfProbe: ObservableObject {
     }
 
     private func hostHUDReady() {}
+
+    /// 从点开书那一刻算起的墙钟起点。帧窗口在开书这一下会立刻被下一个
+    /// mark 关掉(0 帧),墙钟才量得出「点了到第一页排完」这一段。
+    var openStartedAt: CFTimeInterval = 0
+
+    func beginOpen() {
+        openStartedAt = CACurrentMediaTime()
+    }
+
+    func finishOpen() {
+        guard openStartedAt > 0 else { return }
+        span("开书墙", (CACurrentMediaTime() - openStartedAt) * 1000)
+        openStartedAt = 0
+    }
 
     /// 浮层 body 被求值的次数:收起状态下等三十秒,这个数不该动。
     private(set) var overlayBodyEvals = 0

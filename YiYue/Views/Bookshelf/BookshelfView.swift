@@ -311,6 +311,7 @@ struct BookshelfView: View {
     // MARK: - Returning from the reader
 
     private func openReader(_ book: Book) {
+        PerfProbe.shared.beginOpen()
         frozenItemIDs = groupedItems.map(\.id)
         openedBookID = book.id
         selectedBook = book
