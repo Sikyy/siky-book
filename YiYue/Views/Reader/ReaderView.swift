@@ -3169,6 +3169,8 @@ struct ReaderView: View {
 
             PerfProbe.shared.finishOpen()
             PerfProbe.shared.mark("排版完")
+            PerfProbe.shared.begin("分页落地")
+            defer { PerfProbe.shared.end() }
             cachedParagraphs = output.paragraphs
             cachedPages = output.pages
             if let chapterID, let chapterSourceIdentity, !content.isEmpty {
@@ -3522,6 +3524,8 @@ struct ReaderView: View {
                 }
                 currentChapterContent = content
                 PerfProbe.shared.mark("取正文")
+                PerfProbe.shared.begin("取正文")
+                defer { PerfProbe.shared.end() }
                 preparedChapterWindow.storeContent(
                     content,
                     chapterID: chapterID,

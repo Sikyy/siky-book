@@ -3753,7 +3753,21 @@ final class PerfProbe: ObservableObject {
         let drops: Int
         let frames: Int
     }
-    @Published private(set) var records: [Record] = []
+    /// 记录不再逐条发布:每记一笔就重画一次浮层,会把浮层自己的开销
+    /// 记进被测帧里。现在只在每 0.5 秒发布一次版本号,浮层跟着重画。
+    private(set) var records: [Record] = []
+    @Published private(set) var version = 0
+    private var lastPublish: CFTimeInterval = 0
+
+    private func append(_ record: Record, cap: Int) {
+        records.append(record)
+        if records.count > cap { records.removeFirst(records.count - cap) }
+        let now = CACurrentMediaTime()
+        if now - lastPublish > 0.5 {
+            lastPublish = now
+            version &+= 1
+        }
+    }
 
     private var link: CADisplayLink?
     private var last: CFTimeInterval = 0
@@ -3798,6 +3812,16 @@ final class PerfProbe: ObservableObject {
         span(String(format: "动→收%.1fms", ms), ms)
     }
 
+    // MARK: - 归因:当前正在干什么(只在 PERF 里有意义)
+
+    private var activities: [String] = []
+
+    var currentActivity: String { activities.last ?? "" }
+
+    func begin(_ tag: String) { activities.append(tag) }
+
+    func end() { if !activities.isEmpty { activities.removeLast() } }
+
     func markMenuOpen() {
         menuOpenCount += 1
         let now = CACurrentMediaTime()
@@ -3811,8 +3835,7 @@ final class PerfProbe: ObservableObject {
 
     /// 直接记一段墙钟时间(不是帧):用来量一次同步调用的耗时。
     func span(_ name: String, _ milliseconds: Double) {
-        records.append(Record(name: name, worst: milliseconds, drops: 0, frames: 0))
-        if records.count > 40 { records.removeFirst(records.count - 40) }
+        append(Record(name: name, worst: milliseconds, drops: 0, frames: 0), cap: 40)
     }
 
     func mark(_ name: String) {
@@ -3836,8 +3859,12 @@ final class PerfProbe: ObservableObject {
             let d = (now - last) * 1000
             #if PERF
             if d > 25, openAt > 0 {
-                records.append(Record(name: "卡@\(Int((now - openAt) * 1000))", worst: d, drops: 0, frames: 0))
-                if records.count > 60 { records.removeFirst(records.count - 60) }
+                // 归因用:长帧记下当时所处的阶段(最近一条 mark 的名字),
+                // 是取正文、排版、落盘还是纯界面重算,一眼能分开。
+                // 优先用「此刻正在跑的那段活」,没有再退回最近的阶段名。
+                // 没标到的帧用问号开头单独标出来:那是我们还没覆盖到的活。
+                let stage = currentActivity.isEmpty ? "?\(name ?? "-")" : currentActivity
+                append(Record(name: "卡\(Int(d))@\(stage)@\(Int((now - openAt) * 1000))", worst: d, drops: 0, frames: 0), cap: 120)
             }
             #endif
             guard name != nil else { return }
@@ -3852,8 +3879,7 @@ final class PerfProbe: ObservableObject {
 
     private func closeWindow() {
         guard let n = name else { return }
-        records.append(Record(name: n, worst: worst, drops: drops, frames: frames))
-        if records.count > 40 { records.removeFirst(records.count - 40) }
+        append(Record(name: n, worst: worst, drops: drops, frames: frames), cap: 40)
         name = nil
     }
 
@@ -3930,6 +3956,7 @@ struct PerfHUD: View {
     /// 一条 Text 而不是每行一个 Text:探针自己每记一笔都会重算这里,
     /// 六十个子视图的 diff 会在慢设备上变成 30–50 ms 的假卡顿。
     private var hudText: String {
+        let _ = probe.version
         var lines = probe.records.map {
             String(format: "%@ w%.0f d%d/%d", $0.name, $0.worst, $0.drops, $0.frames)
         }
