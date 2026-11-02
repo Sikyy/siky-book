@@ -3761,7 +3761,7 @@ final class PerfProbe: ObservableObject {
 
     private func append(_ record: Record, cap: Int) {
         records.append(record)
-        if records.count > cap { records.removeFirst(records.count - cap) }
+        if records.count > 400 { records.removeFirst(records.count - 400) }
         let now = CACurrentMediaTime()
         if now - lastPublish > 0.5 {
             lastPublish = now
@@ -3835,11 +3835,12 @@ final class PerfProbe: ObservableObject {
 
     /// 直接记一段墙钟时间(不是帧):用来量一次同步调用的耗时。
     func span(_ name: String, _ milliseconds: Double) {
-        append(Record(name: name, worst: milliseconds, drops: 0, frames: 0), cap: 40)
+        append(Record(name: name, worst: milliseconds, drops: 0, frames: 0), cap: 400)
     }
 
     func mark(_ name: String) {
         closeWindow()
+        if name == "退出" { dumpToPasteboard() }
         self.name = name
         worst = 0; drops = 0; frames = 0
         last = 0
@@ -3864,7 +3865,7 @@ final class PerfProbe: ObservableObject {
                 // 优先用「此刻正在跑的那段活」,没有再退回最近的阶段名。
                 // 没标到的帧用问号开头单独标出来:那是我们还没覆盖到的活。
                 let stage = currentActivity.isEmpty ? "?\(name ?? "-")" : currentActivity
-                append(Record(name: "卡\(Int(d))@\(stage)@\(Int((now - openAt) * 1000))", worst: d, drops: 0, frames: 0), cap: 120)
+                append(Record(name: "卡\(Int(d))@\(stage)@\(Int((now - openAt) * 1000))", worst: d, drops: 0, frames: 0), cap: 400)
             }
             #endif
             guard name != nil else { return }
@@ -3879,7 +3880,7 @@ final class PerfProbe: ObservableObject {
 
     private func closeWindow() {
         guard let n = name else { return }
-        append(Record(name: n, worst: worst, drops: drops, frames: frames), cap: 40)
+        append(Record(name: n, worst: worst, drops: drops, frames: frames), cap: 400)
         name = nil
     }
 
@@ -3910,14 +3911,37 @@ final class PerfProbe: ObservableObject {
     /// mark 关掉(0 帧),墙钟才量得出「点了到第一页排完」这一段。
     var openStartedAt: CFTimeInterval = 0
 
+    /// 第几次开书(一次进程里可能开五次)。
+    private(set) var openSeq = 0
+
+    /// 阅读页出现的那一刻:顺手把「点书 → 页面出现」这段也量出来,
+    /// 它现在是一段没有任何标签的黑时间。
+    func noteReaderAppeared() {
+        let now = CACurrentMediaTime()
+        openAt = now
+        if openStartedAt > 0 {
+            span("点书出现#\(openSeq)", (now - openStartedAt) * 1000)
+        }
+    }
+
     func beginOpen() {
         openStartedAt = CACurrentMediaTime()
+        openSeq += 1
     }
 
     func finishOpen() {
         guard openStartedAt > 0 else { return }
-        span("开书墙", (CACurrentMediaTime() - openStartedAt) * 1000)
+        span("开书墙#\(openSeq)", (CACurrentMediaTime() - openStartedAt) * 1000)
         openStartedAt = 0
+    }
+
+    /// 退出阅读页时把全部记录塞进剪贴板,外面用 simulator pbpaste 取走:
+    /// 屏幕上只放得下几十行,跑五次这种量法必须整段取数。
+    func dumpToPasteboard() {
+        let lines = records.map {
+            String(format: "%@|%.1f|%d|%d", $0.name, $0.worst, $0.drops, $0.frames)
+        }
+        UIPasteboard.general.string = lines.joined(separator: "\n")
     }
 
     /// 浮层 body 被求值的次数:收起状态下等三十秒,这个数不该动。

@@ -537,11 +537,35 @@ struct BookshelfView: View {
 enum PerfSeed {
     private static let doneKey = "perfSeed.v1"
 
+    /// 空白页基线的种子键:单独一把,老装机也能补种。
+    private static let blankKey = "perfSeed.blank.v1"
+
     static func seedIfNeeded(modelContext: ModelContext) {
-        guard !UserDefaults.standard.bool(forKey: doneKey) else { return }
-        UserDefaults.standard.set(true, forKey: doneKey)
-        make(modelContext: modelContext, title: "测试书·两百章", chapters: 200)
-        make(modelContext: modelContext, title: "测试书·五千章", chapters: 5000)
+        if !UserDefaults.standard.bool(forKey: doneKey) {
+            UserDefaults.standard.set(true, forKey: doneKey)
+            make(modelContext: modelContext, title: "测试书·两百章", chapters: 200)
+            make(modelContext: modelContext, title: "测试书·五千章", chapters: 5000)
+        }
+        seedBlankIfNeeded(modelContext: modelContext)
+    }
+
+    /// 机器地板:一本只有一章、正文只有几个字的书。开它花的时间就是
+    /// 「这台机器什么都不做也要多久」,别的数要减掉这一段才算真开销。
+    private static func seedBlankIfNeeded(modelContext: ModelContext) {
+        guard !UserDefaults.standard.bool(forKey: blankKey) else { return }
+        UserDefaults.standard.set(true, forKey: blankKey)
+        let book = Book(
+            title: "测试书·空白页",
+            author: "测试",
+            sourceType: .localFile,
+            totalChapters: 1
+        )
+        modelContext.insert(book)
+        let chapter = Chapter(index: 0, title: "第1章 空白", content: "空白页基线。")
+        chapter.book = book
+        modelContext.insert(chapter)
+        try? modelContext.save()
+        print("PerfSeed: 空白页 1 章")
     }
 
     private static func make(modelContext: ModelContext, title: String, chapters: Int) {

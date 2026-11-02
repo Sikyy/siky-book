@@ -612,7 +612,7 @@ struct ReaderView: View {
             readingContent
                 .allowsHitTesting(!storeUnavailable)
                 .onAppear {
-                    PerfProbe.shared.openAt = CACurrentMediaTime()
+                    PerfProbe.shared.noteReaderAppeared()
                     PerfProbe.shared.mark("开书")
                     scheduleMenuWarmup()
                 }
@@ -1358,11 +1358,11 @@ struct ReaderView: View {
                             guard index == 0 else { return }
                             let firstAt = CACurrentMediaTime()
                             let firstMs = Int((firstAt - PerfProbe.shared.openAt) * 1000)
-                            PerfProbe.shared.mark("首字\(firstMs)ms")
+                            PerfProbe.shared.mark("首字#\(PerfProbe.shared.openSeq) \(firstMs)ms")
                             Task { @MainActor in
                                 await Task.yield()
                                 let readyMs = Int((CACurrentMediaTime() - PerfProbe.shared.openAt) * 1000)
-                                PerfProbe.shared.mark("可滚\(readyMs)ms")
+                                PerfProbe.shared.mark("可滚#\(PerfProbe.shared.openSeq) \(readyMs)ms")
                             }
                         }
                         .background(alignment: .topLeading) {
