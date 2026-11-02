@@ -367,6 +367,8 @@ struct ReaderMenuOverlay: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var showChapterList = false
+    /// 目录页是否在搜索态:那时底栏被键盘盖住,要从读屏里摘掉。
+    @State private var tocSearching = false
     @State private var sliderValue: Double = 0
     /// 拖滑轨时滑块跟手用的比例;松手后清掉,回到和进度数字同一个值。
     @State private var sliderDragFraction: Double?
@@ -2248,6 +2250,7 @@ struct ReaderMenuOverlay: View {
                     .accessibilityAddTraits(selectedTool == tool ? [.isSelected] : [])
                 }
             }
+            .accessibilityHidden(tocSearching)
             .frame(height: height - 1)
         }
         .frame(width: width, height: height)
@@ -2894,7 +2897,8 @@ struct ReaderMenuOverlay: View {
                     closePanel()
                 },
                 onAddBookmark: { onAddBookmarkHere?() },
-                headerAccessory: cacheRowAccessory
+                headerAccessory: cacheRowAccessory,
+                onSearchingChanged: { tocSearching = $0 }
             )
         }
     }
@@ -3041,6 +3045,7 @@ struct ReaderMenuOverlay: View {
             panelDragOffset = 0
             showChapterList = false
         }
+        tocSearching = false
         // 内容等淡出完再收,否则面板会在淡出到一半时先变空。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
             if !showChapterList { selectedTool = nil }
@@ -3766,6 +3771,7 @@ final class PerfProbe: ObservableObject {
 
     /// 探针面板挂在独立的窗口上:退出阅读页以后还要能读出「退出」那一笔。
     private func ensureHUD() {
+        #if DEBUG || PERF
         guard hudWindow == nil else { return }
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
@@ -3779,6 +3785,7 @@ final class PerfProbe: ObservableObject {
         w.isHidden = false
         hostHUDReady()
         hudWindow = w
+        #endif
     }
 
     private func hostHUDReady() {}

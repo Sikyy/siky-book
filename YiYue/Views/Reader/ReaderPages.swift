@@ -62,6 +62,8 @@ struct ReaderTocPage: View {
     let onAddBookmark: () -> Void
     /// 有书源的书才出现的「缓存 / 更新目录」那一行。
     var headerAccessory: AnyView? = nil
+    /// 搜索态时告诉外面一声:底栏那五格被键盘盖住,不该再进读屏。
+    var onSearchingChanged: ((Bool) -> Void)? = nil
 
     @State private var searchText = ""
     @State private var isSearching = false
@@ -174,7 +176,9 @@ struct ReaderTocPage: View {
             } label: {
                 Text(isSearching ? "取消" : "目录")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isSearching ? style.secondary : style.primary)
+                    // 搜索态的「取消」是要按的按钮:夜间走占位字那档 (150,150,152),
+                    // 原来那次要色只有 4.26:1,不够。
+                    .foregroundStyle(isSearching ? style.searchPlaceholder : style.primary)
                     .frame(width: 181.7, height: 27)
                     .background(
                         Capsule(style: .continuous)
@@ -196,12 +200,14 @@ struct ReaderTocPage: View {
     private func beginSearch() {
         isSearching = true
         searchFocused = true
+        onSearchingChanged?(true)
     }
 
     private func endSearch() {
         searchText = ""
         isSearching = false
         searchFocused = false
+        onSearchingChanged?(false)
     }
 
     // MARK: 列表
@@ -317,53 +323,58 @@ struct ReaderTocPage: View {
     }
 
     /// 当前章下面那一块:书签图标 + 「当前读到」+ 「添加书签」,占 70.3。
+    /// 命中区只给「图标 + 两行字」这半边(约 x 73–140、高 44 起),
+    /// 右侧百分比那段不接点击——那行看起来是位置指示,点哪儿都删书签会误删。
     private var currentBlock: some View {
-        Button {
-            onAddBookmark()
-        } label: {
-            HStack(alignment: .top, spacing: 0) {
-                Image(systemName: hasPageBookmark ? "bookmark.fill" : "bookmark")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(style.blue)
-                    .frame(width: 14.7, height: 16)
-                    .padding(.leading, 73.3)
-                    .padding(.top, 17.5)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("当前读到")
-                        .font(.system(size: 15, weight: .semibold))
+        HStack(alignment: .top, spacing: 0) {
+            Button {
+                onAddBookmark()
+            } label: {
+                HStack(alignment: .top, spacing: 9.7) {
+                    Image(systemName: hasPageBookmark ? "bookmark.fill" : "bookmark")
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(style.blue)
-                    Text(hasPageBookmark ? "删除书签" : "添加书签")
-                        .font(.system(size: 12))
-                        .foregroundStyle(style.secondary)
+                        .frame(width: 14.7, height: 16)
+                        .padding(.top, 17.5)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("当前读到")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(style.blue)
+                        Text(hasPageBookmark ? "删除书签" : "添加书签")
+                            .font(.system(size: 12))
+                            .foregroundStyle(style.secondary)
+                    }
+                    .padding(.top, 15.5)
                 }
-                .padding(.leading, 9.7)
-                .padding(.top, 15.5)
-
-                Spacer(minLength: 8)
-
-                Text(currentPercentText)
-                    .font(.system(size: 10))
-                    .foregroundStyle(style.secondary)
-                    .monospacedDigit()
-                    .padding(.trailing, 27.3)
-                    .padding(.top, 17.5)
+                .frame(minHeight: 44, alignment: .top)
+                .contentShape(Rectangle())
             }
-            .frame(height: 70.3, alignment: .top)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            // padding 加在 Button 外面:左内缩不算命中区,点左侧空白不会删书签。
+            .padding(.leading, 73.3)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                "\(hasPageBookmark ? "删除书签" : "添加书签")，第 \(currentIndex + 1) 章，全书 \(currentPercentText)"
+            )
+            .accessibilityAddTraits(.isButton)
+
+            Spacer(minLength: 8)
+
+            Text(currentPercentText)
+                .font(.system(size: 10))
+                .foregroundStyle(style.secondary)
+                .monospacedDigit()
+                .padding(.trailing, 27.3)
+                .padding(.top, 17.5)
         }
-        .buttonStyle(.plain)
+        .frame(height: 70.3, alignment: .top)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(style.divider)
                 .frame(height: 1)
                 .padding(.horizontal, 26)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            "\(hasPageBookmark ? "删除书签" : "添加书签")，第 \(currentIndex + 1) 章，全书 \(currentPercentText)"
-        )
-        .accessibilityAddTraits(.isButton)
     }
 
     private func lastChapterPill(_ action: @escaping () -> Void) -> some View {
@@ -525,7 +536,8 @@ struct ReaderBookmarkPage: View {
             }
         }
         .padding(.horizontal, 16)
-        .frame(width: 366, height: 188)
+        // 空态那排按钮撤了,卡也要跟着收到 98.7,否则下面空出一大片像没加载出来。
+        .frame(width: 366, height: entries.isEmpty ? 98.7 : 188)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(style.card))
     }
 
@@ -590,7 +602,8 @@ struct ReaderBookmarkPage: View {
         return HStack(spacing: 0) {
             actionButton(
                 icon: "magnifyingglass",
-                title: "搜索书签",
+                title: "搜索",
+                isLabel: "搜索书签",
                 tint: style.primary,
                 enabled: enabled
             ) {
@@ -599,7 +612,8 @@ struct ReaderBookmarkPage: View {
             }
             actionButton(
                 icon: "square.and.arrow.up",
-                title: "导出书签",
+                title: "导出",
+                isLabel: "导出书签",
                 tint: style.primary,
                 enabled: enabled
             ) {
@@ -627,9 +641,11 @@ struct ReaderBookmarkPage: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// 屏幕上是短名(搜索/导出/按章节/全部删除),读屏念全名。
     private func actionButton(
         icon: String,
         title: String,
+        isLabel: String? = nil,
         tint: Color,
         enabled: Bool,
         action: @escaping () -> Void
@@ -648,7 +664,7 @@ struct ReaderBookmarkPage: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .accessibilityLabel(title)
+        .accessibilityLabel(isLabel ?? title)
     }
 
     // MARK: 搜索
