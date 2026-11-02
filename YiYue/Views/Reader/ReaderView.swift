@@ -512,8 +512,10 @@ struct ReaderView: View {
             }
             usedPrefetch = true
         } else {
+            PerfProbe.shared.begin("点查章")
             let current = chapterBook?.chapter(at: currentChapterIndex)
                 ?? Self.fetchChapter(bookID: bookID, index: currentChapterIndex, in: modelContext)
+            PerfProbe.shared.end()
             chapterBook = ReaderChapterBook(
                 bookID: bookID,
                 count: total,
@@ -1372,19 +1374,11 @@ struct ReaderView: View {
                                     .padding(.vertical, -2)
                             }
                         }
-                        .background(
-                            GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: ScrollParagraphFramesKey.self,
-                                    value: [
-                                        index: ScrollParagraphFrame(
-                                            global: proxy.frame(in: .global),
-                                            inScroll: proxy.frame(in: .named("readerScroll")).minY
-                                        )
-                                    ]
-                                )
-                            }
-                        )
+                        .modifier(ScrollRowFrameRecorder(
+                            index: index,
+                            store: scrollFrameStore,
+                            chapterID: currentChapterID
+                        ))
                         .contentShape(Rectangle())
                         .onLongPressGesture(minimumDuration: 0.35) {
                             // 菜单开着时长按正文:先收菜单,直接开始选段。
@@ -5634,6 +5628,42 @@ final class ReaderChapterBook {
         allCache = all
         for chapter in all { loaded[chapter.index] = chapter }
         return all
+    }
+}
+
+/// 每段的屏幕位置。iOS 18 直接读几何变化写进引用盒:不再经偏好汇总,
+/// 每段少排一遍,也少了每次滚动对全部可见行的字典合并。旧系统仍走偏好。
+private struct ScrollRowFrameRecorder: ViewModifier {
+    let index: Int
+    let store: ScrollFrameStore
+    let chapterID: UUID?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onGeometryChange(for: ScrollParagraphFrame.self) { proxy in
+                ScrollParagraphFrame(
+                    global: proxy.frame(in: .global),
+                    inScroll: proxy.frame(in: .named("readerScroll")).minY
+                )
+            } action: { frame in
+                store.frames[index] = frame
+                store.chapterID = chapterID
+            }
+        } else {
+            content.background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ScrollParagraphFramesKey.self,
+                        value: [
+                            index: ScrollParagraphFrame(
+                                global: proxy.frame(in: .global),
+                                inScroll: proxy.frame(in: .named("readerScroll")).minY
+                            )
+                        ]
+                    )
+                }
+            )
+        }
     }
 }
 
