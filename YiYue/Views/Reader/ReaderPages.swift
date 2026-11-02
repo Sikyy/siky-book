@@ -35,7 +35,7 @@ struct ReaderPageStyle {
 // MARK: - 目录页
 
 /// 目录页的一行。用值类型而不是 Chapter 模型:动画期间不碰 SwiftData。
-struct ReaderTocEntry: Identifiable, Equatable {
+struct ReaderTocEntry: Identifiable, Equatable, Sendable {
     let index: Int
     let title: String
     /// 这一章在全书的位置百分比,和进度面板同一个算法(章序号 / 总章数)。
@@ -869,7 +869,16 @@ final class TocPercentTable {
         // 章节数、首尾章名判不出「中间换了一章」或者「正文从 SwiftData 搬到磁盘」,
         // 再把书的正文版本带上:这几种改动都会把它加一。
         let revision = chapters.first?.book?.contentRevision ?? 0
-        return "\(chapters.count)|\(revision)|\(chapters.first?.title ?? "")|\(chapters.last?.title ?? "")"
+        return Self.signature(
+            count: chapters.count,
+            revision: revision,
+            firstTitle: chapters.first?.title ?? "",
+            lastTitle: chapters.last?.title ?? ""
+        )
+    }
+
+    nonisolated static func signature(count: Int, revision: Int, firstTitle: String, lastTitle: String) -> String {
+        "\(count)|\(revision)|\(firstTitle)|\(lastTitle)"
     }
 
     /// 书打开、目录刷新之后调一次。小书当场算好;
@@ -889,13 +898,115 @@ final class TocPercentTable {
         table(bookID: bookID, chapters: chapters).entries
     }
 
+    /// 大书的目录:章表在后台已经算好,这里只把轻表套进去。
+    /// 盘上有字数表就按字数,没有就按章序,和原来的两条路一致。
+    func entries(bookID: UUID, infos: [ReaderChapterInfo], revision: Int) -> [ReaderTocEntry] {
+        guard !infos.isEmpty else { return [] }
+        let signature = Self.signature(
+            count: infos.count,
+            revision: revision,
+            firstTitle: infos.first?.title ?? "",
+            lastTitle: infos.last?.title ?? ""
+        )
+        if let cached = cache[bookID], cached.signature == signature {
+            return cached.entries
+        }
+        let indices = infos.map(\.index)
+        let lengths = TocLengthStore.load(bookID: bookID, signature: signature, indices: indices)
+            ?? cache[bookID].flatMap { $0.indices.count == indices.count ? $0.lengths : nil }
+        let totalWords = lengths?.reduce(0, +) ?? 0
+        var cumulative: [Int] = []
+        cumulative.reserveCapacity(indices.count)
+        var walked = 0
+        for offset in indices.indices {
+            cumulative.append(walked)
+            if let lengths, totalWords > 0 { walked += lengths[offset] }
+        }
+        let entries: [ReaderTocEntry]
+        if let lengths, totalWords > 0 {
+            entries = infos.enumerated().map { offset, info in
+                ReaderTocEntry(
+                    index: info.index,
+                    title: info.title,
+                    percent: Int((Double(cumulative[offset]) / Double(totalWords) * 100).rounded())
+                )
+            }
+        } else {
+            let total = max(infos.count, 1)
+            entries = infos.enumerated().map { offset, info in
+                ReaderTocEntry(
+                    index: info.index,
+                    title: info.title,
+                    percent: Int((Double(offset) / Double(total) * 100).rounded())
+                )
+            }
+        }
+        cache[bookID] = Cached(
+            signature: signature,
+            indices: indices,
+            lengths: (lengths != nil && totalWords > 0) ? lengths : nil,
+            cumulative: cumulative,
+            totalWords: totalWords,
+            entries: entries
+        )
+        return entries
+    }
+
+    /// 后台章表扫完之后直接装表,主线程不再建 5000 条目录。
+    func install(
+        bookID: UUID,
+        signature: String,
+        indices: [Int],
+        lengths: [Int],
+        entries: [ReaderTocEntry]
+    ) {
+        var cumulative: [Int] = []
+        cumulative.reserveCapacity(indices.count)
+        var walked = 0
+        for offset in indices.indices {
+            cumulative.append(walked)
+            if lengths.count == indices.count { walked += lengths[offset] }
+        }
+        let totalWords = (lengths.count == indices.count) ? lengths.reduce(0, +) : 0
+        cache[bookID] = Cached(
+            signature: signature,
+            indices: indices,
+            lengths: totalWords > 0 ? lengths : nil,
+            cumulative: cumulative,
+            totalWords: totalWords,
+            entries: entries
+        )
+    }
+
     /// 读到某一章某一页时的全书位置(0…1):这一章起点 + 章内进度 × 本章占比。
     func fraction(bookID: UUID, chapters: [Chapter], chapterIndex: Int, pageFraction: Double) -> Double {
         let table = table(bookID: bookID, chapters: chapters)
-        guard !table.indices.isEmpty else { return 0 }
-        let position = table.indices.firstIndex(of: chapterIndex) ?? min(max(chapterIndex, 0), table.indices.count - 1)
+        return fraction(
+            table: table,
+            chapterIndex: chapterIndex,
+            pageFraction: pageFraction
+        )
+    }
+
+    /// 大书用章数直接查已经装好的表;表还没到时按章序退,不阻塞开书。
+    func fraction(bookID: UUID, chapterCount: Int, chapterIndex: Int, pageFraction: Double) -> Double {
+        guard chapterCount > 0 else { return 0 }
+        if let table = cache[bookID], table.indices.count == chapterCount {
+            return fraction(table: table, chapterIndex: chapterIndex, pageFraction: pageFraction)
+        }
         let inChapter = min(max(pageFraction, 0), 1)
-        if let lengths = table.lengths, table.totalWords > 0 {
+        let position = min(max(chapterIndex, 0), chapterCount - 1)
+        return (Double(position) + inChapter) / Double(chapterCount)
+    }
+
+    private func fraction(table: Cached, chapterIndex: Int, pageFraction: Double) -> Double {
+        guard !table.indices.isEmpty else { return 0 }
+        let position = table.indices.firstIndex(of: chapterIndex)
+            ?? min(max(chapterIndex, 0), table.indices.count - 1)
+        let inChapter = min(max(pageFraction, 0), 1)
+        if let lengths = table.lengths,
+           table.totalWords > 0,
+           lengths.indices.contains(position) {
             let walked = Double(table.cumulative[position]) + inChapter * Double(lengths[position])
             return walked / Double(table.totalWords)
         }
@@ -904,7 +1015,19 @@ final class TocPercentTable {
 
     /// 反推:全书位置 0…1 落在哪一章(滑轨松手时用,和上面的算法是同一张表)。
     func chapterIndex(bookID: UUID, chapters: [Chapter], forFraction fraction: Double) -> Int {
-        let table = table(bookID: bookID, chapters: chapters)
+        chapterIndex(table: table(bookID: bookID, chapters: chapters), forFraction: fraction)
+    }
+
+    func chapterIndex(bookID: UUID, chapterCount: Int, forFraction fraction: Double) -> Int {
+        guard chapterCount > 0 else { return 0 }
+        if let table = cache[bookID], table.indices.count == chapterCount {
+            return chapterIndex(table: table, forFraction: fraction)
+        }
+        let clamped = min(max(fraction, 0), 1)
+        return min(max(Int(floor(clamped * Double(chapterCount))), 0), chapterCount - 1)
+    }
+
+    private func chapterIndex(table: Cached, forFraction fraction: Double) -> Int {
         guard !table.indices.isEmpty else { return 0 }
         let clamped = min(max(fraction, 0), 1)
         guard let lengths = table.lengths, table.totalWords > 0 else {

@@ -168,44 +168,60 @@ struct ReaderTypesettingGlyph: View {
     var color: Color
 
     var body: some View {
-        Canvas { context, size in
-            let width = size.width
-            let height = size.height
-            let lineHeight = height * 0.135
-            let radius = lineHeight / 2
-
-            func line(y: CGFloat, length: CGFloat) {
-                let rect = CGRect(x: 0, y: y, width: length, height: lineHeight)
-                context.fill(
-                    Path(roundedRect: rect, cornerRadius: radius),
-                    with: .color(color)
+        ZStack(alignment: .topLeading) {
+            TypesettingLinesShape()
+                .fill(color)
+            TypesettingCheckShape()
+                .stroke(
+                    color,
+                    style: StrokeStyle(
+                        lineWidth: ReaderToolbarMetrics.typesettingGlyphWidth * 0.11,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
                 )
-            }
-
-            // 上横线短(标题),下横线长(正文);两线都在墨盒上半部。
-            line(y: 0, length: width * 0.55)
-            line(y: height * 0.35, length: width * 0.80)
-
-            // 右下角小勾:笔画宽约 2.4,圆头圆角;勾的顶端落在下横线以下。
-            var check = Path()
-            check.move(to: CGPoint(x: width * 0.55, y: height * 0.72))
-            check.addLine(to: CGPoint(x: width * 0.70, y: height * 0.93))
-            check.addLine(to: CGPoint(x: width * 0.94, y: height * 0.55))
-            context.stroke(
-                check,
-                with: .color(color),
-                style: StrokeStyle(
-                    lineWidth: width * 0.11,
-                    lineCap: .round,
-                    lineJoin: .round
-                )
-            )
         }
         .frame(
             width: ReaderToolbarMetrics.typesettingGlyphWidth,
             height: ReaderToolbarMetrics.typesettingGlyphHeight
         )
+    }
 
+    /// 两条圆头横线:上短(标题)下长(正文),都在墨盒上半部。
+    private struct TypesettingLinesShape: Shape {
+        func path(in rect: CGRect) -> Path {
+            let lineHeight = rect.height * 0.135
+            let radius = lineHeight / 2
+            var path = Path()
+            path.addRoundedRect(
+                in: CGRect(x: rect.minX, y: rect.minY, width: rect.width * 0.55, height: lineHeight),
+                cornerSize: CGSize(width: radius, height: radius)
+            )
+            path.addRoundedRect(
+                in: CGRect(
+                    x: rect.minX,
+                    y: rect.minY + rect.height * 0.35,
+                    width: rect.width * 0.80,
+                    height: lineHeight
+                ),
+                cornerSize: CGSize(width: radius, height: radius)
+            )
+            return path
+        }
+    }
+
+    /// 右下角小勾:勾的顶端落在下横线以下。
+    private struct TypesettingCheckShape: Shape {
+        func path(in rect: CGRect) -> Path {
+            var check = Path()
+            check.move(to: CGPoint(x: rect.minX + rect.width * 0.55,
+                                   y: rect.minY + rect.height * 0.72))
+            check.addLine(to: CGPoint(x: rect.minX + rect.width * 0.70,
+                                      y: rect.minY + rect.height * 0.93))
+            check.addLine(to: CGPoint(x: rect.minX + rect.width * 0.94,
+                                      y: rect.minY + rect.height * 0.55))
+            return check
+        }
     }
 }
 
@@ -214,13 +230,12 @@ struct ReaderMoreGlyph: View {
     var color: Color
 
     var body: some View {
-        Canvas { context, size in
-            let diameter = size.width
-            let step = (size.height - diameter) / 2
-            for index in 0..<3 {
-                let y = diameter / 2 + CGFloat(index) * step
-                let rect = CGRect(x: 0, y: y - diameter / 2, width: diameter, height: diameter)
-                context.fill(Path(ellipseIn: rect), with: .color(color))
+        let diameter = ReaderToolbarMetrics.moreGlyphWidth
+        let gap = max(0, (ReaderToolbarMetrics.moreGlyphHeight - diameter * 3) / 2)
+        VStack(spacing: gap) {
+            ForEach(0..<3, id: \.self) { _ in
+                Circle().fill(color)
+                    .frame(width: diameter, height: diameter)
             }
         }
         .frame(
@@ -309,10 +324,14 @@ struct ReaderMenuOverlay: View {
     let isPresented: Bool
     /// 第一页画完之后把浮层在背景里画一遍(0.4% 不透明度,肉眼看不出来),
     /// 这样用户第一次点屏幕时不用再付第一次建层的钱。
-    var isWarming: Bool = false
+    /// 预热分片:1 顶栏、2 底栏、3 底部面板、4 整层保温。菜单真打开时始终整层显示。
+    @ObservedObject var warmup: MenuWarmupModel
     let onDismiss: () -> Void
     let onBack: () -> Void
-    let chapters: [Chapter]
+    let chapters: [ReaderChapterInfo]
+    /// 书签行的章内百分比要知道这一章有几段。只有目录/书签面板真画到那一行
+    /// 时才会问,不会为整本预扫。
+    var paragraphCountForChapter: ((Int) -> Int)? = nil
     var onCache: ((Int?) -> Void)? = nil
     var onCancelCache: (() -> Void)? = nil
     var onResumeCache: (() -> Void)? = nil
@@ -393,6 +412,10 @@ struct ReaderMenuOverlay: View {
     /// 字号面板三颗按钮的目的地:和设置页对应的三行走同一个详情页。
     @State private var settingsDestination: ReaderSettingsDestination?
     @State private var showMoreMenu = false
+    /// 分享面板按需拉起:ShareLink 第一次建层要 45–50 ms,放在预热里
+    /// 无论怎么切片都得一帧付完。改用普通按钮,点「分享」时再建
+    /// UIActivityViewController,这笔开销由用户那一次点击自己承担。
+    @State private var isSharing = false
     @State private var pendingMoreAction: MoreAction?
     @State private var showDeleteBookConfirmation = false
     @State private var changeSourceBook: Book?
@@ -410,7 +433,12 @@ struct ReaderMenuOverlay: View {
 
     var body: some View {
         let _ = PerfProbe.shared.noteOverlayBodyEval()
-        GeometryReader { geo in
+        let overlayEvalStart = CACurrentMediaTime()
+        defer {
+            let ms = (CACurrentMediaTime() - overlayEvalStart) * 1000
+            if ms > 5 { PerfProbe.shared.span("浮体\(warmup.stage)", ms) }
+        }
+        return GeometryReader { geo in
             let screenWidth = geo.size.width
             let screenHeight = geo.size.height
             let barHeight = ReaderToolbarMetrics.height
@@ -421,23 +449,10 @@ struct ReaderMenuOverlay: View {
                 Color.clear
                     .allowsHitTesting(false)
 
-                // 菜单开着时,正文区点一下要能收菜单/收面板。
-                // 只铺在顶栏底边到菜单块顶边之间:顶栏按钮和底部胶囊不会因为
-                // 同一次触摸再命中这层,避免按钮动作和「收菜单」同时触发。
-                Color.clear
-                    .contentShape(Rectangle())
-                    .frame(
-                        width: screenWidth,
-                        height: max(0, chromeTop(selectedTool: selectedTool) - 98)
-                    )
-                    .offset(y: 98)
-                    .onTapGesture {
-                        if selectedTool != nil || showChapterList {
-                            closePanel()
-                        } else {
-                            onDismiss()
-                        }
-                    }
+                // 这层原来在菜单开着时铺满顶栏和面板之间的整条正文区,只挂一个
+                // 「点一下收菜单」。它盖在正文上面,手一拖先被它接住,正文的滚动和
+                // 翻页就都收不到了——所以整层拿掉:点正文收菜单交给正文自己那套,
+                // 栏和面板只在各自那块吃点击。
 
                 // 面板上沿的渐隐先画:面板和它的阴影再压上来,
                 // 这样 552–556 的压字带不会把面板阴影的上半截抹掉。
@@ -448,6 +463,7 @@ struct ReaderMenuOverlay: View {
                 // 底部菜单块:从面板顶(按底往上的间距链算出)到屏底,纸色、分隔线、软阴影。
                 // 内容全部画在这块里,正文排版视口一帧不动。
                 bottomChrome(width: screenWidth, height: screenHeight)
+                    .opacity(warmupShows(stage: 12) ? 1 : 0)
 
                 // 顶栏底色带:0–100 一条实色,只在图标态(菜单开、没开面板)出现,
                 // 面板一开就只剩正文底色,和参考图的两态一致。
@@ -458,6 +474,7 @@ struct ReaderMenuOverlay: View {
 
                 // 顶栏:高 40,返回 / 排版 / 分享 / 更多。
                 topBar
+                    .opacity(warmupShows(stage: 1) ? 1 : 0)
 
                 if let panelTool = selectedTool {
                     switch panelTool {
@@ -485,14 +502,18 @@ struct ReaderMenuOverlay: View {
 
                 // 五格画在目录页/书签页之上:再点同一格能收起,换一格能换页。
                 bottomToolbar(width: screenWidth, top: barTop, height: barHeight)
+                    .opacity(warmupShows(stage: 6) ? 1 : 0)
 
             }
             .frame(width: screenWidth, height: screenHeight, alignment: .topLeading)
         }
         .ignoresSafeArea()
-        .opacity(isPresented ? 1 : (isWarming ? 0.004 : 0))
+        .opacity(isPresented ? 1 : 0)
         .allowsHitTesting(isPresented)
         .accessibilityHidden(!isPresented)
+        .sheet(isPresented: $isSharing) {
+            ReaderActivitySheet(items: ["我在「今日已阅」读《\(book.title)》。"])
+        }
         .onChange(of: isPresented) { _, presented in
             presentEpoch += 1
             if presented {
@@ -1006,6 +1027,16 @@ struct ReaderMenuOverlay: View {
     /// 菜单底块的顶边:选工具时是面板顶,只开菜单时是图标行上沿(791)。
     private func chromeTop(selectedTool: ReaderTool?) -> CGFloat {
         selectedTool == nil ? BottomChromeMetrics.screenBottom - ReaderToolbarMetrics.height : resolvedPanelTop
+    }
+
+    /// A warm-up slice renders only its own part; once the menu is really open
+    /// (or warm-up is off) every part is visible.
+    private var warmupStage: Int { warmup.stage }
+
+    private func warmupShows(stage: Int) -> Bool {
+        // 预热只推进到哪一片、就点亮哪一片;预热结束后停在最后一片,
+        // 但整层 opacity=0,既不再显示也不拆树(拆树本身也会掉帧)。
+        isPresented || warmupStage >= stage
     }
 
     private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
@@ -1804,7 +1835,7 @@ struct ReaderMenuOverlay: View {
                 let fraction = min(max(sliderDragFraction ?? 0, 0), 1)
                 let index = TocPercentTable.shared.chapterIndex(
                     bookID: book.id,
-                    chapters: chapters,
+                    chapterCount: max(totalChapters, chapters.count),
                     forFraction: fraction
                 )
                 jumpChapter(to: index)
@@ -1956,61 +1987,68 @@ struct ReaderMenuOverlay: View {
                 // 返回 13.8、排版 294.35、分享 338.3、更多 380.15(402 点宽)。
                 GeometryReader { proxy in
                     let width = proxy.size.width
-                    topBarIconButton(
-                        systemName: "chevron.left",
-                        label: "返回",
-                        glyphSize: ReaderToolbarMetrics.topBarBackGlyphSize,
-                        centerX: ReaderToolbarMetrics.backCenterX,
-                        opticalOffset: ReaderToolbarMetrics.backOpticalOffset,
-                        action: { onBack() }
-                    )
-
-                    // 「排版」自绘:两条圆头横线 + 右下小勾,墨盒 22 × 19。
-                    Button { handleToolTap(.text) } label: {
-                        ReaderTypesettingGlyph(color: theme.menuPrimary)
-                            .frame(
-                                width: ReaderToolbarMetrics.buttonBoxWidth,
-                                height: ReaderToolbarMetrics.topBarHeight
-                            )
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("排版")
-                    .position(
-                        x: width - ReaderToolbarMetrics.textCenterFromTrailing,
-                        y: ReaderToolbarMetrics.topBarHeight / 2
-                    )
-
-                    // 分享只发一句字,不放链接;系统分享面板由 ShareLink 拉起。
-                    // 图形用「方框 + 右上斜箭头」,墨迹约 18 × 18,不再顶出行高。
-                    ShareLink(item: "我在「今日已阅」读《\(book.title)》。") {
-                        topBarIconLabel(
-                            systemName: "arrow.up.right.square",
-                            glyphSize: ReaderToolbarMetrics.shareGlyphSize
+                    if warmupShows(stage: 2) {
+                        topBarIconButton(
+                            systemName: "chevron.left",
+                            label: "返回",
+                            glyphSize: ReaderToolbarMetrics.topBarBackGlyphSize,
+                            centerX: ReaderToolbarMetrics.backCenterX,
+                            opticalOffset: ReaderToolbarMetrics.backOpticalOffset,
+                            action: { onBack() }
                         )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("分享")
-                    .position(
-                        x: width - ReaderToolbarMetrics.shareCenterFromTrailing,
-                        y: ReaderToolbarMetrics.topBarHeight / 2
-                    )
 
-                    // 「更多」自绘:竖三点,墨盒 3.7 × 16.3;系统里没有等价的竖向省略号。
-                    Button { showMoreMenu = true } label: {
-                        ReaderMoreGlyph(color: theme.menuPrimary)
-                            .frame(
-                                width: ReaderToolbarMetrics.buttonBoxWidth,
-                                height: ReaderToolbarMetrics.topBarHeight
-                            )
-                            .contentShape(Rectangle())
+                    if warmupShows(stage: 3) {
+                        // 「排版」自绘:两条圆头横线 + 右下小勾,墨盒 22 × 19。
+                        Button { handleToolTap(.text) } label: {
+                            ReaderTypesettingGlyph(color: theme.menuPrimary)
+                                .frame(
+                                    width: ReaderToolbarMetrics.buttonBoxWidth,
+                                    height: ReaderToolbarMetrics.topBarHeight
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("排版")
+                        .position(
+                            x: width - ReaderToolbarMetrics.textCenterFromTrailing,
+                            y: ReaderToolbarMetrics.topBarHeight / 2
+                        )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("更多")
-                    .position(
-                        x: width - ReaderToolbarMetrics.moreCenterFromTrailing,
-                        y: ReaderToolbarMetrics.topBarHeight / 2
-                    )
+
+                    if warmupShows(stage: 4) {
+                        // 分享只发一句字,不放链接;系统分享面板按需拉起。
+                        Button { isSharing = true } label: {
+                            topBarIconLabel(
+                                systemName: "arrow.up.right.square",
+                                glyphSize: ReaderToolbarMetrics.shareGlyphSize
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("分享")
+                        .position(
+                            x: width - ReaderToolbarMetrics.shareCenterFromTrailing,
+                            y: ReaderToolbarMetrics.topBarHeight / 2
+                        )
+                    }
+
+                    if warmupShows(stage: 5) {
+                        // 「更多」自绘:竖三点,墨盒 3.7 × 16.3;系统里没有等价的竖向省略号。
+                        Button { showMoreMenu = true } label: {
+                            ReaderMoreGlyph(color: theme.menuPrimary)
+                                .frame(
+                                    width: ReaderToolbarMetrics.buttonBoxWidth,
+                                    height: ReaderToolbarMetrics.topBarHeight
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("更多")
+                        .position(
+                            x: width - ReaderToolbarMetrics.moreCenterFromTrailing,
+                            y: ReaderToolbarMetrics.topBarHeight / 2
+                        )
+                    }
                 }
                 .frame(height: ReaderToolbarMetrics.topBarHeight)
             }
@@ -2233,21 +2271,23 @@ struct ReaderMenuOverlay: View {
                 .fill(theme.menuPrimary.opacity(0.12))
                 .frame(height: 1)
             HStack(spacing: 0) {
-                ForEach(ReaderTool.allCases) { tool in
-                    Button {
-                        handleToolTap(tool)
-                    } label: {
-                        toolIcon(tool)
-                            .frame(width: ReaderToolbarMetrics.iconBoxHeight,
-                                   height: ReaderToolbarMetrics.iconBoxHeight)
-                            .frame(width: cellWidth, height: height - 1, alignment: .top)
-                            .offset(y: ReaderToolbarMetrics.iconTopInset)
-                            .contentShape(Rectangle())
+                ForEach(Array(ReaderTool.allCases.enumerated()), id: \.element) { offset, tool in
+                    if warmupShows(stage: 7 + offset) {
+                        Button {
+                            handleToolTap(tool)
+                        } label: {
+                            toolIcon(tool)
+                                .frame(width: ReaderToolbarMetrics.iconBoxHeight,
+                                       height: ReaderToolbarMetrics.iconBoxHeight)
+                                .frame(width: cellWidth, height: height - 1, alignment: .top)
+                                .offset(y: ReaderToolbarMetrics.iconTopInset)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(tool.title)
+                        .accessibilityValue(selectedTool == tool ? "已选中" : "")
+                        .accessibilityAddTraits(selectedTool == tool ? [.isSelected] : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(tool.title)
-                    .accessibilityValue(selectedTool == tool ? "已选中" : "")
-                    .accessibilityAddTraits(selectedTool == tool ? [.isSelected] : [])
                 }
             }
             .accessibilityHidden(tocSearching)
@@ -2922,7 +2962,11 @@ struct ReaderMenuOverlay: View {
     /// 目录行:章名 + 这一章在全书的位置百分比(章前累计字数 ÷ 全书字数),
     /// 书打开时算好存表,这里只读表,不现算。
     private var tocEntries: [ReaderTocEntry] {
-        TocPercentTable.shared.entries(bookID: book.id, chapters: chapters)
+        TocPercentTable.shared.entries(
+            bookID: book.id,
+            infos: chapters,
+            revision: book.contentRevision
+        )
     }
 
     private var bookmarkEntries: [ReaderBookmarkEntry] {
@@ -3081,11 +3125,7 @@ struct ReaderMenuOverlay: View {
     }
 
     private func chapterParagraphCount(at index: Int) -> Int {
-        guard let chapter = chapters.first(where: { $0.index == index }) else { return 1 }
-        return (chapter.content ?? "")
-            .components(separatedBy: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .count
+        max(paragraphCountForChapter?(index) ?? 1, 1)
     }
 
     static func excerptText(_ text: String) -> String {
@@ -3338,7 +3378,7 @@ struct ReaderMenuOverlay: View {
     }
 
     private func scrollToCurrentChapter(with proxy: ScrollViewProxy, animated: Bool) {
-        guard chapters.contains(where: { $0.index == currentChapterIndex }) else { return }
+        guard currentChapterIndex >= 0, currentChapterIndex < max(totalChapters, chapters.count) else { return }
 
         DispatchQueue.main.async {
             if animated {
@@ -3688,6 +3728,19 @@ struct ReaderAutoPageSettingsSheet: View {
     }
 }
 
+/// 按需拉起的系统分享面板。ShareLink 会在建视图时就准备好分享扩展
+/// 元数据(首次约 45–50 ms),预热里无法切成更小的片;这里改成
+/// 用户点「分享」时才建 UIActivityViewController。
+struct ReaderActivitySheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
 // MARK: - 临时:全动作性能探针(量完删)
 
 @MainActor
@@ -3711,10 +3764,39 @@ final class PerfProbe: ObservableObject {
     private var deadline: CFTimeInterval = 0
 
     // 开栏的前置状态:哪一次开、离上次关多久、这之间有没有翻页/滚动。
+    /// 这次开书从「阅读页出现」算起的起点,用来量首字和可滚。
+    var openAt: CFTimeInterval = 0
     var menuOpenCount = 0
     var lastMenuCloseAt: CFTimeInterval = 0
     var lastPageChangeAt: CFTimeInterval = 0
     var lastScrollAt: CFTimeInterval = 0
+
+    // MARK: - 动/收 毫秒差(只在 PERF 里)
+
+    /// 正文开始位移的时刻。由滚动偏移回调写入,写完立刻收菜单。
+    var contentMoveAt: CFTimeInterval = 0
+    /// 栏真正不可见的时刻:菜单状态变 false 的那一刻。
+    var menuHiddenAt: CFTimeInterval = 0
+    var gesturePhaseOn = false
+
+    func beginGestureTiming() {
+        contentMoveAt = 0
+        menuHiddenAt = 0
+        gesturePhaseOn = true
+    }
+
+    func noteContentMoved() {
+        guard gesturePhaseOn, contentMoveAt == 0 else { return }
+        contentMoveAt = CACurrentMediaTime()
+    }
+
+    func noteMenuHidden() {
+        guard gesturePhaseOn, menuHiddenAt == 0, contentMoveAt > 0 else { return }
+        menuHiddenAt = CACurrentMediaTime()
+        gesturePhaseOn = false
+        let ms = (menuHiddenAt - contentMoveAt) * 1000
+        span(String(format: "动→收%.1fms", ms), ms)
+    }
 
     func markMenuOpen() {
         menuOpenCount += 1
@@ -3750,12 +3832,20 @@ final class PerfProbe: ObservableObject {
     @objc private func tick(_ link: CADisplayLink) {
         let now = link.timestamp
         defer { last = now }
-        guard name != nil else { return }
         if last > 0 {
             let d = (now - last) * 1000
+            #if PERF
+            if d > 25, openAt > 0 {
+                records.append(Record(name: "卡@\(Int((now - openAt) * 1000))", worst: d, drops: 0, frames: 0))
+                if records.count > 60 { records.removeFirst(records.count - 60) }
+            }
+            #endif
+            guard name != nil else { return }
             frames += 1
             if d > worst { worst = d }
             if d > 20 { drops += 1 }
+        } else {
+            guard name != nil else { return }
         }
         if CACurrentMediaTime() > deadline { closeWindow() }
     }
@@ -3826,12 +3916,7 @@ final class PerfProbe: ObservableObject {
 struct PerfHUD: View {
     @ObservedObject var probe = PerfProbe.shared
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(probe.records) { r in
-                Text(String(format: "%@ w%.0f d%d/%d", r.name, r.worst, r.drops, r.frames))
-            }
-            Text(String(format: "mem %.1fMB B%d", probe.footprintMB, probe.overlayBodyEvals))
-        }
+        Text(hudText)
         .font(.system(size: 9, design: .monospaced))
         .foregroundStyle(.red)
         .padding(3)
@@ -3840,5 +3925,15 @@ struct PerfHUD: View {
         .padding(.top, 110)
         .padding(.leading, 4)
         .allowsHitTesting(false)
+    }
+
+    /// 一条 Text 而不是每行一个 Text:探针自己每记一笔都会重算这里,
+    /// 六十个子视图的 diff 会在慢设备上变成 30–50 ms 的假卡顿。
+    private var hudText: String {
+        var lines = probe.records.map {
+            String(format: "%@ w%.0f d%d/%d", $0.name, $0.worst, $0.drops, $0.frames)
+        }
+        lines.append(String(format: "mem %.1fMB B%d", probe.footprintMB, probe.overlayBodyEvals))
+        return lines.joined(separator: "\n")
     }
 }

@@ -242,6 +242,19 @@ struct BookshelfView: View {
             PerfSeed.seedIfNeeded(modelContext: modelContext)
             #endif
         }
+        // 用户点书之前就在后台把大书章表读好,开书的那一帧不再扫 SwiftData。
+        .task(id: books.count) {
+            guard !books.isEmpty else { return }
+            let container = modelContext.container
+            let requests = books.prefix(8).map {
+                ReaderChapterPrefetcher.Request(
+                    bookID: $0.id,
+                    revision: $0.contentRevision,
+                    count: $0.totalChapters
+                )
+            }
+            ReaderChapterPrefetcher.shared.prefetch(requests, container: container)
+        }
     }
 
 
