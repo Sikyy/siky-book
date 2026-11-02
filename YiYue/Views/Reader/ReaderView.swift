@@ -294,6 +294,7 @@ struct ReaderView: View {
                     }
                     if aborted { break }
 
+                    PerfProbe.shared.warmStage = stage
                     menuWarmup.stage = stage
                     // Let the frame containing this slice commit before the
                     // next slice is handed to the render tree.
@@ -305,6 +306,7 @@ struct ReaderView: View {
                     return
                 }
 
+                PerfProbe.shared.warmStage = 0
                 if aborted {
                     // A scroll started mid-warmup: drop it and try again after
                     // the finger has stopped, rather than compounding frames.

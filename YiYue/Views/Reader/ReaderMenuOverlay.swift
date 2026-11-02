@@ -313,6 +313,30 @@ struct BrightnessSelectionRing: View {
     }
 }
 
+/// 预热分片闸门:自己监听预热进度,只有这一小片跟着变。
+/// 片号变化只惊动这一小块,外层整层浮体不再重算重比对。
+private struct WarmupGated<Content: View>: View {
+    @ObservedObject var warmup: MenuWarmupModel
+    let stage: Int
+    let alwaysShow: Bool
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if alwaysShow || warmup.stage >= stage { content() }
+    }
+}
+
+/// 同上,只是用透明度而不是拆树(整块底色用)。
+private struct WarmupOpacity: ViewModifier {
+    @ObservedObject var warmup: MenuWarmupModel
+    let stage: Int
+    let alwaysShow: Bool
+
+    func body(content: Content) -> some View {
+        content.opacity(alwaysShow || warmup.stage >= stage ? 1 : 0)
+    }
+}
+
 struct ReaderMenuOverlay: View {
     let book: Book
     @Binding var currentChapterIndex: Int
@@ -463,7 +487,7 @@ struct ReaderMenuOverlay: View {
                 // 底部菜单块:从面板顶(按底往上的间距链算出)到屏底,纸色、分隔线、软阴影。
                 // 内容全部画在这块里,正文排版视口一帧不动。
                 bottomChrome(width: screenWidth, height: screenHeight)
-                    .opacity(warmupShows(stage: 12) ? 1 : 0)
+                    .modifier(WarmupOpacity(warmup: warmup, stage: 12, alwaysShow: isPresented))
 
                 // 顶栏底色带:0–100 一条实色,只在图标态(菜单开、没开面板)出现,
                 // 面板一开就只剩正文底色,和参考图的两态一致。
@@ -474,7 +498,7 @@ struct ReaderMenuOverlay: View {
 
                 // 顶栏:高 40,返回 / 排版 / 分享 / 更多。
                 topBar
-                    .opacity(warmupShows(stage: 1) ? 1 : 0)
+                    .modifier(WarmupOpacity(warmup: warmup, stage: 1, alwaysShow: isPresented))
 
                 if let panelTool = selectedTool {
                     switch panelTool {
@@ -502,7 +526,7 @@ struct ReaderMenuOverlay: View {
 
                 // 五格画在目录页/书签页之上:再点同一格能收起,换一格能换页。
                 bottomToolbar(width: screenWidth, top: barTop, height: barHeight)
-                    .opacity(warmupShows(stage: 6) ? 1 : 0)
+                    .modifier(WarmupOpacity(warmup: warmup, stage: 6, alwaysShow: isPresented))
 
             }
             .frame(width: screenWidth, height: screenHeight, alignment: .topLeading)
@@ -1029,15 +1053,12 @@ struct ReaderMenuOverlay: View {
         selectedTool == nil ? BottomChromeMetrics.screenBottom - ReaderToolbarMetrics.height : resolvedPanelTop
     }
 
-    /// A warm-up slice renders only its own part; once the menu is really open
-    /// (or warm-up is off) every part is visible.
-    private var warmupStage: Int { warmup.stage }
-
-    private func warmupShows(stage: Int) -> Bool {
-        // 预热只推进到哪一片、就点亮哪一片;预热结束后停在最后一片,
-        // 但整层 opacity=0,既不再显示也不拆树(拆树本身也会掉帧)。
-        isPresented || warmupStage >= stage
-    }
+    /// 预热只推进到哪一片、就点亮哪一片;预热结束后停在最后一片,
+    /// 但整层 opacity=0,既不再显示也不拆树(拆树本身也会掉帧)。
+    ///
+    /// 这个判断不放在 outer body 里:每推进一片,外层 body 若读了片号,
+    /// 整层浮体就要重算、重新比对一遍,一片四十毫秒。放进各自的小视图后,
+    /// 片号变化只惊动那一小块。
 
     private func bottomChrome(width: CGFloat, height: CGFloat) -> some View {
         // 目录 / 书签页是整页浮层,底块在它们后面不能再画进度面板:
@@ -1987,7 +2008,7 @@ struct ReaderMenuOverlay: View {
                 // 返回 13.8、排版 294.35、分享 338.3、更多 380.15(402 点宽)。
                 GeometryReader { proxy in
                     let width = proxy.size.width
-                    if warmupShows(stage: 2) {
+                    WarmupGated(warmup: warmup, stage: 2, alwaysShow: isPresented) {
                         topBarIconButton(
                             systemName: "chevron.left",
                             label: "返回",
@@ -1998,7 +2019,7 @@ struct ReaderMenuOverlay: View {
                         )
                     }
 
-                    if warmupShows(stage: 3) {
+                    WarmupGated(warmup: warmup, stage: 3, alwaysShow: isPresented) {
                         // 「排版」自绘:两条圆头横线 + 右下小勾,墨盒 22 × 19。
                         Button { handleToolTap(.text) } label: {
                             ReaderTypesettingGlyph(color: theme.menuPrimary)
@@ -2016,7 +2037,7 @@ struct ReaderMenuOverlay: View {
                         )
                     }
 
-                    if warmupShows(stage: 4) {
+                    WarmupGated(warmup: warmup, stage: 4, alwaysShow: isPresented) {
                         // 分享只发一句字,不放链接;系统分享面板按需拉起。
                         Button { isSharing = true } label: {
                             topBarIconLabel(
@@ -2032,7 +2053,7 @@ struct ReaderMenuOverlay: View {
                         )
                     }
 
-                    if warmupShows(stage: 5) {
+                    WarmupGated(warmup: warmup, stage: 5, alwaysShow: isPresented) {
                         // 「更多」自绘:竖三点,墨盒 3.7 × 16.3;系统里没有等价的竖向省略号。
                         Button { showMoreMenu = true } label: {
                             ReaderMoreGlyph(color: theme.menuPrimary)
@@ -2272,7 +2293,7 @@ struct ReaderMenuOverlay: View {
                 .frame(height: 1)
             HStack(spacing: 0) {
                 ForEach(Array(ReaderTool.allCases.enumerated()), id: \.element) { offset, tool in
-                    if warmupShows(stage: 7 + offset) {
+                    WarmupGated(warmup: warmup, stage: 7 + offset, alwaysShow: isPresented) {
                         Button {
                             handleToolTap(tool)
                         } label: {
@@ -3747,18 +3768,11 @@ struct ReaderActivitySheet: UIViewControllerRepresentable {
 final class PerfProbe: ObservableObject {
     static let shared = PerfProbe()
 
-    /// 基线模式:浮层不画(记录照记、退出时照样导出)。开跑前把剪贴板设成
-    /// 「perf-nohud」再启动应用即可。用来验证量具本身有没有拖慢被测代码。
-    private var hudSuppressed = false
-
-    private init() {
-        #if DEBUG || PERF
-        if UIPasteboard.general.string == "perf-nohud" {
-            hudSuppressed = true
-            UIPasteboard.general.string = ""
-        }
-        #endif
-    }
+    /// 基线包的开关:编「浮层关掉」的包时把这里改成 false。
+    /// 记录照记、退出照样导到剪贴板,只是不建浮层窗口——所以要靠截图确认它真的没画,
+    /// 不能靠外部控制通道(读剪贴板在新系统上要弹权限,读不到就没有基线)。
+    static let hudEnabled = true
+    private var hudSuppressed: Bool { !Self.hudEnabled }
     struct Record: Identifiable {
         let id = UUID()
         let name: String
@@ -3830,7 +3844,13 @@ final class PerfProbe: ObservableObject {
 
     private var activities: [String] = []
 
-    var currentActivity: String { activities.last ?? "" }
+    /// 预热正在画第几片(0 = 不在预热)。用来把那一片的重活单独归因。
+    var warmStage: Int = 0
+
+    var currentActivity: String {
+        if warmStage > 0 { return "预热\(warmStage)" }
+        return activities.last ?? ""
+    }
 
     func begin(_ tag: String) { activities.append(tag) }
 
