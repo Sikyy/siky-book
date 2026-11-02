@@ -818,7 +818,7 @@ final class TocPercentTable {
     static let shared = TocPercentTable()
 
     private struct Cached {
-        /// 章数 + 首尾章名:目录变了就重算,没变就直接用。
+        /// 章数 + 首尾章名 + 正文版本:目录或任何一章正文变了就重算,没变就直接用。
         let signature: String
         /// 按章序排好的章号。
         let indices: [Int]
@@ -833,7 +833,10 @@ final class TocPercentTable {
     private var cache: [UUID: Cached] = [:]
 
     private func signature(of chapters: [Chapter]) -> String {
-        "\(chapters.count)|\(chapters.first?.title ?? "")|\(chapters.last?.title ?? "")"
+        // 章节数、首尾章名判不出「中间换了一章」或者「正文从 SwiftData 搬到磁盘」,
+        // 再把书的正文版本带上:这几种改动都会把它加一。
+        let revision = chapters.first?.book?.contentRevision ?? 0
+        return "\(chapters.count)|\(revision)|\(chapters.first?.title ?? "")|\(chapters.last?.title ?? "")"
     }
 
     /// 书打开、目录刷新之后调一次,把表算好存起来。

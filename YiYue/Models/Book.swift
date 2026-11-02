@@ -32,6 +32,9 @@ final class Book {
     var pinnedDate: Date?
     var seriesName: String?
     var seriesIndex: Int?
+    /// 正文改动一次加一。目录百分比那张表靠它判断要不要重算——
+    /// 章数和首尾章名都判不出中间某章换了内容,这个数一定变。
+    var contentRevision: Int = 0
 
     @Relationship(deleteRule: .cascade, inverse: \Chapter.book)
     var chapters: [Chapter] = []

@@ -955,6 +955,10 @@ struct ReaderView: View {
     /// 当前页每一条正文线的行顶(屏幕坐标)。段间距 28 会让行位偏离
     /// 34.2 的全局网格,面板顶边必须贴真实行顶,否则会压住半行字。
     private var currentPageLineTops: [CGFloat] {
+        let lineTopsStart = CACurrentMediaTime()
+        defer {
+            PerfProbe.shared.span("行位", (CACurrentMediaTime() - lineTopsStart) * 1000)
+        }
         guard viewSize.width > 0,
               cachedPages.indices.contains(currentPageIndex) else { return [] }
         let fragments = cachedPages[currentPageIndex]
@@ -3183,6 +3187,7 @@ struct ReaderView: View {
                       ) else { throw CancellationError() }
                 if outcome.isStored {
                     chapter.content = nil
+                    chapter.book?.contentRevision &+= 1
                 }
                 chapter.isCached = outcome.effectiveRetention == .userManaged
             } catch is CancellationError {
@@ -3296,6 +3301,7 @@ struct ReaderView: View {
             // Oversized automatic entries deliberately stay in SwiftData so a
             // later launch cannot fall back to an older disk copy.
             chapter.content = outcome.isStored ? nil : content
+            chapter.book?.contentRevision &+= 1
             chapter.isCached = outcome.effectiveRetention == .userManaged
             return true
         } catch is CancellationError {
@@ -3313,6 +3319,7 @@ struct ReaderView: View {
                   ) else { return false }
             // Preserve the previous SwiftData behavior if the cache directory is unavailable.
             chapter.content = content
+            chapter.book?.contentRevision &+= 1
             chapter.isCached = retention == .userManaged
             return true
         }
@@ -3349,6 +3356,7 @@ struct ReaderView: View {
         let previousContent = chapter.content
         let previousCachedState = chapter.isCached
         chapter.content = replacement.outcome?.isStored == true ? nil : content
+        chapter.book?.contentRevision &+= 1
         chapter.isCached = replacement.retention == .userManaged
 
         if replacement.outcome?.isStored != true {

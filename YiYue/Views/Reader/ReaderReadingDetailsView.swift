@@ -244,7 +244,8 @@ final class ReadingTimeSession {
     /// 本次还没落盘的部分(上次落盘到现在的)。
     private(set) var pending: TimeInterval = 0
     /// 当前这一段已经走了多久,每秒刷新一次。
-    private(set) var live: TimeInterval = 0
+    /// 不参与观察:时长按分钟显示,浮层每分钟重算一次就够,不必每秒刷。
+    @ObservationIgnored private(set) var live: TimeInterval = 0
 
     private var bookID: UUID?
     private var startedAt: Date?

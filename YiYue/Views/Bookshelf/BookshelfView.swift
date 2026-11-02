@@ -238,6 +238,9 @@ struct BookshelfView: View {
         .preferredColorScheme(selectedBook == nil ? .dark : (readerIsDark ? .dark : .light))
         .task {
             SampleBookService.seedIfNeeded(modelContext: modelContext)
+            #if DEBUG || PERF
+            PerfSeed.seedIfNeeded(modelContext: modelContext)
+            #endif
         }
     }
 
@@ -512,3 +515,63 @@ struct BookshelfView: View {
 }
 
 
+
+// MARK: - 临时:造测量用的大书(两百章、五千章)
+// 只在 DEBUG / PERF 编译条件下存在,发版包里没有这段代码。
+#if DEBUG || PERF
+@MainActor
+enum PerfSeed {
+    private static let doneKey = "perfSeed.v1"
+
+    static func seedIfNeeded(modelContext: ModelContext) {
+        guard !UserDefaults.standard.bool(forKey: doneKey) else { return }
+        UserDefaults.standard.set(true, forKey: doneKey)
+        make(modelContext: modelContext, title: "测试书·两百章", chapters: 200)
+        make(modelContext: modelContext, title: "测试书·五千章", chapters: 5000)
+    }
+
+    private static func make(modelContext: ModelContext, title: String, chapters: Int) {
+        let book = Book(
+            title: title,
+            author: "测试",
+            sourceType: .localFile,
+            totalChapters: chapters
+        )
+        modelContext.insert(book)
+        for index in 0..<chapters {
+            let chapter = Chapter(
+                index: index,
+                title: "第\(index + 1)章 " + body(seed: index, chars: 18),
+                content: body(seed: index, chars: 1100)
+            )
+            chapter.book = book
+            modelContext.insert(chapter)
+        }
+        try? modelContext.save()
+        print("PerfSeed: \(title) \(chapters) 章")
+    }
+
+    /// 每章内容都不一样,但长度接近,句读整齐,和真书的断行成本相当。
+    private static func body(seed: Int, chars: Int) -> String {
+        let sentences = [
+            "他抬起头,看见窗外的雨还没有停。",
+            "桌上的茶早凉了,杯底沉着几片叶子。",
+            "远处有人在叫卖,声音穿过巷子传过来。",
+            "她翻过一页书,纸边轻轻响了一下。",
+            "那年的冬天格外长,屋檐下的冰挂到三月才化。",
+            "风从门缝里挤进来,吹得灯芯一晃。",
+            "巷口的老槐树下,摆着一张矮凳。",
+            "他把信折好,塞进袖子里,没有再看第二眼。",
+            "街上的人来人往,没有一个人认得他。",
+            "天色暗下来的时候,雨声反而更清楚了。"
+        ]
+        var out = "（第\(seed + 1)章·测试正文）"
+        var i = seed
+        while out.count < chars {
+            out += sentences[i % sentences.count]
+            i += 7
+        }
+        return out
+    }
+}
+#endif
