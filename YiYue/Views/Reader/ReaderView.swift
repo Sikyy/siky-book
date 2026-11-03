@@ -254,19 +254,6 @@ struct ReaderView: View {
     /// 第一页画完后 0.7 秒开始预热浮层。整层一次性首绘原来要 700 毫秒,
     /// 现在拆成顶栏 / 底栏 / 底部面板三片,每片之间让出一帧;用户一滚就
     /// 收手,等滚停再接着来,不在滚动里抢主线程。
-
-    /// 最近 0.4 秒内有过长帧就等一等,最多等两秒。
-    private func waitForQuietFrames(maxWait: Double = 2.0) async -> Bool {
-        var waited = 0.0
-        while !Task.isCancelled, !showMenu {
-            let last = PerfProbe.shared.lastHeavyFrameAt
-            if last == 0 || CACurrentMediaTime() - last >= 0.4 { return true }
-            if waited >= maxWait { return false }
-            try? await Task.sleep(for: .milliseconds(120))
-            waited += 0.12
-        }
-        return false
-    }
     private func scheduleMenuWarmup() {
         menuWarmupTask?.cancel()
         menuWarmupTask = Task { @MainActor in
@@ -310,13 +297,6 @@ struct ReaderView: View {
                     // 等尾巴彻底安静下来再重来。不看「上一帧快不快」的历史:
                     // 尾巴各段之间有 0.4 秒空档,按历史判断会从缝里钻过去。
                     guard await waitForOpenTail() else {
-                        aborted = true
-                        break
-                    }
-
-                    // 再加一道:最近 0.4 秒刚有长帧就等一下,别在别人刚干完
-                    // 重活的下一帧挤上去。状态看他有没有活,这道看这一帧累不累。
-                    guard await waitForQuietFrames() else {
                         aborted = true
                         break
                     }
