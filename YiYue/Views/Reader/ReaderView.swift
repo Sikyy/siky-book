@@ -140,6 +140,8 @@ struct ReaderView: View {
     @State private var paginationIndicatorTask: Task<Void, Never>?
     @State private var readerMetadataSaveTask: Task<Void, Never>?
     @State private var terminalCacheReconciliationTask: Task<Void, Never>?
+    /// 首屏出来 1.5 秒后放下开书优先级;阅读页先退出就取消它,由 onDisappear 放下。
+    @State private var openPriorityReleaseTask: Task<Void, Never>?
     @State private var cacheGeneration: UUID?
     @State private var prefetchGeneration: UUID?
     @State private var adjacentPreparationGeneration: UUID?
@@ -266,6 +268,14 @@ struct ReaderView: View {
                 guard await waitForScrollRest() else { return }
                 guard !showMenu else { return }
 
+                // 开书尾巴(分页落版、邻章、预取、盘存、章表)还压着就先不开始。
+                // 等 20 秒还没完就整轮让开,过一会儿再问;绝不在尾巴里插进去。
+                guard await waitForOpenTail() else {
+                    guard !Task.isCancelled, !showMenu else { return }
+                    try? await Task.sleep(for: .milliseconds(350))
+                    continue
+                }
+
                 PerfProbe.shared.mark("预热")
                 menuWarmup.warming = true
 
@@ -283,16 +293,13 @@ struct ReaderView: View {
                         aborted = true
                         break
                     }
-                    // 规则二:这一帧已经有重活在做,就跳过这一片,下一帧再来。
-                    // 预热是给以后开菜单做准备,没有资格拖慢读者当下这一下。
-                    var idleWait = 0.0
-                    while CACurrentMediaTime() - PerfProbe.shared.lastHeavyFrameAt < 0.4,
-                          idleWait < 2.0 {
-                        if Task.isCancelled || showMenu { aborted = true; break }
-                        try? await Task.sleep(for: .milliseconds(120))
-                        idleWait += 0.12
+                    // 规则二:开书尾巴又开始了(换章、预取、盘存),这一轮先停,
+                    // 等尾巴彻底安静下来再重来。不看「上一帧快不快」的历史:
+                    // 尾巴各段之间有 0.4 秒空档,按历史判断会从缝里钻过去。
+                    guard await waitForOpenTail() else {
+                        aborted = true
+                        break
                     }
-                    if aborted { break }
 
                     menuWarmup.stage = stage
                     // Let the frame containing this slice commit before the
@@ -334,6 +341,32 @@ struct ReaderView: View {
             try? await Task.sleep(for: .milliseconds(160))
         }
         return !scrollMotion.isMoving
+    }
+
+    /// 开书的尾巴没干完之前不要动手。只等状态,不等历史;主线一滚或菜单一开
+    /// 就立刻让路。一次最多等 20 秒:超时说明有尾巴没配平,这轮预热放弃并重排,
+    /// 宁可晚一点,也不在尾巴里抢主线程。
+    private func waitForOpenTail() async -> Bool {
+        var waited = 0.0
+        while OpenTail.isRunning {
+            guard !Task.isCancelled, !showMenu, !scrollMotion.isMoving else { return false }
+            guard waited < 20 else { return false }
+            try? await Task.sleep(for: .milliseconds(120))
+            waited += 0.12
+        }
+        return true
+    }
+
+    /// 开书优先级保持到首屏出来 1.5 秒后:读者刚看清第一页的这几帧,
+    /// 后台分页/预取/盘存都算开书的一部分。阅读页先退出时由 onDisappear 放下。
+    private func scheduleOpenPriorityRelease() {
+        openPriorityReleaseTask?.cancel()
+        openPriorityReleaseTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled else { return }
+            OpenTail.endOpen()
+            openPriorityReleaseTask = nil
+        }
     }
 
     /// 菜单开着时手一滑:正文照样滚/翻,同时把菜单收掉,不留「翻了一页栏还挂着」。
@@ -586,7 +619,9 @@ struct ReaderView: View {
         let container = modelContext.container
         let bookID = bookID
         let revision = book.contentRevision
+        OpenTail.begin()
         chapterCatalogTask = Task { @MainActor in
+            defer { OpenTail.end() }
             try? await Task.sleep(for: .milliseconds(2000))
             guard !Task.isCancelled else { return }
             let snapshot = await Task.detached(priority: .utility) {
@@ -627,6 +662,7 @@ struct ReaderView: View {
                     PerfProbe.shared.noteReaderAppeared()
                     PerfProbe.shared.mark("开书")
                     scheduleMenuWarmup()
+                    scheduleOpenPriorityRelease()
                 }
 
 
@@ -929,6 +965,9 @@ struct ReaderView: View {
             await observeChapterDownloads()
         }
         .onDisappear {
+            openPriorityReleaseTask?.cancel()
+            openPriorityReleaseTask = nil
+            OpenTail.endOpen()
             timeSession.end()
             chapterLoadTask?.cancel()
             prefetchTask?.cancel()
@@ -2742,7 +2781,9 @@ struct ReaderView: View {
         guard terminalCacheReconciliationTask == nil,
               currentChapterContent != nil,
               !cachedParagraphs.isEmpty else { return }
+        OpenTail.begin()
         terminalCacheReconciliationTask = Task(priority: .utility) {
+            defer { OpenTail.end() }
             do {
                 // Let the hot next-chapter disk lookup and pagination win the
                 // actor/CPU race before any cold whole-book validation scan.
@@ -2898,7 +2939,9 @@ struct ReaderView: View {
         trimPreparedChapterWindow()
         let generation = UUID()
         adjacentPreparationGeneration = generation
+        OpenTail.begin()
         adjacentPreparationTask = Task(priority: .utility) {
+            defer { OpenTail.end() }
             var didUpdateMetadata = false
             defer {
                 if adjacentPreparationGeneration == generation {
@@ -3131,7 +3174,9 @@ struct ReaderView: View {
             )
         }
 
+        OpenTail.begin()
         paginationTask = Task {
+            defer { OpenTail.end() }
             if delayNanoseconds > 0 {
                 do {
                     try await Task.sleep(nanoseconds: delayNanoseconds)
@@ -3206,7 +3251,9 @@ struct ReaderView: View {
                 let paragraphsForCache = output.paragraphs
                 let pagesForCache = output.pages
                 let contentForCache = content
+                OpenTail.begin()
                 Task {
+                    defer { OpenTail.end() }
                     let saved = await Task.detached(priority: .utility) {
                         ReaderPageDiskCache.store(
                             bookID: bookID,
@@ -3515,7 +3562,9 @@ struct ReaderView: View {
             capturedSourceIdentity: capturedSourceIdentity
         )
 
+        OpenTail.begin()
         chapterLoadTask = Task {
+            defer { OpenTail.end() }
             let signposter = PerformanceSignposts.reader
             let signpostID = signposter.makeSignpostID()
             var intervalResult = "cancelled"
@@ -4178,7 +4227,9 @@ struct ReaderView: View {
 
         let generation = UUID()
         prefetchGeneration = generation
+        OpenTail.begin()
         prefetchTask = Task(priority: .utility) {
+            defer { OpenTail.end() }
             await withTaskGroup(of: ReaderChapterFetchResult.self) { group in
                 var iterator = jobs.makeIterator()
                 let maxConcurrent = min(2, jobs.count)
