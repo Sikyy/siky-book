@@ -188,6 +188,8 @@ struct ReaderView: View {
     /// 第二份进来就把刚开的菜单又关掉 —— 现象就是「第二次点开,菜单自己消失」。
     /// 与其猜是哪条路径重复,不如在开关本身上去抖:0.25 秒内的第二次开关一律不认。
     @State private var lastMenuToggleAt: CFAbsoluteTime = -1
+    /// 翻页写进度的去抖任务:滑动中不停写盘会让翻页一顿一顿的。
+    @State private var persistDebounce: Task<Void, Never>?
     @State private var lastReaderTapLocation: CGPoint = .zero
 
     private enum TapSentinel { case prev, next }
@@ -270,7 +272,7 @@ struct ReaderView: View {
             // 规则一:开场后先不预热。原来等 1.2 秒就开工,正好撞在
             // 相邻章预取和盘存对账的尾巴上,把某几次开书放大成三倍。
             // 现在等 3 秒,页面先静下来。
-            try? await Task.sleep(for: .milliseconds(1200))
+            try? await Task.sleep(for: .milliseconds(3000))
             guard !Task.isCancelled, !showMenu else { return }
 
             while !Task.isCancelled {
@@ -1048,7 +1050,14 @@ struct ReaderView: View {
             UIApplication.shared.isIdleTimerDisabled = false
         }
         .onChange(of: currentPageIndex) { _, _ in
-            persistReadingPosition()
+            // 翻页时不要每一页都写一次 SwiftData:滑动过程中做磁盘写会掉帧。
+            // 停下来的第 0.6 秒写一次就够,章切换仍然立即写(见上一处 onChange)。
+            persistDebounce?.cancel()
+            persistDebounce = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
+                persistReadingPosition()
+            }
         }
         .onChange(of: settings.keepScreenAwake) { _, _ in applyKeepScreenAwake() }
         .onChange(of: settings.fontSize) { _, _ in readerLayoutDidChange(delayNanoseconds: 0) }
