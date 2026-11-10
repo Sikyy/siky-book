@@ -125,6 +125,8 @@ enum ReaderToolbarMetrics {
     static let bookmarkStrokeWidth: CGFloat = 1.5
     /// 图标墨底离工具条内容顶:83 − 49 − 22.3 = 11.7,再扣 1 点分隔线。
     static let iconTopInset: CGFloat = height - iconBottomInset - iconBoxHeight - 1
+    /// 底栏图标渲染框:墨迹要 22.0pt(微信读书实测 66px@3x),24 viewBox 反推得到 24.2。
+    static let iconRenderSize: CGFloat = 24.2
     /// 图标下那行小字(目录/书签/进度/亮度/排版):字高与离工具条底的距离。
     /// 空当只有「图标墨底 49 − 安全区 34」= 15 点,所以字号收到 9.5、贴底 35。
     static let labelFontSize: CGFloat = 9.5
@@ -2083,7 +2085,7 @@ struct ReaderMenuOverlay: View {
                             topBarAssetLabel(
                                 "wr_back",
                                 boxWidth: 64,
-                                glyphSize: 12,
+                                glyphSize: 14,
                                 opticalOffset: ReaderToolbarMetrics.backOpticalOffset
                             )
                         }
@@ -2412,7 +2414,9 @@ struct ReaderMenuOverlay: View {
     private func toolIcon(_ tool: ReaderTool) -> some View {
         let selected = selectedTool == tool
         let tint = selected ? ReaderToolbarMetrics.selectedFill : theme.menuPrimary.opacity(0.55)
-        let side = ReaderToolbarMetrics.iconBoxHeight
+        // 墨迹对齐:微信读书底栏图标墨迹 22.0pt(66px@3x);按 24 viewBox 的比例
+        // 反推渲染框要 24.2 才够(原来 22.3 只有 20.3pt 墨迹)。
+        let side = ReaderToolbarMetrics.iconRenderSize
         Image(Self.assetName(for: tool, selected: selected))
             .renderingMode(.template)
             .resizable()
