@@ -5502,7 +5502,8 @@ enum ReaderChapterCatalog {
                 ReaderTocEntry(
                     index: info.index,
                     title: info.title,
-                    percent: Int((Double(cumulative[offset]) / Double(totalWords) * 100).rounded())
+                    percent: Int((Double(cumulative[offset]) / Double(totalWords) * 100).rounded()),
+                    words: cumulative[offset]
                 )
             }
         } else {

@@ -40,6 +40,9 @@ struct ReaderTocEntry: Identifiable, Equatable, Sendable {
     let title: String
     /// 这一章在全书的位置百分比,和进度面板同一个算法(章序号 / 总章数)。
     let percent: Int
+    /// 这一章起点之前的累计字数。目录右侧显示的是这个(万字以上写成「12.3万」),
+    /// 百分比在长书里会连着好几章一模一样,没有信息量。远端书没字数表时是 0。
+    var words: Int = 0
 
     var id: Int { index }
 }
@@ -287,6 +290,13 @@ struct ReaderTocPage: View {
         }
     }
 
+    /// 目录右侧:这一章起点在全书的位置。万字以上写成「12.3万」,读着比裸数字快。
+    static func positionText(_ words: Int) -> String {
+        words >= 10000
+            ? String(format: "%.1f万", Double(words) / 10000)
+            : "\(words)"
+    }
+
     private func row(_ entry: ReaderTocEntry) -> some View {
         let isCurrent = entry.index == currentIndex
         return Button {
@@ -298,7 +308,7 @@ struct ReaderTocPage: View {
                     .foregroundStyle(style.primary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                Text("\(entry.percent)%")
+                Text(entry.words > 0 ? Self.positionText(entry.words) : "\(entry.percent)%")
                     .font(.system(size: 10))
                     .foregroundStyle(style.secondary)
                     .monospacedDigit()
@@ -928,7 +938,8 @@ final class TocPercentTable {
                 ReaderTocEntry(
                     index: info.index,
                     title: info.title,
-                    percent: Int((Double(cumulative[offset]) / Double(totalWords) * 100).rounded())
+                    percent: Int((Double(cumulative[offset]) / Double(totalWords) * 100).rounded()),
+                    words: cumulative[offset]
                 )
             }
         } else {
@@ -1103,7 +1114,8 @@ final class TocPercentTable {
                 ReaderTocEntry(
                     index: chapter.index,
                     title: chapter.title,
-                    percent: Int((Double(cumulative[offset]) / Double(totalWords) * 100).rounded())
+                    percent: Int((Double(cumulative[offset]) / Double(totalWords) * 100).rounded()),
+                    words: cumulative[offset]
                 )
             }
         } else {

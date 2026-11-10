@@ -1658,7 +1658,14 @@ struct ReaderMenuOverlay: View {
         } else {
             progressLabel = "阅读进度"
         }
-        let columnWidth = width / 2
+        // 三列(参照微信读书):进度 / 阅读时长 / 书签数。
+        // 两列时每列都拉到半屏宽,数字之间空得发虚;三列才收得住。
+        let columnWidth = width / 3
+        let bookmarkCount = book.marks.count
+        let bookmarkPieces: [ReadingTimeFormat.Piece] = [
+            ReadingTimeFormat.Piece(text: "\(bookmarkCount)", isNumber: true),
+            ReadingTimeFormat.Piece(text: "条", isNumber: false)
+        ]
         return HStack(alignment: .top, spacing: 0) {
             progressStatColumn(
                 pieces: percentPieces,
@@ -1673,22 +1680,31 @@ struct ReaderMenuOverlay: View {
                 accessibilityLabel: ReadingTimeFormat.spoken(readingSeconds)
             )
             .frame(width: columnWidth)
+
+            progressStatColumn(
+                pieces: bookmarkPieces,
+                label: "书签",
+                accessibilityLabel: "\(bookmarkCount) 条书签"
+            )
+            .frame(width: columnWidth)
         }
         .frame(width: width)
         .overlay(alignment: .topLeading) {
-            Rectangle()
-                .fill(
-                    theme.isDark
-                        ? Color(hex: BottomChromeMetrics.dividerDarkHex)
-                        : theme.menuPrimary.opacity(0.12)
-                )
-                .frame(width: BottomChromeMetrics.dividerWidth,
-                       height: BottomChromeMetrics.dividerHeight)
-                .offset(
-                    x: width / 2 - BottomChromeMetrics.dividerWidth / 2,
-                    y: BottomChromeMetrics.dividerTop
-                )
-                .accessibilityHidden(true)
+            ForEach([1, 2], id: \.self) { column in
+                Rectangle()
+                    .fill(
+                        theme.isDark
+                            ? Color(hex: BottomChromeMetrics.dividerDarkHex)
+                            : theme.menuPrimary.opacity(0.12)
+                    )
+                    .frame(width: BottomChromeMetrics.dividerWidth,
+                           height: BottomChromeMetrics.dividerHeight)
+                    .offset(
+                        x: CGFloat(column) * columnWidth - BottomChromeMetrics.dividerWidth / 2,
+                        y: BottomChromeMetrics.dividerTop
+                    )
+                    .accessibilityHidden(true)
+            }
         }
     }
 
@@ -1768,9 +1784,10 @@ struct ReaderMenuOverlay: View {
                 .gesture(chapterSliderGesture(width: width))
 
             Circle()
-                // 浅色面板改成顶栏带后,滑块用纸色才能从面板上浮出来;
-                // 夜间仍用菜单底色。
-                .fill(theme.isDark ? theme.menuBackground : theme.backgroundColor)
+                // 浅色面板改成顶栏带后,滑块用纸色才能从面板上浮出来。
+                // 夜间原来铺菜单底色,结果整颗圆和面板同色、看着像没有滑块
+                // (参照微信读书:深色主题下是明显的浅灰圆),改成浅灰。
+                .fill(theme.isDark ? theme.menuPrimary.opacity(0.5) : theme.backgroundColor)
                 .frame(width: BottomChromeMetrics.knobSize,
                        height: BottomChromeMetrics.knobSize)
                 .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
@@ -2970,17 +2987,14 @@ struct ReaderMenuOverlay: View {
 
     private var cacheRowAccessory: AnyView? {
         guard onCache != nil, cacheState != .unavailable else { return nil }
+        // 目录顶上不再挂「检查缓存」那一行:参照微信读书,那里第一眼只该有
+        // 搜索框和章表。缓存入口在顶栏「更多」里(缓存接下来 100 章 / 缓存全部),
+        // 这里只在有提示时浮一条 toast。
+        guard let tocToast else { return nil }
         return AnyView(
-            VStack(spacing: 0) {
-                chapterCacheRow
-                    .padding(.top, 4)
-                    .frame(height: 32)
-                if let tocToast {
-                    tocToastBar(tocToast)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 4)
-                }
-            }
+            tocToastBar(tocToast)
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
         )
     }
 
