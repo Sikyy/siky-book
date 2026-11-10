@@ -382,6 +382,10 @@ struct ReaderView: View {
     /// 菜单开着时手一滑:正文照样滚/翻,同时把菜单收掉,不留「翻了一页栏还挂着」。
     private func dismissMenuForGesture() {
         guard showMenu else { return }
+        // 菜单一打开,正文为了让开上下两条栏会重排 padding,scroll offset 跟着变;
+        // ScrollOffsetDismiss 收到这个「自己造出来的位移」就把刚开的菜单关掉
+        // (现象:从第二次起,一点开就立刻收起)。开菜单后的 0.45 秒内不吃这种关闭请求。
+        guard CFAbsoluteTimeGetCurrent() - lastMenuToggleAt > 0.45 else { return }
         PerfProbe.shared.lastMenuCloseAt = CACurrentMediaTime()
         PerfProbe.shared.mark("收栏")
         lastMenuDismissAt = CFAbsoluteTimeGetCurrent()
