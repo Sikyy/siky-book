@@ -1642,7 +1642,7 @@ struct ReaderMenuOverlay: View {
 
     private func progressStatsRow(width: CGFloat) -> some View {
         // 百分号照参考图单独排 11 点;右栏的时长直接吃 ReadingTimeFormat 的拆段。
-        let percentPieces = progressValuePieces(progressPercent)
+        let percentPieces = progressValuePieces(displayProgressPercent)
         let durationPieces = ReadingTimeFormat.pieces(readingSeconds)
         // 左栏标签用百分比同一份进度比例和右栏同一份秒数反推,两栏永远不打架。
         // 文案只按进度比例分三档:不到 5% 写「刚开始读」;过了 5% 有估计句就用
@@ -1671,7 +1671,7 @@ struct ReaderMenuOverlay: View {
             progressStatColumn(
                 pieces: percentPieces,
                 label: progressLabel,
-                accessibilityLabel: "\(progressPercent)，\(progressLabel)"
+                accessibilityLabel: "\(displayProgressPercent)，\(progressLabel)"
             )
             .frame(width: columnWidth)
 
@@ -1757,6 +1757,24 @@ struct ReaderMenuOverlay: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
+    /// 拖动中落在哪一章(按全书位置反查),用来出浮标和实时百分比。
+    private var dragTargetIndex: Int? {
+        guard let fraction = sliderDragFraction else { return nil }
+        return TocPercentTable.shared.chapterIndex(
+            bookID: book.id,
+            chapterCount: max(totalChapters, chapters.count),
+            forFraction: min(max(fraction, 0), 1)
+        )
+    }
+
+    /// 统计行第一列:拖动时跟着手指走,松手回到真实进度。
+    private var displayProgressPercent: String {
+        if let fraction = sliderDragFraction {
+            return "\(Int((min(max(fraction, 0), 1) * 100).rounded()))%"
+        }
+        return progressPercent
+    }
+
     private func chapterSlider(width: CGFloat) -> some View {
         let grooveLeft = BottomChromeMetrics.grooveLeft
         let grooveRight = min(BottomChromeMetrics.grooveRight, width)
@@ -1804,6 +1822,38 @@ struct ReaderMenuOverlay: View {
                     @unknown default: break
                     }
                 }
+
+            // 拖动浮标:参照微信读书——手指按住时在滑块上方浮出「第 N 章 · 章名」，
+            // 松手才真正跳章。位置跟随滑块,不挡面板。
+            if let index = dragTargetIndex {
+                let title = chapters.first { $0.index == index }?.title ?? "第 \(index + 1) 章"
+                VStack(spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(theme.menuPrimary)
+                        .lineLimit(1)
+                    Text(displayProgressPercent)
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(theme.menuPrimary.opacity(0.55))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: 220)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.isDark
+                              ? Color.white.opacity(0.10)
+                              : theme.menuPrimary.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(theme.menuPrimary.opacity(0.10), lineWidth: 0.5)
+                )
+                .position(x: knobX, y: centerY - 42)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .accessibilityHidden(true)
+            }
 
             Button {
                 jumpChapter(to: currentChapterIndex - 1)
