@@ -2116,9 +2116,10 @@ struct ReaderMenuOverlay: View {
                     if warmupShows(stage: 4) {
                         // 分享只发一句字,不放链接;系统分享面板按需拉起。
                         Button { isSharing = true } label: {
-                            topBarIconLabel(
-                                systemName: "arrow.up.right.square",
-                                glyphSize: ReaderToolbarMetrics.shareGlyphSize
+                            topBarAssetLabel(
+                                "wrtop_share",
+                                boxWidth: ReaderToolbarMetrics.buttonBoxWidth,
+                                glyphSize: 18
                             )
                         }
                         .buttonStyle(.plain)
@@ -2380,23 +2381,6 @@ struct ReaderMenuOverlay: View {
                                     .frame(width: cellWidth, height: height - 1, alignment: .top)
                                     .offset(y: ReaderToolbarMetrics.iconTopInset)
 
-                                // 图标下的一行小字:参照微信读书,9.5 点、选中转蓝。
-                                // 只占用图标墨底(离屏底 49)到安全区之间那条空当,
-                                // 不动 iconBoxHeight / iconBottomInset,分页和面板落点都不受影响。
-                                VStack(spacing: 0) {
-                                    Spacer(minLength: 0)
-                                    Text(tool.title)
-                                        .font(.system(size: ReaderToolbarMetrics.labelFontSize))
-                                        .foregroundStyle(
-                                            selectedTool == tool
-                                                ? ReaderToolbarMetrics.selectedFill
-                                                : theme.menuPrimary.opacity(0.55)
-                                        )
-                                        .lineLimit(1)
-                                        .padding(.bottom, ReaderToolbarMetrics.labelBottomInset)
-                                }
-                                .frame(width: cellWidth, height: height - 1)
-                                .allowsHitTesting(false)
                             }
                             .frame(width: cellWidth, height: height - 1)
                             .contentShape(Rectangle())
