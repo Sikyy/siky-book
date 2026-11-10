@@ -651,6 +651,21 @@ struct ReaderView: View {
         }
     }
 
+    /// 右下角页码:只在分页模式、工具栏收起时出现,呼出菜单就藏。
+    private var pageIndicator: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Text("\(min(currentPageIndex + 1, cachedPages.count)) / \(cachedPages.count)")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(settings.theme.menuSecondary.opacity(0.55))
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 8)
+            }
+        }
+    }
+
     var body: some View {
         ZStack {
             readerBackground
@@ -665,6 +680,12 @@ struct ReaderView: View {
                     scheduleOpenPriorityRelease()
                 }
 
+
+            if !showMenu, settings.pageMode.isPaging, cachedPages.count > 1 {
+                pageIndicator
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
 
             if storeUnavailable {
                 storeUnavailableNotice

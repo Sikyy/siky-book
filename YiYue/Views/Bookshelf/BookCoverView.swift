@@ -129,7 +129,7 @@ struct BookCoverView: View {
     static let coverHeight: CGFloat = 156
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             coverImage
             titleLabel
         }
@@ -147,7 +147,7 @@ struct BookCoverView: View {
                 }
             }
             .frame(width: Self.coverWidth, height: Self.coverHeight)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
 
             badge
         }
