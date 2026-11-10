@@ -2082,12 +2082,14 @@ struct ReaderMenuOverlay: View {
                     let width = proxy.size.width
                     if warmupShows(stage: 2) {
                         Button { onBack() } label: {
-                            topBarAssetLabel(
-                                "wr_back",
-                                boxWidth: 64,
-                                glyphSize: 14,
-                                opticalOffset: ReaderToolbarMetrics.backOpticalOffset
-                            )
+                            Image("wrtop_back")
+                                .renderingMode(.template)
+                                .resizable()
+                                .frame(width: 12, height: 20)
+                                .foregroundStyle(theme.menuPrimary)
+                                .offset(x: ReaderToolbarMetrics.backOpticalOffset)
+                                .frame(width: 64, height: ReaderToolbarMetrics.topBarHeight)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("返回")
@@ -2098,9 +2100,14 @@ struct ReaderMenuOverlay: View {
                     }
 
                     if warmupShows(stage: 3) {
-                        // 「排版」自绘:两条圆头横线 + 右下小勾,墨盒 22 × 19。
+                        // 「排版」用微信读书的原图(两个叠放的圆角框 + 勾,墨盒 22 × 19)。
+                        // 这张在原版资源里没导出,是从截图逐像素抠出来的 alpha 模板。
                         Button { handleToolTap(.text) } label: {
-                            ReaderTypesettingGlyph(color: theme.menuPrimary)
+                            Image("wrtop_typeset")
+                                .renderingMode(.template)
+                                .resizable()
+                                .frame(width: 22, height: 19)
+                                .foregroundStyle(theme.menuPrimary)
                                 .frame(
                                     width: ReaderToolbarMetrics.buttonBoxWidth,
                                     height: ReaderToolbarMetrics.topBarHeight
