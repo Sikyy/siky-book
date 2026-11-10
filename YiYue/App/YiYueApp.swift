@@ -12,7 +12,7 @@ struct YiYueApp: App {
     /// destroys every model instance a view is still holding — the reader's
     /// book, for instance — and the next property access traps in SwiftData.
     private static let sharedContainer: ModelContainer = {
-        let schema = Schema([Book.self, Chapter.self, BookSource.self, ReadingMark.self])
+        let schema = Schema([Book.self, Chapter.self, BookSource.self, ReadingMark.self, Shelf.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         do {
             return try ModelContainer(for: schema, configurations: [configuration])

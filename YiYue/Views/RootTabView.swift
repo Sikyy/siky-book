@@ -23,8 +23,17 @@ enum RootTab: String, CaseIterable, Identifiable {
     }
 }
 
+/// 阅读页是叠在书架上的 overlay(不是 fullScreenCover),所以外层胶囊要知道
+/// 它开没开,开着就把胶囊藏起来,不然会浮在正文上面。
+@Observable
+final class ReaderPresence {
+    static let shared = ReaderPresence()
+    var isOpen = false
+}
+
 struct RootTabView: View {
     @State private var tab: RootTab = .shelf
+    private let readerPresence = ReaderPresence.shared
 
     /// 悬浮胶囊占的高度 + 与屏幕底的距离,页面内容要让开这么多。
     static let barHeight: CGFloat = 64
@@ -48,6 +57,9 @@ struct RootTabView: View {
 
             capsuleBar
                 .padding(.bottom, Self.barBottomInset)
+                .opacity(readerPresence.isOpen ? 0 : 1)
+                .allowsHitTesting(!readerPresence.isOpen)
+                .animation(.easeInOut(duration: 0.18), value: readerPresence.isOpen)
         }
         .preferredColorScheme(.dark)
     }

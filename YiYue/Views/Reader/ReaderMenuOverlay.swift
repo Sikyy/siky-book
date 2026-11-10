@@ -124,6 +124,10 @@ enum ReaderToolbarMetrics {
     static let bookmarkStrokeWidth: CGFloat = 1.5
     /// 图标墨底离工具条内容顶:83 − 49 − 22.3 = 11.7,再扣 1 点分隔线。
     static let iconTopInset: CGFloat = height - iconBottomInset - iconBoxHeight - 1
+    /// 图标下那行小字(目录/书签/进度/亮度/排版):字高与离工具条底的距离。
+    /// 空当只有「图标墨底 49 − 安全区 34」= 15 点,所以字号收到 9.5、贴底 35。
+    static let labelFontSize: CGFloat = 9.5
+    static let labelBottomInset: CGFloat = 35
     /// 正文可排到的底边离屏底 = 图标墨顶(49 + 22.3 = 71.3)。
     /// 页脚那行删掉后,正文一直排到图标行,这条线接手原来「页脚上沿」的位置。
     static let bodyBottomInset: CGFloat = iconBottomInset + iconBoxHeight
@@ -2276,12 +2280,33 @@ struct ReaderMenuOverlay: View {
                         Button {
                             handleToolTap(tool)
                         } label: {
-                            toolIcon(tool)
-                                .frame(width: ReaderToolbarMetrics.iconBoxHeight,
-                                       height: ReaderToolbarMetrics.iconBoxHeight)
-                                .frame(width: cellWidth, height: height - 1, alignment: .top)
-                                .offset(y: ReaderToolbarMetrics.iconTopInset)
-                                .contentShape(Rectangle())
+                            ZStack {
+                                toolIcon(tool)
+                                    .frame(width: ReaderToolbarMetrics.iconBoxHeight,
+                                           height: ReaderToolbarMetrics.iconBoxHeight)
+                                    .frame(width: cellWidth, height: height - 1, alignment: .top)
+                                    .offset(y: ReaderToolbarMetrics.iconTopInset)
+
+                                // 图标下的一行小字:参照微信读书,9.5 点、选中转蓝。
+                                // 只占用图标墨底(离屏底 49)到安全区之间那条空当,
+                                // 不动 iconBoxHeight / iconBottomInset,分页和面板落点都不受影响。
+                                VStack(spacing: 0) {
+                                    Spacer(minLength: 0)
+                                    Text(tool.title)
+                                        .font(.system(size: ReaderToolbarMetrics.labelFontSize))
+                                        .foregroundStyle(
+                                            selectedTool == tool
+                                                ? ReaderToolbarMetrics.selectedFill
+                                                : theme.menuPrimary.opacity(0.55)
+                                        )
+                                        .lineLimit(1)
+                                        .padding(.bottom, ReaderToolbarMetrics.labelBottomInset)
+                                }
+                                .frame(width: cellWidth, height: height - 1)
+                                .allowsHitTesting(false)
+                            }
+                            .frame(width: cellWidth, height: height - 1)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(tool.title)

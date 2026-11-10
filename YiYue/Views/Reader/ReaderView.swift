@@ -657,7 +657,7 @@ struct ReaderView: View {
             Spacer()
             HStack {
                 Spacer()
-                Text("\(min(currentPageIndex + 1, cachedPages.count)) / \(cachedPages.count)")
+                Text("\(min(currentPageIndex + 1, cachedPages.count)) / \(cachedPages.count) · \(menuProgressText)")
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(settings.theme.menuSecondary.opacity(0.55))
                     .padding(.trailing, 16)

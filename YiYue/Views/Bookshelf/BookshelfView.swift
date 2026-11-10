@@ -4,6 +4,7 @@ import SwiftData
 
 struct BookshelfView: View {
     @Query(sort: \Book.addedDate, order: .reverse) private var books: [Book]
+    @Query(sort: \Shelf.sortIndex) private var shelves: [Shelf]
     @Query private var bookSources: [BookSource]
     @Environment(\.modelContext) private var modelContext
     @State private var showingFilePicker = false
@@ -43,7 +44,11 @@ struct BookshelfView: View {
     @State private var changeSourceBook: Book?
     @State private var deletingBookIDs: Set<UUID> = []
     @State private var deletionError: String?
+    /// 当前看的是哪个书架:全部 / 未分组 / 某个自定义书架。
+    @State private var shelfFilter: ShelfFilter = .all
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 阅读页开着时,外层底部胶囊要藏起来。
+    private let readerPresence = ReaderPresence.shared
 
     /// Order captured when a book is opened; the shelf keeps it until the reader
     /// is dismissed so the rearrangement happens once, where the user can see it.
@@ -65,9 +70,22 @@ struct BookshelfView: View {
     /// 三列固定封面宽 108、列间距 19,左右各 20。
     private let columns = Array(repeating: GridItem(.fixed(BookCoverView.coverWidth), spacing: 19), count: 3)
 
+    /// 书架栏筛选之后的书。
+    private var filteredBooks: [Book] {
+        let alive = books.filter { !deletingBookIDs.contains($0.id) }
+        switch shelfFilter {
+        case .all:
+            return alive
+        case .unshelved:
+            return alive.filter { $0.shelfID == nil }
+        case .shelf(let shelfID):
+            return alive.filter { $0.shelfID == shelfID }
+        }
+    }
+
     /// The order the shelf would show right now.
     private var liveItems: [BookshelfItem] {
-        let items = BookshelfItem.group(books.filter { !deletingBookIDs.contains($0.id) })
+        let items = BookshelfItem.group(filteredBooks)
         let sorted = BookshelfItem.sortedByRecentRead(items)
         func pin(_ i: BookshelfItem) -> Date? {
             if case .single(let b) = i { return b.pinnedDate }
@@ -87,9 +105,16 @@ struct BookshelfView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 shelfHeader
+                if !books.isEmpty {
+                    ShelfBar(
+                        filter: $shelfFilter,
+                        totalCount: books.count,
+                        unshelvedCount: books.filter { $0.shelfID == nil }.count
+                    )
+                }
                 ScrollViewReader { shelfProxy in
                     ScrollView {
-                    if books.isEmpty {
+                    if filteredBooks.isEmpty {
                         emptyState
                     } else {
                         // 行距 33:上一行封面顶到下一行封面顶 = 156 + 14 + 16 + 33 = 219。
@@ -121,6 +146,35 @@ struct BookshelfView: View {
                                         } label: {
                                             Label(book.pinnedDate == nil ? "置顶" : "取消置顶",
                                                   systemImage: book.pinnedDate == nil ? "pin" : "pin.slash")
+                                        }
+                                        Menu {
+                                            if shelves.isEmpty {
+                                                Text("还没有书架,在书架栏点 ＋ 新建")
+                                            }
+                                            ForEach(shelves) { shelf in
+                                                Button {
+                                                    book.shelfID = shelf.id
+                                                    try? modelContext.save()
+                                                } label: {
+                                                    Label(
+                                                        shelf.name,
+                                                        systemImage: book.shelfID == shelf.id
+                                                            ? "checkmark"
+                                                            : "folder"
+                                                    )
+                                                }
+                                            }
+                                            if book.shelfID != nil {
+                                                Divider()
+                                                Button {
+                                                    book.shelfID = nil
+                                                    try? modelContext.save()
+                                                } label: {
+                                                    Label("移出书架", systemImage: "folder.badge.minus")
+                                                }
+                                            }
+                                        } label: {
+                                            Label("移到书架", systemImage: "folder")
                                         }
                                         if book.sourceType == .bookSource {
                                             Button {
@@ -328,6 +382,7 @@ struct BookshelfView: View {
         OpenTail.beginOpen()
         frozenItemIDs = groupedItems.map(\.id)
         openedBookID = book.id
+        readerPresence.isOpen = true
         selectedBook = book
     }
 
@@ -336,6 +391,7 @@ struct BookshelfView: View {
     /// released inside one animation, or the shelf scrolls up and pops it in.
     /// 阅读页淡出结束:一次性换回最终顺序,然后只让排到第一的那本轻微放大一下。
     private func finishReaderClose() {
+        readerPresence.isOpen = false
         selectedBook = nil
         readerMenuOpen = false
         readerIsDark = true
@@ -425,7 +481,32 @@ struct BookshelfView: View {
         }
     }
 
+    @ViewBuilder
     private var emptyState: some View {
+        switch shelfFilter {
+        case .all:
+            fullEmptyState
+        case .unshelved, .shelf:
+            VStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Image(systemName: "books.vertical")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.secondary)
+                Text("这个书架还空着")
+                    .font(.title3.weight(.semibold))
+                Text("长按任意一本书,选「移到书架」就能放进来")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 300)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 80)
+        }
+    }
+
+    private var fullEmptyState: some View {
         VStack(spacing: 8) {
             Spacer(minLength: 0)
             Image(systemName: "books.vertical")
