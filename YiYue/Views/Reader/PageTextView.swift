@@ -60,10 +60,34 @@ struct PageTextView: UIViewRepresentable {
         view.highlightAll = highlightAll
         view.desiredSelection = desiredSelection
         view.extraHighlight = extraHighlight
-        view.attributedText = attributed()
-        view.layoutManager.ensureLayout(for: view.textContainer)
+        let key = layoutKey()
+        if context.coordinator.layoutKey != key {
+            context.coordinator.layoutKey = key
+            let laid = attributed()
+            context.coordinator.laidOut = laid
+            view.attributedText = laid
+            view.layoutManager.ensureLayout(for: view.textContainer)
+        }
         view.pageFragments = fragments
         view.applyHighlightState()
+    }
+
+    /// 影响排版的输入指纹:字号/行距/字体/行宽/段距/缩进 + 正文本身 + 文字颜色。
+    /// 只有它变了才重建 NSAttributedString,纯高亮/选区的变化走 applyHighlightState。
+    private func layoutKey() -> Int {
+        var hasher = Hasher()
+        hasher.combine(fontSize)
+        hasher.combine(lineSpacing)
+        hasher.combine(fontFamily)
+        hasher.combine(textWidth)
+        hasher.combine(paragraphSpacing)
+        hasher.combine(firstLineIndentEnabled)
+        hasher.combine(String(describing: textColor))
+        for fragment in fragments {
+            hasher.combine(fragment.text)
+            hasher.combine(fragment.indent)
+        }
+        return hasher.finalize()
     }
 
     private var uiFont: UIFont {
@@ -138,6 +162,11 @@ struct PageTextView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
+        /// 上一次排好的正文和它的指纹。SwiftUI 每次状态变化都会回调 updateUIView,
+        /// 无条件重建 NSAttributedString + ensureLayout 是翻页卡顿的主因;
+        /// 而且 attributedText 一赋值就把 UITextView 的选区清掉(选中框一闪就没)。
+        var layoutKey: Int?
+        var laidOut: NSAttributedString?
         func textView(
             _ textView: UITextView,
             editMenuForTextIn range: NSRange,
