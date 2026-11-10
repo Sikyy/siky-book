@@ -113,7 +113,8 @@ enum ReaderToolbarMetrics {
     static let iconBottomInset: CGFloat = 49
     static let iconGlyphSize: CGFloat = 21.3
     /// 选中格:实心蓝圆 #2493EE;圆直径和图标墨高一致。
-    static let selectedFillHex: String = "#2493EE"
+    /// 微信读书阅读器底栏的选中蓝,取自其 icon_reader_footer_*_selected.svg 的 fill。
+    static let selectedFillHex: String = "#1B88EE"
     static var selectedFill: Color { Color(hex: selectedFillHex) }
     /// 选中格圆里的小图形要收到圆内(参考图约 10 × 13)。
     static let selectedGlyphSize: CGFloat = 12
@@ -1966,6 +1967,25 @@ struct ReaderMenuOverlay: View {
             .contentShape(Rectangle())
     }
 
+    /// 顶栏用真图标资产的那一颗(返回)。boxWidth 可以给到 64:
+    /// 原来的 32 宽居中在 x=13.8,实际只有 20 多点可点,拇指经常点空。
+    private func topBarAssetLabel(
+        _ asset: String,
+        boxWidth: CGFloat,
+        glyphSize: CGFloat,
+        opticalOffset: CGFloat = 0
+    ) -> some View {
+        Image(asset)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(theme.menuPrimary)
+            .frame(width: glyphSize, height: glyphSize)
+            .offset(x: opticalOffset)
+            .frame(width: boxWidth, height: ReaderToolbarMetrics.topBarHeight)
+            .contentShape(Rectangle())
+    }
+
     private func topBarIconButton(
         systemName: String,
         label: String,
@@ -2009,13 +2029,19 @@ struct ReaderMenuOverlay: View {
                 GeometryReader { proxy in
                     let width = proxy.size.width
                     if warmupShows(stage: 2) {
-                        topBarIconButton(
-                            systemName: "chevron.left",
-                            label: "返回",
-                            glyphSize: ReaderToolbarMetrics.topBarBackGlyphSize,
-                            centerX: ReaderToolbarMetrics.backCenterX,
-                            opticalOffset: ReaderToolbarMetrics.backOpticalOffset,
-                            action: { onBack() }
+                        Button { onBack() } label: {
+                            topBarAssetLabel(
+                                "wr_back",
+                                boxWidth: 64,
+                                glyphSize: 12,
+                                opticalOffset: ReaderToolbarMetrics.backOpticalOffset
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("返回")
+                        .position(
+                            x: ReaderToolbarMetrics.backCenterX,
+                            y: ReaderToolbarMetrics.topBarHeight / 2
                         )
                     }
 
@@ -2345,72 +2371,29 @@ struct ReaderMenuOverlay: View {
         .offset(y: top)
     }
 
+    /// 底栏五格直接用微信读书自己的图标(从 app 资源里导出的 VectorDrawable:
+    /// icon_reader_footer_chapter / toolbar_note / footer_progress / footer_bright / footer_font),
+    /// 选中态用它自带的 _selected 变体。原来的 SF Symbol / 自绘字形全部退役。
     @ViewBuilder
     private func toolIcon(_ tool: ReaderTool) -> some View {
         let selected = selectedTool == tool
-        let tint = theme.menuPrimary.opacity(0.7)
-        let iconSide = ReaderToolbarMetrics.iconBoxHeight
+        let tint = selected ? ReaderToolbarMetrics.selectedFill : theme.menuPrimary.opacity(0.55)
+        let side = ReaderToolbarMetrics.iconBoxHeight
+        Image(Self.assetName(for: tool, selected: selected))
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(tint)
+            .frame(width: side, height: side)
+    }
+
+    private static func assetName(for tool: ReaderTool, selected: Bool) -> String {
         switch tool {
-        case .progress:
-            // 选中格:参照实测蓝块 24 × 15.3、中心 x 201.2、y 813.8。
-            // 形状仍是「圆 + 两侧短线」,只把圆和右侧短线放大,不改形状。
-            ReaderProgressGlyph(
-                color: selected ? ReaderToolbarMetrics.selectedFill : tint,
-                isFilled: selected,
-                circleDiameter: selected ? 15.3 : 14,
-                trailingBarWidth: selected ? 2.7 : 3,
-                glyphWidth: selected ? 24 : 23
-            )
-            .frame(width: iconSide, height: iconSide)
-            // 五格列心在 201.0,参照蓝块中心 201.2,选中态右移 0.2。
-            .offset(x: selected ? 0.2 : 0)
-        case .text:
-            Text("A")
-                .font(.system(size: 26, weight: .regular))
-                .foregroundStyle(selected ? ReaderToolbarMetrics.selectedFill : tint)
-                .frame(width: iconSide, height: iconSide)
-        case .brightness:
-            // 选中格太阳中心填实,和参考图一致。
-            Image(systemName: selected ? "sun.max.fill" : tool.icon)
-                .font(.system(size: ReaderToolbarMetrics.iconGlyphSize, weight: .regular))
-                .foregroundStyle(selected ? ReaderToolbarMetrics.selectedFill : tint)
-                .frame(width: iconSide, height: iconSide)
-        case .chapters:
-            // 选中态照参照:图形整个转蓝,不铺底、不加圆。
-            Image(systemName: bookmarkSymbol(for: tool))
-                .font(.system(size: ReaderToolbarMetrics.iconGlyphSize, weight: .regular))
-                .foregroundStyle(selected ? ReaderToolbarMetrics.selectedFill : tint)
-                .frame(width: iconSide, height: iconSide)
-        case .bookmarks:
-            // 第二格:墨宽按参考加到 22(原来是 13.7),形状和描边不变。
-            // 选中态照参照:图形整个转蓝,不铺底、不加圆。
-            let markTint = selected ? ReaderToolbarMetrics.selectedFill : tint
-            Group {
-                if hasPageBookmark {
-                    ReaderBookmarkGlyph()
-                        .fill(markTint)
-                        .frame(
-                            width: ReaderToolbarMetrics.bookmarkGlyphWidth,
-                            height: ReaderToolbarMetrics.bookmarkGlyphHeight
-                        )
-                } else {
-                    ReaderBookmarkGlyph()
-                        .stroke(
-                            markTint,
-                            style: StrokeStyle(
-                                lineWidth: ReaderToolbarMetrics.bookmarkStrokeWidth,
-                                lineJoin: .round
-                            )
-                        )
-                        .frame(
-                            width: ReaderToolbarMetrics.bookmarkGlyphWidth
-                                - ReaderToolbarMetrics.bookmarkStrokeWidth,
-                            height: ReaderToolbarMetrics.bookmarkGlyphHeight
-                                - ReaderToolbarMetrics.bookmarkStrokeWidth
-                        )
-                }
-            }
-            .frame(width: iconSide, height: iconSide)
+        case .chapters: return selected ? "wr_chapter_sel" : "wr_chapter"
+        case .bookmarks: return selected ? "wr_note_sel" : "wr_note"
+        case .progress: return selected ? "wr_progress_sel" : "wr_progress"
+        case .brightness: return selected ? "wr_bright_sel" : "wr_bright"
+        case .text: return selected ? "wr_font_sel" : "wr_font"
         }
     }
 
