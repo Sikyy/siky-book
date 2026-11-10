@@ -29,6 +29,25 @@ final class BookManagerTests: XCTestCase {
         XCTAssertEqual(books.first?.title, "三体")
     }
 
+    func testLastChapterOpeningDoesNotMarkBookFinished() throws {
+        let book = manager.addBook(title: "三体", author: "刘慈欣", sourceType: .localFile)
+        book.totalChapters = 10
+
+        manager.updateProgress(book: book, chapterIndex: 9, position: 0.2)
+
+        XCTAssertEqual(book.readingStatus, .reading)
+    }
+
+    func testEarlierChapterNeverMarksBookFinished() throws {
+        let book = manager.addBook(title: "三体", author: "刘慈欣", sourceType: .localFile)
+        book.totalChapters = 10
+        book.readingStatus = .reading
+
+        manager.updateProgress(book: book, chapterIndex: 3, position: 1)
+
+        XCTAssertEqual(book.readingStatus, .reading)
+    }
+
     func testDeleteBookWaitsForCleanupAndPersistsDeletion() async throws {
         let book = manager.addBook(title: "三体", author: "刘慈欣", sourceType: .localFile)
         try context.save()
@@ -81,7 +100,9 @@ final class BookManagerTests: XCTestCase {
         let book = manager.addBook(title: "三体", author: "刘慈欣", sourceType: .localFile)
         book.totalChapters = 100
 
-        manager.updateProgress(book: book, chapterIndex: 100, position: 0)
+        // Chapter indices are 0-based: 99 is the last chapter, and reaching its
+        // last page is what makes the book finished.
+        manager.updateProgress(book: book, chapterIndex: 99, position: 1)
 
         XCTAssertEqual(book.readingStatus, .finished)
     }

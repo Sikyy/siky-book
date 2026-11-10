@@ -17,11 +17,15 @@ targets:
     platform: iOS
     sources:
       - path: YiYue
+        excludes:
+          - Resources
+      - path: YiYue/Resources
+        buildPhase: resources
     info:
       path: YiYue/App/Info.plist
       properties:
         UILaunchScreen: {}
-        CFBundleDisplayName: 已阅
+        CFBundleDisplayName: 今日已阅
         BGTaskSchedulerPermittedIdentifiers:
           - "$(PRODUCT_BUNDLE_IDENTIFIER).chapter-cache.user"
           - "$(PRODUCT_BUNDLE_IDENTIFIER).chapter-cache.resume"
@@ -49,8 +53,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mistyislet.yiyue
-        MARKETING_VERSION: "1.0.3"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "1.0.8"
+        CURRENT_PROJECT_VERSION: "22"
         SWIFT_VERSION: "5.9"
     dependencies:
       - package: Nuke
@@ -63,6 +67,10 @@ targets:
     platform: iOS
     sources:
       - path: YiYueTests
+        excludes:
+          - Resources
+      - path: YiYueTests/Resources
+        buildPhase: resources
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

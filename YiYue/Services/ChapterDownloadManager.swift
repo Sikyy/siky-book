@@ -120,7 +120,7 @@ enum ChapterDownloadManagerError: LocalizedError, Sendable {
         case .emptyRequest:
             "没有可缓存的章节"
         case .mixedBookIdentifiers:
-            "缓存任务包含了其他书籍的章节"
+            "缓存任务和这本书对不上，已取消"
         case .configurationChanged:
             "书源规则已经变化，请先暂停当前缓存任务后重试"
         case .stalePreparation:
@@ -209,6 +209,7 @@ actor ChapterDownloadManager {
     private let stateURL: URL
     private let fileManager: FileManager
     private let maxConcurrent: Int
+    private let runPriority: TaskPriority
     private let fetchOperation: FetchOperation
     private let now: @Sendable () -> Date
 
@@ -237,6 +238,9 @@ actor ChapterDownloadManager {
         stateURL: URL? = nil,
         fileManager: FileManager = .default,
         maxConcurrent: Int = 5,
+        /// Downloads are background work in the app. Tests lift this so a busy
+        /// machine cannot starve the work pieces for tens of seconds.
+        runPriority: TaskPriority = .utility,
         now: @escaping @Sendable () -> Date = { Date() },
         fetchOperation: @escaping FetchOperation = { job, configuration in
             try await ChapterContentLoader.shared.fetch(
@@ -252,6 +256,7 @@ actor ChapterDownloadManager {
         self.contentStore = contentStore
         self.fileManager = fileManager
         self.maxConcurrent = max(1, maxConcurrent)
+        self.runPriority = runPriority
         self.now = now
         self.fetchOperation = fetchOperation
         if let stateURL {
@@ -416,7 +421,7 @@ actor ChapterDownloadManager {
         publishAllSnapshots()
         startNextIfNeeded()
         guard let snapshot = snapshot(bookID: request.bookID) else {
-            throw ChapterDownloadManagerError.persistenceFailed("队列状态丢失")
+            throw ChapterDownloadManagerError.persistenceFailed("缓存状态丢了，请重新开始缓存")
         }
         return snapshot
     }
@@ -783,7 +788,7 @@ actor ChapterDownloadManager {
             try? persistState()
             publishAllSnapshots()
 
-            runTask = Task(priority: .utility) { [weak self] in
+            runTask = Task(priority: runPriority) { [weak self] in
                 await self?.run(bookID: nextBookID)
             }
             return
@@ -1008,7 +1013,7 @@ actor ChapterDownloadManager {
                     writeToken: writeToken
                 )
                 guard outcome.isStored else {
-                    return .failed(job.chapterID, "章节未能写入磁盘")
+                    return .failed(job.chapterID, "这一章没能存到手机上，可能是空间不足")
                 }
                 return .stored(job.chapterID)
             } catch is CancellationError {
@@ -1037,7 +1042,7 @@ actor ChapterDownloadManager {
                 // the final bounded disk reconciliation in a fresh task so
                 // ContentStore's cancellation checks do not skip disk truth.
                 let contentStore = contentStore
-                stored = try await Task.detached(priority: .utility) {
+                stored = try await Task.detached(priority: runPriority) {
                     try await contentStore.storedChapterIDs(
                         bookID: bookID,
                         retention: .userManaged
@@ -1181,7 +1186,7 @@ actor ChapterDownloadManager {
     private func requireBootstrapReady() throws {
         guard isBootstrapped else {
             throw ChapterDownloadManagerError.bootstrapUnavailable(
-                bootstrapFailure ?? "无法读取持久化状态，请稍后重试"
+                bootstrapFailure ?? "读不到保存的缓存状态，请稍后重试"
             )
         }
     }
@@ -1277,22 +1282,22 @@ actor ChapterDownloadManager {
             )
         }
         guard state.version == PersistedState.currentVersion else {
-            throw PersistedStateLoadError.corrupt("不支持的缓存队列版本")
+            throw PersistedStateLoadError.corrupt("缓存数据版本太旧，请重新缓存")
         }
 
         var restoredCheckpoints: [UUID: Checkpoint] = [:]
         var restoredSessionIDs: Set<UUID> = []
         for checkpoint in state.checkpoints {
             guard checkpoint.version == Checkpoint.currentVersion else {
-                throw PersistedStateLoadError.corrupt("不支持的缓存任务版本")
+                throw PersistedStateLoadError.corrupt("缓存数据版本太旧，请重新缓存")
             }
             guard !checkpoint.jobs.isEmpty,
                   checkpoint.jobs.allSatisfy({ $0.bookID == checkpoint.bookID }) else {
-                throw PersistedStateLoadError.corrupt("缓存任务内容损坏")
+                throw PersistedStateLoadError.corrupt("缓存数据损坏，请重新缓存")
             }
             guard restoredCheckpoints[checkpoint.bookID] == nil,
                   restoredSessionIDs.insert(checkpoint.id).inserted else {
-                throw PersistedStateLoadError.corrupt("缓存队列包含重复任务")
+                throw PersistedStateLoadError.corrupt("缓存任务有重复，已自动跳过")
             }
 
             var restored = checkpoint

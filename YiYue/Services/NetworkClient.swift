@@ -18,7 +18,7 @@ actor NetworkClient {
         }
         var request = URLRequest(url: requestURL)
         request.httpMethod = method
-        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
 
         if let body = body {
             request.httpBody = body.data(using: .utf8)

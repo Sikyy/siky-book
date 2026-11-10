@@ -76,4 +76,17 @@ final class ChapterSplitterTests: XCTestCase {
         let chapters = ChapterSplitter.split(text)
         XCTAssertEqual(chapters.count, 2)
     }
+
+    func testProseStartingWithChapterMarkerIsNotAHeading() {
+        let text = """
+        第一回 甄士隐梦幻识通灵 贾雨村风尘怀闺秀
+        正文。
+
+        第四回中既将薛家母子在荣府内寄居等事略已表明，此回则暂不能写矣。
+        如今且说林黛玉自在荣府以来。
+        """
+        let chapters = ChapterSplitter.split(text)
+        XCTAssertEqual(chapters.count, 1)
+        XCTAssertEqual(chapters[0].title, "第一回 甄士隐梦幻识通灵 贾雨村风尘怀闺秀")
+    }
 }

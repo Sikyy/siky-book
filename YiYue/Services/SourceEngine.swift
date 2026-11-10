@@ -169,7 +169,9 @@ class SourceEngine {
             searchUrl = jsResult
         }
 
-        if searchUrl.contains("\n") {
+        // A "url,{json}" config may itself span several lines (method/body/charset); that is one URL, not alternatives.
+        let hasJSONConfig = searchUrl.range(of: ",\\s*\\{", options: .regularExpression) != nil && !searchUrl.trimmingCharacters(in: .whitespaces).hasPrefix("@js:")
+        if searchUrl.contains("\n") && !hasJSONConfig {
             let lines = searchUrl.components(separatedBy: "\n")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
@@ -190,7 +192,34 @@ class SourceEngine {
             searchUrl = first
         }
 
-        let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        // Legado page groups: "<first,next>" -> first on page 1, next afterwards.
+        if let regex = try? NSRegularExpression(pattern: "<([^<>]*)>") {
+            let ns = searchUrl as NSString
+            let matches = regex.matches(in: searchUrl, range: NSRange(location: 0, length: ns.length)).reversed()
+            for m in matches {
+                let inner = ns.substring(with: m.range(at: 1))
+                let options = inner.components(separatedBy: ",")
+                let pick = options[min(max(page, 1), options.count) - 1]
+                searchUrl = (searchUrl as NSString).replacingCharacters(in: m.range, with: pick)
+            }
+        }
+        // Legado allows the option JSON on the next line: "url,\n{...}"
+        searchUrl = searchUrl.replacingOccurrences(of: ",\\s*\\{", with: ",{", options: .regularExpression)
+        searchUrl = searchUrl.replacingOccurrences(of: ", {", with: ",{")
+
+        var charsetName: String?
+        if let r = searchUrl.range(of: "[\"']?charset[\"']?\\s*:\\s*[\"']([^\"']+)[\"']", options: .regularExpression) {
+            let frag = String(searchUrl[r])
+            charsetName = frag.components(separatedBy: CharacterSet(charactersIn: "\"'")).dropLast().last
+        }
+        let queryAllowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&=+#"))
+        var encoded = keyword.addingPercentEncoding(withAllowedCharacters: queryAllowed) ?? keyword
+        if let cs = charsetName?.lowercased(), cs == "gbk" || cs == "gb2312" || cs == "gb18030" {
+            let cf = CFStringConvertEncodingToNSStringEncoding(CFStringConvertIANACharSetNameToEncoding("GB18030" as CFString))
+            if let data = keyword.data(using: String.Encoding(rawValue: cf)) {
+                encoded = data.map { String(format: "%%%02X", $0) }.joined()
+            }
+        }
         searchUrl = searchUrl.replacingOccurrences(of: "baseUrl", with: source.url)
         searchUrl = searchUrl.replacingOccurrences(of: "{{key}}", with: encoded)
         searchUrl = searchUrl.replacingOccurrences(of: "{{page}}", with: String(page))
@@ -559,14 +588,19 @@ class SourceEngine {
     }
 
     private func evaluateJSONPath(_ path: String, in json: Any) -> Any? {
-        let clean: String
-        if path.hasPrefix("$.") {
-            clean = String(path.dropFirst(2))
-        } else if path.hasPrefix("$[") {
-            clean = String(path.dropFirst(1))
+        var clean: String
+        let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if p.hasPrefix("$.") {
+            clean = String(p.dropFirst(2))
+        } else if p.hasPrefix("$[") {
+            clean = String(p.dropFirst(1))
+        } else if p.range(of: "^[A-Za-z_][A-Za-z0-9_]*([.\\[][^@ ]*)?$", options: .regularExpression) != nil {
+            // Legado also accepts JSON paths without the "$." prefix ("data.list", "data.books[*]").
+            clean = p
         } else {
             return nil
         }
+        if clean.hasSuffix("[*]") { clean = String(clean.dropLast(3)) }
         guard !clean.isEmpty else { return json }
 
         var current: Any = json
@@ -623,7 +657,7 @@ class SourceEngine {
             var result: String?
             if pathRule.contains("{{$.") {
                 result = expandTemplate(pathRule, element: json)
-            } else if isJSONRule(pathRule) {
+            } else if isJSONRule(pathRule) || json is [String: Any] {
                 if let val = evaluateJSONPath(pathRule, in: json) {
                     result = stringValue(val)
                 }
@@ -718,5 +752,36 @@ class SourceEngine {
             guard !name.isEmpty else { return nil }
             return ChapterInfo(title: name, url: url)
         }
+    }
+}
+
+/// Decides which chapters a table-of-contents refresh should append, so existing
+/// chapter indices (and the reading positions and caches tied to them) stay put.
+enum TocMerger {
+    static func newChapters(
+        existingTitles: [String],
+        existingURLs: Set<String>,
+        incoming: [ChapterInfo]
+    ) -> [ChapterInfo] {
+        var knownURLs = existingURLs
+        var knownTitles = Set(existingTitles.map(normalizedTitle))
+        var result: [ChapterInfo] = []
+        for info in incoming {
+            let title = info.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let normalized = normalizedTitle(title)
+            if knownURLs.contains(info.url) || knownTitles.contains(normalized) { continue }
+            knownURLs.insert(info.url)
+            knownTitles.insert(normalized)
+            result.append(info)
+        }
+        return result
+    }
+
+    static func normalizedTitle(_ title: String) -> String {
+        title
+            .lowercased()
+            .replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\u{3000}", with: "")
     }
 }

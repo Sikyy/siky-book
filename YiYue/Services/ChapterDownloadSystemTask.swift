@@ -270,7 +270,7 @@ final class ChapterDownloadSystemTask {
                 task.progress.completedUnitCount = Int64(max(0, completed))
                 task.updateTitle(
                     "正在缓存《\(active.bookTitle)》",
-                    subtitle: "总进度 \(completed) / \(total)"
+                    subtitle: "总进度 \(completed)/\(total)"
                 )
             }
             return

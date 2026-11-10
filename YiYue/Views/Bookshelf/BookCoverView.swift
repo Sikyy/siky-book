@@ -91,15 +91,49 @@ enum CoverURLResolver {
     }
 }
 
+extension Color {
+    /// 书架「在读」角标:阅读器强调色 #9A4A31,不跟随系统蓝。
+    static let shelfReadingAccent = Color(hex: "#9A4A31")
+}
+
+/// 书架角标:25×15,只圆左上角,贴在封面右上角。
+struct ShelfCornerBadge: View {
+    let text: String
+    let background: Color
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(width: 25, height: 15)
+            .background(
+                background,
+                in: UnevenRoundedRectangle(
+                    topLeadingRadius: 5,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+            )
+    }
+}
+
 struct BookCoverView: View {
     let book: Book
 
+    /// 封面 108×156(9:13)、圆角 5,封面到书名 14,书名一行 13 点。
+    static let coverWidth: CGFloat = 108
+    static let coverHeight: CGFloat = 156
+
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 14) {
             coverImage
             titleLabel
-            statusLabel
         }
+        .frame(width: Self.coverWidth)
     }
 
     private var coverImage: some View {
@@ -107,20 +141,36 @@ struct BookCoverView: View {
             ZStack {
                 CachedCoverImage(
                     urlString: book.coverURL,
-                    targetSize: CGSize(width: 120, height: 160)
+                    targetSize: CGSize(width: Self.coverWidth, height: Self.coverHeight)
                 ) {
                     placeholderGradient
                 }
             }
-            .aspectRatio(3.0 / 4.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(alignment: .bottom) {
-                if book.readingStatus == .reading {
-                    progressBar
-                }
-            }
+            .frame(width: Self.coverWidth, height: Self.coverHeight)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
 
             badge
+        }
+        .overlay(alignment: .topLeading) {
+            if book.pinnedDate != nil {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(Color.black.opacity(0.5), in: Circle())
+                    .padding(4)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        let prefix = SampleBookService.isSample(book) ? "示例书，" : ""
+        switch book.readingStatus {
+        case .reading: return "\(prefix)《\(book.title)》，读到 \(Int(book.progress * 100))%"
+        case .finished: return "\(prefix)《\(book.title)》，已读完"
+        case .unread: return "\(prefix)《\(book.title)》，未读"
         }
     }
 
@@ -143,69 +193,35 @@ struct BookCoverView: View {
         }
     }
 
-    private var progressBar: some View {
-        GeometryReader { geo in
-            VStack(spacing: 0) {
-                Spacer()
-                ZStack(alignment: .leading) {
-                    Rectangle()
-                        .fill(.white.opacity(0.15))
-                        .frame(height: 3)
-                    Rectangle()
-                        .fill(.blue)
-                        .frame(width: geo.size.width * book.progress, height: 3)
-                }
-            }
-        }
-    }
-
     @ViewBuilder
     private var badge: some View {
-        switch book.readingStatus {
-        case .unread:
-            Text("新")
-                .font(.system(size: 8))
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(Color.blue.opacity(0.9))
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .padding(4)
-        case .finished:
-            Image(systemName: "checkmark")
-                .font(.system(size: 8, weight: .bold))
-                .padding(4)
-                .background(Color.green.opacity(0.9))
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .padding(4)
-        case .reading:
-            EmptyView()
+        if SampleBookService.isSample(book) {
+            // 内置示例书固定用右上角这颗角标:25×15、墨 18% 底、白字。
+            ShelfCornerBadge(text: "示例", background: Color.black.opacity(0.18))
+        } else {
+            switch book.readingStatus {
+            case .reading:
+                ShelfCornerBadge(
+                    text: "\(Int(book.progress * 100))%",
+                    background: .shelfReadingAccent
+                )
+            case .finished:
+                ShelfCornerBadge(
+                    text: "读完",
+                    background: Color.black.opacity(0.45)
+                )
+            case .unread:
+                EmptyView()
+            }
         }
     }
 
     private var titleLabel: some View {
         Text(book.title)
-            .font(.caption2)
-            .foregroundStyle(.gray)
+            .font(.system(size: 13))
+            .foregroundStyle(.white)
             .lineLimit(1)
-    }
-
-    @ViewBuilder
-    private var statusLabel: some View {
-        switch book.readingStatus {
-        case .reading:
-            Text("\(Int(book.progress * 100))%")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-        case .unread:
-            Text("未读")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary.opacity(0.5))
-        case .finished:
-            Text("已读完")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary.opacity(0.5))
-        }
+            .truncationMode(.tail)
+            .frame(width: Self.coverWidth, height: 16, alignment: .topLeading)
     }
 }

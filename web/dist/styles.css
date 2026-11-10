@@ -1,0 +1,295 @@
+/* 今日已阅 — stylesheet for the three pages.
+   Palette comes from the app's own reading themes: paper, white, night. */
+
+:root {
+  --paper: #f5efe4;
+  --paper-raised: #fbf7ef;
+  --ink: #241f1a;
+  --muted: #6b6157;
+  --rule: #ddd2be;
+  --accent: #2f4e77;
+  --measure: 62ch;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, "SF Pro", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.wrap {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ---------- hero ---------- */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3rem;
+  align-items: center;
+  padding: 5rem 0 4.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 1.25rem;
+  font-size: 0.8125rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+h1 {
+  margin: 0 0 1.25rem;
+  font-size: clamp(2.25rem, 6vw, 3.75rem);
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  max-width: 16ch;
+}
+
+.lede {
+  margin: 0 0 1.75rem;
+  max-width: var(--measure);
+  color: var(--muted);
+  font-size: 1.0625rem;
+}
+
+.status {
+  margin: 0;
+  display: inline-block;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: var(--paper-raised);
+}
+
+/* The product name set as a book column — the one bold gesture. */
+.mark {
+  margin: 0;
+  padding: 0 1.5rem;
+  border-left: 1px solid var(--rule);
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  font-size: clamp(2.75rem, 6vw, 4.5rem);
+  font-weight: 650;
+  letter-spacing: 0.22em;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* ---------- highlights ---------- */
+
+.features {
+  border-top: 1px solid var(--rule);
+  padding: 3.5rem 0 4rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2.5rem 3.5rem;
+}
+
+.feature h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+.feature p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 34ch;
+}
+
+/* ---------- footer ---------- */
+
+footer {
+  border-top: 1px solid var(--rule);
+  padding: 1.75rem 0 3rem;
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+footer .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: baseline;
+}
+
+footer nav {
+  display: flex;
+  gap: 1.5rem;
+}
+
+footer p {
+  margin: 0;
+}
+
+/* ---------- inner pages ---------- */
+
+.doc {
+  padding-block: 2.5rem 4rem;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 2.5rem;
+  font-size: 0.9375rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--accent);
+}
+
+.doc h1 {
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  max-width: none;
+  margin-bottom: 0.75rem;
+}
+
+.doc .intro {
+  margin: 0 0 3rem;
+  max-width: var(--measure);
+  color: var(--muted);
+  font-size: 1.0625rem;
+}
+
+.doc section {
+  max-width: var(--measure);
+  margin-bottom: 2.5rem;
+}
+
+.doc h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1875rem;
+  font-weight: 650;
+}
+
+.doc p,
+.doc ul {
+  margin: 0 0 0.75rem;
+}
+
+.doc ul {
+  padding-left: 1.25rem;
+}
+
+.doc li {
+  margin-bottom: 0.35rem;
+}
+
+.contact {
+  padding: 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper-raised);
+  max-width: var(--measure);
+  margin-bottom: 3rem;
+}
+
+.contact p {
+  margin: 0;
+}
+
+.contact .mail {
+  font-size: 1.25rem;
+  font-weight: 650;
+}
+
+.faq {
+  max-width: var(--measure);
+}
+
+.faq article {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+}
+
+.faq h2 {
+  font-size: 1.0625rem;
+}
+
+.faq p {
+  color: var(--muted);
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+/* ---------- small screens ---------- */
+
+@media (max-width: 40rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    padding: 3rem 0 3rem;
+  }
+
+  .mark {
+    order: -1;
+    padding: 0;
+    border-left: 0;
+    writing-mode: horizontal-tb;
+    font-size: 1.125rem;
+    letter-spacing: 0.3em;
+    color: var(--muted);
+  }
+
+  .features {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+    padding: 2.5rem 0 3rem;
+  }
+
+  h1 {
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -84,7 +84,7 @@ struct SourceListView: View {
             Text("暂无书源")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("点击右上角从网址或文件导入书源")
+            Text("点右上角，从网址或文件导入书源")
                 .font(.caption)
                 .foregroundStyle(.secondary.opacity(0.7))
         }

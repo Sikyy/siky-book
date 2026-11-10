@@ -14,33 +14,32 @@ struct SeriesBookView: View {
         books.allSatisfy { $0.readingStatus == .finished }
     }
 
-    private var currentIndex: Int {
-        guard let current = currentBook,
-              let idx = books.firstIndex(where: { $0.id == current.id }) else { return 0 }
-        return idx + 1
-    }
-
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 14) {
             ZStack(alignment: .topTrailing) {
                 stackedCovers
-                countBadge
+                cornerBadge
             }
-            .aspectRatio(3.0 / 4.0, contentMode: .fit)
+            .frame(width: BookCoverView.coverWidth, height: BookCoverView.coverHeight)
 
             Text(seriesName)
-                .font(.caption2)
-                .foregroundStyle(.gray)
+                .font(.system(size: 13))
+                .foregroundStyle(.white)
                 .lineLimit(1)
-
-            progressLabel
+                .truncationMode(.tail)
+                .frame(
+                    width: BookCoverView.coverWidth,
+                    height: 16,
+                    alignment: .topLeading
+                )
         }
+        .frame(width: BookCoverView.coverWidth)
     }
 
     private var stackedCovers: some View {
         let hue = Double(abs(seriesName.hashValue) % 360) / 360.0
         return ZStack {
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 5)
                 .fill(
                     LinearGradient(
                         colors: [
@@ -53,7 +52,7 @@ struct SeriesBookView: View {
                 .opacity(0.5)
                 .offset(x: 4, y: -4)
 
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 5)
                 .fill(
                     LinearGradient(
                         colors: [
@@ -67,7 +66,7 @@ struct SeriesBookView: View {
                 .offset(x: 2, y: -2)
 
             ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: 5)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -97,35 +96,24 @@ struct SeriesBookView: View {
                     }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
         }
     }
 
-    private var countBadge: some View {
-        Text("\(books.count)部")
-            .font(.system(size: 9, weight: .bold))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(allFinished ? Color.green.opacity(0.9) : Color.orange.opacity(0.9))
-            .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-            .offset(x: 2, y: -2)
-    }
-
     @ViewBuilder
-    private var progressLabel: some View {
+    private var cornerBadge: some View {
         if allFinished {
-            Text("全部读完")
-                .font(.system(size: 10))
-                .foregroundStyle(.green)
+            ShelfCornerBadge(text: "读完", background: Color.black.opacity(0.45))
         } else if let book = currentBook, book.readingStatus == .reading {
-            Text("第\(currentIndex)部 \(Int(book.progress * 100))%")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            ShelfCornerBadge(
+                text: "\(Int(book.progress * 100))%",
+                background: .shelfReadingAccent
+            )
         } else {
-            Text("第\(currentIndex)部")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary.opacity(0.5))
+            ShelfCornerBadge(
+                text: "\(books.count) 部",
+                background: Color.black.opacity(0.45)
+            )
         }
     }
 }

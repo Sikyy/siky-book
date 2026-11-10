@@ -3,10 +3,13 @@ import Nuke
 import NukeUI
 
 struct CoverPickerView: View {
-    let book: Book
+    @State private var book: Book
+    private let bookID: UUID
     let onSelected: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var candidates: [CoverCandidate] = []
     @State private var isLoading = true
     @State private var downloadingId: UUID?
@@ -17,6 +20,12 @@ struct CoverPickerView: View {
     @FocusState private var isSearchFocused: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+
+    init(book: Book, onSelected: @escaping (String) -> Void) {
+        self.bookID = book.id
+        self._book = State(initialValue: book)
+        self.onSelected = onSelected
+    }
 
     var body: some View {
         NavigationStack {
@@ -36,6 +45,14 @@ struct CoverPickerView: View {
             .task {
                 searchText = book.title
                 await search(query: book.title)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // A context reset in the background destroys `book`; take a
+                // fresh instance before the sheet draws again.
+                guard phase == .active,
+                      let fresh = SwiftDataRefetch.book(id: bookID, in: modelContext),
+                      fresh !== book else { return }
+                book = fresh
             }
             .onDisappear {
                 selectionTask?.cancel()
@@ -89,7 +106,7 @@ struct CoverPickerView: View {
         if isLoading {
             VStack(spacing: 12) {
                 ProgressView()
-                Text("正在搜索封面...")
+                Text("正在搜索封面…")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

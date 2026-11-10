@@ -14,9 +14,11 @@ private struct FoundSource: Identifiable {
 
 @MainActor
 struct ChangeSourceView: View {
-    let book: Book
+    @State private var book: Book
+    private let bookID: UUID
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     // Search state
     @State private var foundSources: [FoundSource] = []
@@ -35,6 +37,11 @@ struct ChangeSourceView: View {
     @State private var switchGeneration: UUID?
     @State private var isViewActive = true
     @State private var isCommittingSwitch = false
+
+    init(book: Book) {
+        self.bookID = book.id
+        self._book = State(initialValue: book)
+    }
 
     // Pinned / blocked IDs for quick lookup
     private var pinnedIds: Set<String> {
@@ -85,6 +92,14 @@ struct ChangeSourceView: View {
             }
         }
         .interactiveDismissDisabled(isCommittingSwitch)
+        .onChange(of: scenePhase) { _, phase in
+            // The background context reset destroys `book`; swap in a fresh
+            // instance before the sheet draws again.
+            guard phase == .active,
+                  let fresh = SwiftDataRefetch.book(id: bookID, in: modelContext),
+                  fresh !== book else { return }
+            book = fresh
+        }
         .onAppear { isViewActive = true }
         .onDisappear { cancelOwnedTasks() }
     }
@@ -160,7 +175,7 @@ struct ChangeSourceView: View {
     private var pinnedSourcesSection: some View {
         let pinned = book.pinnedSources
         if !pinned.isEmpty {
-            Section("收藏来源（\(pinned.count)个）") {
+            Section("收藏来源（\(pinned.count) 个）") {
                 ForEach(pinned) { source in
                     pinnedRow(source)
                 }
@@ -177,7 +192,7 @@ struct ChangeSourceView: View {
                     .foregroundStyle(.primary)
                 Spacer()
                 if let count = source.chapterCount, count > 0 {
-                    Text("\(count)章")
+                    Text("\(count) 章")
                         .font(.caption)
                         .foregroundStyle(.green)
                 }
@@ -257,7 +272,7 @@ struct ChangeSourceView: View {
     private var searchResultsSection: some View {
         let results = searchResults
         if !results.isEmpty {
-            Section("搜索结果（\(results.count)个）") {
+            Section("搜索结果（\(results.count) 个）") {
                 ForEach(results) { source in
                     searchResultRow(source)
                 }
@@ -287,7 +302,7 @@ struct ChangeSourceView: View {
                     .foregroundStyle(.primary)
                 Spacer()
                 if source.chapterCount > 0 {
-                    Text("\(source.chapterCount)章")
+                    Text("\(source.chapterCount) 章")
                         .font(.caption)
                         .foregroundStyle(.green)
                 } else {
@@ -326,7 +341,7 @@ struct ChangeSourceView: View {
     private var blockedSourcesSection: some View {
         if blockedCount > 0 {
             Section {
-                DisclosureGroup("已屏蔽（\(blockedCount)个）") {
+                DisclosureGroup("已屏蔽（\(blockedCount) 个）") {
                     // Match blocked IDs against search results to show names
                     let blockedFound = foundSources.filter { blockedIds.contains($0.sourceId.uuidString) }
                     if !blockedFound.isEmpty {
@@ -920,6 +935,7 @@ struct ChangeSourceView: View {
         if currentBook.lastReadChapterIndex >= chapters.count {
             currentBook.lastReadChapterIndex = max(0, chapters.count - 1)
             currentBook.lastReadPosition = 0
+            ReaderProgressStore.store(nil, for: currentBook.id)
         }
 
         do {
