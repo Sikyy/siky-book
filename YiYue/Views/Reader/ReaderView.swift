@@ -651,13 +651,31 @@ struct ReaderView: View {
         }
     }
 
+    /// 页脚右下角。微信读书这里是「全书字符位置 / 全书字数」(16893 / 26020);
+    /// 字数表还没建好时,回落到「页 / 总页 · 百分比」。
+    private var footerPositionText: String {
+        let fraction = cachedPages.count > 1
+            ? Double(currentPageIndex) / Double(cachedPages.count - 1)
+            : 0
+        if let position = TocPercentTable.shared.characterPosition(
+            bookID: book.id,
+            infos: chapterInfos,
+            revision: book.contentRevision,
+            chapterIndex: currentChapterIndex,
+            chapterFraction: fraction
+        ) {
+            return "\(position.position) / \(position.total)"
+        }
+        return "\(min(currentPageIndex + 1, cachedPages.count)) / \(cachedPages.count) · \(menuProgressText)"
+    }
+
     /// 右下角页码:只在分页模式、工具栏收起时出现,呼出菜单就藏。
     private var pageIndicator: some View {
         VStack {
             Spacer()
             HStack {
                 Spacer()
-                Text("\(min(currentPageIndex + 1, cachedPages.count)) / \(cachedPages.count) · \(menuProgressText)")
+                Text(footerPositionText)
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(settings.theme.menuSecondary.opacity(0.55))
                     .padding(.trailing, 16)

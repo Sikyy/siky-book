@@ -963,6 +963,26 @@ final class TocPercentTable {
         return entries
     }
 
+    /// 页脚用:全书字符位置 / 全书字数(微信读书页脚就是这个格式)。
+    /// 字数表还没建好时返回 nil,调用方回落到原来的「页/页 · 百分比」。
+    func characterPosition(
+        bookID: UUID,
+        infos: [ReaderChapterInfo],
+        revision: Int,
+        chapterIndex: Int,
+        chapterFraction: Double
+    ) -> (position: Int, total: Int)? {
+        _ = entries(bookID: bookID, infos: infos, revision: revision)
+        guard let cached = cache[bookID],
+              cached.totalWords > 0,
+              let lengths = cached.lengths,
+              let offset = cached.indices.firstIndex(of: chapterIndex),
+              offset < lengths.count,
+              offset < cached.cumulative.count else { return nil }
+        let within = Int(Double(lengths[offset]) * min(max(chapterFraction, 0), 1))
+        return (cached.cumulative[offset] + within, cached.totalWords)
+    }
+
     /// 后台章表扫完之后直接装表,主线程不再建 5000 条目录。
     func install(
         bookID: UUID,
