@@ -184,6 +184,10 @@ struct ReaderView: View {
     /// 长按选词抬手时会补一次点击。原来这次点击会把刚建好的选区清掉
     /// (现象:选中框一闪就没),或者把菜单开出来。这里吃掉紧跟着的那一次点击。
     @State private var suppressNextTap = false
+    /// 上一次真正开关菜单的时刻。同一次点击会被投递两份(正文的分区点击 + 页级点击),
+    /// 第二份进来就把刚开的菜单又关掉 —— 现象就是「第二次点开,菜单自己消失」。
+    /// 与其猜是哪条路径重复,不如在开关本身上去抖:0.25 秒内的第二次开关一律不认。
+    @State private var lastMenuToggleAt: CFAbsoluteTime = -1
     @State private var lastReaderTapLocation: CGPoint = .zero
 
     private enum TapSentinel { case prev, next }
@@ -1107,7 +1111,7 @@ struct ReaderView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    withAnimation(ReaderMenuMotion.toggle) { showMenu.toggle() }
+                    withAnimation(ReaderMenuMotion.toggle) { toggleReaderMenu() }
                 }
             } else if let error = loadError {
                 VStack(spacing: 16) {
@@ -1143,7 +1147,7 @@ struct ReaderView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    withAnimation(ReaderMenuMotion.toggle) { showMenu.toggle() }
+                    withAnimation(ReaderMenuMotion.toggle) { toggleReaderMenu() }
                 }
             } else {
                 switch settings.pageMode {
@@ -2335,11 +2339,19 @@ struct ReaderView: View {
 
     // MARK: - Tap Handling
 
+    private func toggleReaderMenu() {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastMenuToggleAt > 0.25 else { return }
+        lastMenuToggleAt = now
+        showMenu.toggle()
+    }
+
     private func handleTap(location: CGPoint) {
         if suppressNextTap { suppressNextTap = false; return }
         guard beginReaderTap(at: location) else { return }
         // 菜单开着时点正文任意位置都是「回去读」:点一下就收,不再需要浮层铺一层背景。
         if showMenu {
+            guard CFAbsoluteTimeGetCurrent() - lastMenuToggleAt > 0.25 else { return }
             dismissMenuForGesture()
             return
         }
@@ -2367,7 +2379,7 @@ struct ReaderView: View {
                     PerfProbe.shared.markMenuOpen()
                 }
                 withAnimation(ReaderMenuMotion.toggle) {
-                    showMenu.toggle()
+                    toggleReaderMenu()
                 }
             }
             return
@@ -2387,6 +2399,7 @@ struct ReaderView: View {
         // ⚠️ 这一支必须排在 beginReaderTap 之前:否则「点开菜单、再点一下收」
         // 会被 500ms 连点去重当成同一次点击吞掉,手感就是「点了没反应」。
         if showMenu {
+            guard CFAbsoluteTimeGetCurrent() - lastMenuToggleAt > 0.25 else { return }
             dismissMenuForGesture()
             return
         }
@@ -2472,7 +2485,7 @@ struct ReaderView: View {
                 PerfProbe.shared.markMenuOpen()
             }
             withAnimation(ReaderMenuMotion.toggle) {
-                showMenu.toggle()
+                toggleReaderMenu()
             }
         case .none:
             break
