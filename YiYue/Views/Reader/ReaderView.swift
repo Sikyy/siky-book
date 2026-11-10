@@ -178,6 +178,12 @@ struct ReaderView: View {
     @State private var lastReaderTapAt: CFAbsoluteTime = -1
     /// 菜单被浮层背景关掉的时刻;用来忽略同一次点击晚到的页面手势。
     @State private var lastMenuDismissAt: CFAbsoluteTime = -1
+    /// 选区是刚建立的吗。长按选词那一下的抬手也会被当成一次点击,
+    /// 原来会立刻把选区清掉(现象:选中框一闪就没)。0.4 秒内不清。
+    @State private var selectionStartedAt: CFAbsoluteTime = -1
+    /// 长按选词抬手时会补一次点击。原来这次点击会把刚建好的选区清掉
+    /// (现象:选中框一闪就没),或者把菜单开出来。这里吃掉紧跟着的那一次点击。
+    @State private var suppressNextTap = false
     @State private var lastReaderTapLocation: CGPoint = .zero
 
     private enum TapSentinel { case prev, next }
@@ -260,7 +266,7 @@ struct ReaderView: View {
             // 规则一:开场后先不预热。原来等 1.2 秒就开工,正好撞在
             // 相邻章预取和盘存对账的尾巴上,把某几次开书放大成三倍。
             // 现在等 3 秒,页面先静下来。
-            try? await Task.sleep(for: .milliseconds(3000))
+            try? await Task.sleep(for: .milliseconds(1200))
             guard !Task.isCancelled, !showMenu else { return }
 
             while !Task.isCancelled {
@@ -1484,6 +1490,8 @@ struct ReaderView: View {
                             if showMenu {
                                 showMenu = false
                             }
+                            selectionStartedAt = CFAbsoluteTimeGetCurrent()
+                            suppressNextTap = true
                             selection = ReaderSelection(
                                 paragraphIndex: index,
                                 text: para,
@@ -2328,6 +2336,7 @@ struct ReaderView: View {
     // MARK: - Tap Handling
 
     private func handleTap(location: CGPoint) {
+        if suppressNextTap { suppressNextTap = false; return }
         guard beginReaderTap(at: location) else { return }
         // 菜单开着时点正文任意位置都是「回去读」:点一下就收,不再需要浮层铺一层背景。
         if showMenu {
@@ -2335,8 +2344,10 @@ struct ReaderView: View {
             return
         }
         // 浮层刚关菜单时,同一次点击的页面手势可能晚到;短暂忽略,防止又开回来。
-        guard CFAbsoluteTimeGetCurrent() - lastMenuDismissAt > 0.5 else { return }
+        guard CFAbsoluteTimeGetCurrent() - lastMenuDismissAt > 0.25 else { return }
         if selection != nil {
+            // 长按选词的抬手不能马上清掉选区。
+            guard CFAbsoluteTimeGetCurrent() - selectionStartedAt > 0.4 else { return }
             selection = nil
             return
         }
@@ -2370,15 +2381,20 @@ struct ReaderView: View {
     }
 
     private func handlePageTap(location: CGPoint, screenSize: CGSize, totalPages: Int) {
-        guard beginReaderTap(at: location) else { return }
+        if suppressNextTap { suppressNextTap = false; return }
         // 菜单开着时,点就是「收菜单」这一件事:点边缘也不翻页。
         // 翻页由滑动负责(滑动照样翻,并同时收栏)。
+        // ⚠️ 这一支必须排在 beginReaderTap 之前:否则「点开菜单、再点一下收」
+        // 会被 500ms 连点去重当成同一次点击吞掉,手感就是「点了没反应」。
         if showMenu {
             dismissMenuForGesture()
             return
         }
-        guard CFAbsoluteTimeGetCurrent() - lastMenuDismissAt > 0.5 else { return }
+        guard CFAbsoluteTimeGetCurrent() - lastMenuDismissAt > 0.25 else { return }
+        guard beginReaderTap(at: location) else { return }
         if selection != nil {
+            // 长按选词的抬手不能马上清掉选区。
+            guard CFAbsoluteTimeGetCurrent() - selectionStartedAt > 0.4 else { return }
             selection = nil
             return
         }
